@@ -1,0 +1,9 @@
+#ifndef TORRENT_SLIDING_AVERAGE_HEADER
+#define TORRENT_SLIDING_AVERAGE_HEADER
+
+class sliding_average
+{
+
+};
+
+#endif // TORRENT_SEND_BUFFER_HEADER
