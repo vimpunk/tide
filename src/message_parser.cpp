@@ -6,15 +6,15 @@
 #include <cassert>
 #include <cmath>
 
-message_parser::message_parser(int max_capacity) : m_max_capacity(max_capacity) {}
+message_parser::message_parser(int capacity) : m_capacity(capacity) {}
 
-void message_parser::change_max_capacity(const int n)
+void message_parser::change_capacity(const int n)
 {
-    m_max_capacity = n;
-    shrink_to_fit(m_max_capacity);
+    m_capacity = n;
+    shrink_to_fit(m_capacity);
 }
 
-void message_parser::ensure_capacity(const int n)
+void message_parser::ensure_buffer_size(const int n)
 {
     if(num_free_bytes() >= n)
     {
@@ -25,25 +25,25 @@ void message_parser::ensure_capacity(const int n)
 
 void message_parser::shrink_to_fit(const int n)
 {
-    if(capacity() <= n)
+    if(buffer_size() <= n)
     {
         return;
     }
     m_buffer.resize(std::max(n, m_unused_begin));
 }
 
-range<uint8_t> message_parser::get_receive_buffer(const int n)
+view<uint8_t> message_parser::get_receive_buffer(const int n)
 {
     if(num_free_bytes() < n)
     {
-        m_buffer.resize(capacity() + n - num_free_bytes());
+        m_buffer.resize(buffer_size() + n - num_free_bytes());
     }
-    return range<uint8_t>(&m_buffer[m_unused_begin], n);
+    return view<uint8_t>(&m_buffer[m_unused_begin], n);
 }
 
 void message_parser::record_received_bytes(const int n) noexcept
 {
-    if(m_unused_begin + n > capacity())
+    if(m_unused_begin + n > buffer_size())
     {
         throw std::logic_error(
             "recorded the receipt of more bytes in message parser than possible"
@@ -94,10 +94,11 @@ handshake message_parser::extract_handshake()
 
     const uint8_t* pos = &m_buffer[m_message_begin + 1];
     handshake handshake;
-    handshake.protocol_id = const_range<uint8_t>(pos, protocol_id_length);
-    handshake.reserved = const_range<uint8_t>(pos += protocol_id_length, 8);
-    handshake.info_hash = const_range<uint8_t>(pos += 8, 20);
-    handshake.peer_id = const_range<uint8_t>(pos += 20, 20);
+    handshake.protocol_id_length = protocol_id_length;
+    handshake.protocol_id = const_view<uint8_t>(pos, protocol_id_length);
+    handshake.reserved = const_view<uint8_t>(pos += protocol_id_length, 8);
+    handshake.info_hash = const_view<uint8_t>(pos += 8, 20);
+    handshake.peer_id = const_view<uint8_t>(pos += 20, 20);
     m_message_begin += 49 + protocol_id_length;
 
     optimize_receive_space();
@@ -123,7 +124,7 @@ message message_parser::peek() const
     {
         const int msg_id_pos = m_message_begin + 4;
         msg.type = message_t(m_buffer[msg_id_pos]);
-        msg.data = const_range<uint8_t>(&m_buffer[msg_id_pos + 1], msg_length);
+        msg.data = const_view<uint8_t>(&m_buffer[msg_id_pos + 1], msg_length);
     }
     return msg;
 }
@@ -198,7 +199,7 @@ inline void message_parser::optimize_receive_space()
             // we only want to shift the message to the front if it's the last one
             return;
         }
-        else if(msg_length > capacity())
+        else if(msg_length > buffer_size())
         {
             // it could very well be that the current (incomplete) message may not even
             // fit in the buffer, so in anticipation of completing this message, ensure

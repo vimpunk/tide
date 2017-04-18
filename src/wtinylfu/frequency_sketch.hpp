@@ -122,14 +122,14 @@ protected:
      */
     int get_table_index(const uint32_t hash, const int counter_index) const noexcept
     {
-        static constexpr uint64_t SEEDS[] = {
+        static constexpr uint64_t seeds[] = {
             0xc3a5c85c97cb3127L,
             0xb492b66fbe98f273L,
             0x9ae16a3b2f90404fL,
             0xcbf29ce484222325L
         };
 
-        uint64_t h = SEEDS[counter_index] * hash;
+        uint64_t h = seeds[counter_index] * hash;
         h += h >> 32;
         return h & (m_table.size() - 1);
     }

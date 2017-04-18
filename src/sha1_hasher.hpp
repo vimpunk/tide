@@ -1,8 +1,8 @@
 #ifndef TORRENT_SHA1_HASHER_HEADER
 #define TORRENT_SHA1_HASHER_HEADER
 
-#include "range.hpp"
 #include "units.hpp"
+#include "view.hpp"
 
 #include <memory>
 
@@ -21,7 +21,7 @@ public:
 
     sha1_hasher() = default;
 
-    sha1_hasher& update(const_range<uint8_t> data);
+    sha1_hasher& update(const_view<uint8_t> data);
     template<typename Buffer> sha1_hasher& update(const Buffer& buffer);
 
     sha1_hash finish();

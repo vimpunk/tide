@@ -1,7 +1,7 @@
 #ifndef TORRENT_MESSAGE_PARSER_HEADER
 #define TORRENT_MESSAGE_PARSER_HEADER
 
-#include "range.hpp"
+#include "view.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -37,16 +37,20 @@ struct message
     message_t type;
     // The message content, excluding the four bytes of message length and one byte of
     // message identifier/type.
-    const_range<uint8_t> data;
+    const_view<uint8_t> data;
 };
 
 struct handshake
 {
-    char protocol_id_length;
-    const_range<uint8_t> protocol_id;
-    const_range<uint8_t> reserved;
-    const_range<uint8_t> info_hash;
-    const_range<uint8_t> peer_id;
+    uint8_t protocol_id_length;
+    const_view<uint8_t> protocol_id;
+    // 8 reserved bytes used to identify extensions.
+    const_view<uint8_t> reserved;
+    // This is the torrent's (20 byte) SHA-1 hash to which the peer belongs.
+    const_view<uint8_t> info_hash;
+    // The peer's client (software) can usually be extracted from here. It is also a 20
+    // byte string.
+    const_view<uint8_t> peer_id;
 };
 
 /**
@@ -70,26 +74,27 @@ class message_parser
     int m_unused_begin = 0;
 
     // This is the upper bound on the receive buffer's capacity.
-    int m_max_capacity;
+    int m_capacity;
 
 public:
 
     message_parser() = default; // TODO delete this
-    explicit message_parser(int max_capacity);
+    explicit message_parser(int capacity);
 
     bool is_full() const noexcept;
     bool is_empty() const noexcept;
     int size() const noexcept;
-    int capacity() const noexcept;
+    int buffer_size() const noexcept;
     int num_free_bytes() const noexcept;
+    int capacity() const noexcept;
 
-    void change_max_capacity(const int n);
+    void change_capacity(const int n);
 
     /**
      * Ensures that we have space to receive n bytes. Does nothing if we do, resizes
-     * the receive buffer if we don't.
+     * the receive buffer if we don't. The resize value will never go above 
      */
-    void ensure_capacity(const int n);
+    void ensure_buffer_size(const int n);
 
     /**
      * If n is below m_unused_begin, it will only shrink to m_unused_begin, to preserve
@@ -101,7 +106,7 @@ public:
      * This returns the range of memory [unused_begin, unused_begin + n) in which we can
      * receive bytes. Buffer is resized if there isn't enough space for n more bytes.
      */
-    range<uint8_t> get_receive_buffer(const int n);
+    view<uint8_t> get_receive_buffer(const int n);
 
     /**
      * Records the number of bytes we managed to read (as it may not be the same amount
@@ -221,7 +226,7 @@ inline bool message_parser::is_empty() const noexcept
 
 inline bool message_parser::is_full() const noexcept
 {
-    return size() == capacity();
+    return size() == buffer_size();
 }
 
 inline int message_parser::size() const noexcept
@@ -231,12 +236,18 @@ inline int message_parser::size() const noexcept
 
 inline int message_parser::num_free_bytes() const noexcept
 {
-    return capacity() - size();
+    return buffer_size() - size();
 }
 
-inline int message_parser::capacity() const noexcept
+inline int message_parser::buffer_size() const noexcept
 {
     return m_buffer.size();
 }
 
-#endif /* end of include guard: TORRENT_SEND_BUFFER_HEADER */
+inline int message_parser::capacity() const noexcept
+{
+    return m_capacity;
+}
+
+
+#endif // TORRENT_SEND_BUFFER_HEADER

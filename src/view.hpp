@@ -1,9 +1,9 @@
-#ifndef TORRENT_RANGE_HEADER
-#define TORRENT_RANGE_HEADER
+#ifndef TORRENT_VIEW_HEADER
+#define TORRENT_VIEW_HEADER
 
-#include <array>
 #include <type_traits>
 #include <iterator>
+#include <array>
 
 /**
  * A memory view that takes a pointer and a length and provides basic container like
@@ -12,7 +12,7 @@
  */
 template<
     typename T
-> class range
+> class view
 {
 public:
 
@@ -35,27 +35,27 @@ private:
 
 public:
 
-    range() = default;
+    view() = default;
 
-    range(pointer data, size_type length)
+    view(pointer data, size_type length)
         : m_data(data)
         , m_length(length)
     {}
 
     template<typename U>
-    range(const range<U>& other)
+    view(const view<U>& other)
         : m_data(other.m_data)
         , m_length(other.m_length)
     {}
 
     template<typename U, size_type N>
-    range(const std::array<U, N>& arr)
+    view(const std::array<U, N>& arr)
         : m_data(arr.data())
         , m_length(arr.size())
     {}
 
     template<typename U, size_type N>
-    range(U (&arr)[N])
+    view(U (&arr)[N])
         : m_data(&arr[0])
         , m_length(N)
     {}
@@ -63,7 +63,7 @@ public:
     template<
         typename Container,
         typename = decltype(std::declval<Container>().data())
-    > range(Container& c)
+    > view(Container& c)
         : m_data(c.data())
         , m_length(c.size())
     {}
@@ -113,38 +113,38 @@ public:
         return back();
     }
 
-    range<T> first_n(const size_type n) const
+    view<T> first_n(const size_type n) const
     {
         if(n > size())
         {
-            throw std::out_of_range("tried to create a subrange that is larger than range");
+            throw std::out_of_range("tried to create a subview that is larger than view");
         }
         return { data(), n };
     }
 
-    range<T> last_n(const size_type n) const
+    view<T> last_n(const size_type n) const
     {
         if(n > size())
         {
-            throw std::out_of_range("tried to create a subrange that is larger than range");
+            throw std::out_of_range("tried to create a subview that is larger than view");
         }
         return { data() + n, n };
     }
 
-    range<T> subrange(const size_type offset) const
+    view<T> subview(const size_type offset) const
     {
         if(offset > size())
         {
-            throw std::out_of_range("tried to create a subrange that is larger than range");
+            throw std::out_of_range("tried to create a subview that is larger than view");
         }
         return { data() + offset, size() - offset };
     }
 
-    range<T> subrange(const size_type offset, const size_type count) const
+    view<T> subview(const size_type offset, const size_type count) const
     {
         if((offset > size()) || (offset + count > size()))
         {
-            throw std::out_of_range("tried to create a subrange that is larger than range");
+            throw std::out_of_range("tried to create a subview that is larger than view");
         }
         return { data() + offset, count };
     }
@@ -221,6 +221,6 @@ public:
 };
 
 /** A specialization of the above class which holds an immutable view to its resource. */
-template<typename T> using const_range = range<const T>;
+template<typename T> using const_view = view<const T>;
 
-#endif // TORRENT_range_HEADER
+#endif // TORRENT_VIEW_HEADER

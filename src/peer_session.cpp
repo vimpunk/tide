@@ -7,6 +7,7 @@
 #include "settings.hpp"
 #include "disk_io.hpp"
 #include "payload.hpp"
+#include "view.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -483,7 +484,7 @@ void peer_session::receive()
         return;
     }
 
-    range<uint8_t> buffer = m_message_parser.get_receive_buffer(m_info.receive_quota);
+    view<uint8_t> buffer = m_message_parser.get_receive_buffer(m_info.receive_quota);
     m_socket->async_read_some(
         asio::mutable_buffers_1(buffer.data(), buffer.size()),
         [this](const std::error_code& error, const size_t num_bytes_received)
@@ -570,7 +571,7 @@ inline void peer_session::adjust_receive_buffer(
     const bool got_choked = !was_choked && m_info.am_choked;
     if(should_grow_receive_buffer(got_choked, num_bytes_received))
     {
-        m_message_parser.ensure_capacity(m_message_parser.capacity() * 2);
+        m_message_parser.ensure_capacity(m_message_parser.buffer_size() * 2);
     }
     else if(should_shrink_receive_buffer(got_choked, num_bytes_received))
     {
@@ -585,7 +586,7 @@ peer_session::should_grow_receive_buffer(
 ) const noexcept
 {
     return !got_choked
-        && num_bytes_received == m_message_parser.capacity()
+        && num_bytes_received == m_message_parser.buffer_size()
         || (am_expecting_piece() && (m_message_parser.num_free_bytes() < 0x4000));
 }
 
@@ -598,7 +599,7 @@ peer_session::should_shrink_receive_buffer(
     // shrink buffer if we got choked (not gonna receive large messages) or if the number
     // of bytes received is small and we don't expect large messages (piece)
     return got_choked
-        || ((num_bytes_received < 0.1 * m_message_parser.capacity())
+        || ((num_bytes_received < 0.1 * m_message_parser.buffer_size())
             && !am_expecting_piece());
 }
 
@@ -1777,7 +1778,7 @@ template<
 
 /**
  * Produces block_info objects by parsing the supplied byte sequence. Bytes must be a
- * container of byte types (std::vector, std::array, range...).
+ * container of byte types (std::vector, std::array, view...).
  */
 template<typename Bytes>
 block_info parse_block_info(const Bytes& data)

@@ -39,6 +39,7 @@ class send_buffer
     struct raw_buffer_holder : public buffer_holder
     {
         std::vector<uint8_t> bytes;
+
         raw_buffer_holder(std::vector<uint8_t>&& b) : bytes(std::move(b)) {}
         const uint8_t* data() const noexcept override { return bytes.data(); }
         int size() const noexcept override { return bytes.size(); }
@@ -47,6 +48,7 @@ class send_buffer
     struct disk_buffer_holder : public buffer_holder
     {
         mmap_source bytes;
+
         disk_buffer_holder(mmap_source b) : bytes(b) {}
         const uint8_t* data() const noexcept override { return bytes.data(); }
         int size() const noexcept override { return bytes.size(); }
@@ -55,6 +57,7 @@ class send_buffer
     // These are the bytes we want to send off to socket. It ensures their lifetime
     // until they are confirmed to be sent, after which the resources are released.
     std::deque<std::unique_ptr<buffer_holder>> m_buffers;
+
     // This is the offset into the first buffer in m_buffers that marks the beginning of
     // unsent bytes. This is employed because it may be that not all of the buffer is
     // drained during a send operation, and if so, it is very likely that the number of
@@ -62,6 +65,7 @@ class send_buffer
     // sent and unsent fractions. Thus, this buffer must be kept alive until all its
     // unsent bytes have been sent off.
     int m_first_unsent_byte = 0;
+
     // The total number of UNSENT bytes we have in buffer. That is, if the first buffer
     // was not fully drained (m_first_unsent_byte > 0), it will have excess bytes, which
     // are not counted (since it's a temporary state and is not relevant to the caller).
