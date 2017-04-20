@@ -599,17 +599,16 @@ void peer_session::on_receive(const std::error_code& error, size_t num_bytes_rec
     }
 
     const bool was_choked = m_info.am_choked;
-
     handle_messages();
     if(is_disconnecting())
     {
         // handle_messages() spurred a disconnect
         return;
     }
-
+    // react to receive data and grow or shrink receive buffer accordingly
     adjust_receive_buffer(was_choked, num_bytes_received);
-
     m_work_state.stopped(receiving);
+
     receive();
 }
 
@@ -740,7 +739,6 @@ inline void peer_session::handle_messages()
         if(m_message_parser.type() == message_t::bitfield)
         {
             handle_bitfield();
-            return;
         }
     }
 
