@@ -1681,10 +1681,6 @@ void peer_session::send_requests()
                .i32(block.index)
                .i32(block.offset)
                .i32(block.length);
-
-        m_sent_requests.emplace_back(std::move(block));
-        m_info.num_pending_download_bytes += block.length;
-
         log(
             log_event::outgoing,
             "sending request (piece: %i, offset: %i, length: %i)",
@@ -1692,6 +1688,9 @@ void peer_session::send_requests()
             block.offset,
             block.length
         );
+
+        m_info.num_pending_download_bytes += block.length;
+        m_sent_requests.emplace_back(std::move(block));
     }
     m_send_buffer.append(std::move(payload));
 

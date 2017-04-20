@@ -9,7 +9,7 @@ class bt_bitfield;
 
 /**
  * A single instance exists per torrent. It serves as a mediator for piece_downloads
- * whose blocks may be downloaded for multiple peers, to speed up piece completion. This
+ * whose blocks may be downloaded from multiple peers, to speed up piece completion. This
  * is the default state, and a piece_download is only barred from sharing when the peer
  * is suspected of polluting our pieces, in which case it's the sole downloader of the
  * block to verify its suspicion. Thus, in this case the piece_download must not be
