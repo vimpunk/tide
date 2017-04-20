@@ -75,6 +75,8 @@ public:
     // - in single piece selection: no_piece(-1);
     // - in n piece selection     : an empty vector.
     // A peer's piece is desirable if we don't have it, and it is not reserved.
+    //
+    // For production code, pick_and_reserve should be used, the others are for testing.
 
     piece_index_t pick(const bt_bitfield& available_pieces) const;
     std::vector<piece_index_t> pick(const bt_bitfield& available_pieces, const int n) const;

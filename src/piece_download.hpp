@@ -63,10 +63,12 @@ public:
 
     piece_download(const piece_index_t index, const int piece_length);
 
+    /** Tests whether there are blocks left to request. */
+    bool can_request() const noexcept;
+
     /** Unique download means that the number of participants is one. */
     bool is_unique_download() const noexcept;
     int num_participants() const noexcept;
-    bool can_request() const noexcept;
     int num_blocks_left() const noexcept;
     piece_index_t piece_index() const noexcept;
 

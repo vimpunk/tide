@@ -14,6 +14,7 @@
 #include <cassert>
 #include <string>
 #include <cmath>
+#include <cstdio> // snprintf
 
 using namespace std::placeholders;
 
@@ -69,7 +70,7 @@ peer_session::peer_session(
 {
     assert(m_socket);
     m_info.peer_endpoint = std::move(peer_endpoint);
-    m_info.
+    //m_info.
 }
 
 peer_session::peer_session(
@@ -184,13 +185,17 @@ void peer_session::on_connected(const std::error_code& error)
 
     if(error)
     {
-        // TODO log
         disconnect(error);
         return;
     }
 
     m_connected_time = cached_clock::now();
-    // TODO log
+    log(
+        log_event::connected,
+        "connected to %s in %ims",
+        m_info.peer_endpoint.address().to_string(),
+        total_milliseconds(m_connected_time - m_connection_time)
+    );
 
     m_info.local_endpoint = m_socket->local_endpoint(ec);
     if(ec)
@@ -401,11 +406,11 @@ void peer_session::send()
     {
         if(m_send_buffer.is_empty())
         {
-            log(log_event::outgoing, "SEND BUFFER EMPTY");
+            log(log_event::outgoing, "send buffer empty");
         }
         else
         {
-            log(log_event::outgoing, "CAN'T SEND");
+            log(log_event::outgoing, "can't send");
         }
         return;
     }
@@ -413,12 +418,20 @@ void peer_session::send()
     const int num_bytes_to_send = std::min(m_send_buffer.size(), m_info.send_quota);
     m_socket->async_write_some(
         m_send_buffer.get_send_buffers(num_bytes_to_send),
-        [this](const std::error_code& error, const size_t num_bytes_sent)
+        [this](const std::error_code& error, size_t num_bytes_sent)
         {
             on_send(error, num_bytes_sent);
         }
     );
     m_work_state.started(sending);
+
+    log(
+        log_event::outgoing,
+        "sending/available bytes: %i/%i; quota left: %i",
+        num_bytes_to_send,
+        m_send_buffer.size(),
+        m_info.send_quota
+    );
 }
 
 bool peer_session::can_send() const noexcept
@@ -440,7 +453,7 @@ void peer_session::on_send(const std::error_code& error, size_t num_bytes_sent)
 
     if(error)
     {
-        log(log_event::outgoing, "ERROR WHILE SENDING");
+        log(log_event::outgoing, "error while sending");
         disconnect(error);
         return;
     }
@@ -448,6 +461,14 @@ void peer_session::on_send(const std::error_code& error, size_t num_bytes_sent)
     m_info.send_quota -= num_bytes_sent;
     m_last_send_time = cached_clock::now();
     m_work_state.stopped(sending);
+
+    log(
+        log_event::outgoing,
+        "sent bytes: %i; quota left: %i; send buffer size: %i",
+        num_bytes_sent,
+        m_info.send_quota,
+        m_send_buffer.size()
+    );
 
     // this call to send() will only write to socket again if during the first write
     // there were more bytes in send buffer to send than we had quota for, and since the
@@ -480,24 +501,56 @@ void peer_session::receive()
     request_download_bandwidth();
     if(!can_receive())
     {
-        log(log_event::incoming, "CAN'T RECEIVE");
+        if(m_info.receive_quota <= 0)
+        {
+            log(log_event::incoming, "can't receive, no receive quota");
+        }
+        else if(m_work_state.is(receiving))
+        {
+            log(log_event::incoming, "can't receive, already receiving");
+        }
+        else if(am_expecting_piece()
+                && m_work_state.is(reading_disk)
+                && m_disk_io.is_overwhelmed())
+        {
+            log(log_event::incoming, "can't receive, disk too saturated");
+        }
         return;
     }
 
-    view<uint8_t> buffer = m_message_parser.get_receive_buffer(m_info.receive_quota);
+    // pending bytes written to disk are also counted as part of the receive buffer
+    const auto max_receive_size = m_message_parser.free_space_size()
+                                - m_info.num_pending_disk_write_bytes;
+    const auto num_to_receive = std::min(max_receive_size, m_info.receive_quota);
+    if(num_to_receive == 0)
+    {
+        return;
+    }
+
+    view<uint8_t> buffer = m_message_parser.get_receive_buffer(num_to_receive);
     m_socket->async_read_some(
         asio::mutable_buffers_1(buffer.data(), buffer.size()),
-        [this](const std::error_code& error, const size_t num_bytes_received)
+        [this](const std::error_code& error, size_t num_bytes_received)
         {
             on_receive(error, num_bytes_received);
         }
     );
     m_work_state.started(receiving);
+
+    log(
+        log_event::incoming,
+        "receiving bytes: %i; receive buffer free space: %i; quota left: %i",
+        num_to_receive,
+        m_message_parser.free_space_size(),
+        m_info.receive_quota
+    );
 }
 
 bool peer_session::can_receive() const noexcept
 {
-    if(am_expecting_piece() && m_state.is(reading_disk) && m_disk_io.is_overwhelmed())
+    if(am_expecting_piece()
+       && m_work_state.is(reading_disk)
+       && m_disk_io.is_overwhelmed())
     {
         return false;
     }
@@ -511,14 +564,9 @@ void peer_session::request_download_bandwidth()
 
 void peer_session::on_receive(const std::error_code& error, size_t num_bytes_received)
 {
-    log(
-        log_event::incoming,
-        "RECEIVED DATA (" + std::to_string(num_bytes_received) + ')'
-    );
-
     if(error)
     {
-        log(log_event::incoming, "ERROR WHILE RECEIVING");
+        log(log_event::incoming, "error while receiving");
         disconnect(error);
         return;
     }
@@ -527,12 +575,22 @@ void peer_session::on_receive(const std::error_code& error, size_t num_bytes_rec
     // if we completely filled up receive buffer it may mean socket has some bytes left
     if(m_message_parser.is_full())
     {
+        // flush_socket will reserve buffer space if there is still data in socket
         num_bytes_received += flush_socket();
     }
 
     m_info.receive_quota -= num_bytes_received;
     m_last_receive_time = cached_clock::now();
     record_received_bytes(num_bytes_received);
+
+    log(
+        log_event::incoming,
+        "received bytes: %i; quota left: %i; message parser buffer (used/avail.): %i/%i",
+        num_bytes_received,
+        m_info.receive_quota,
+        m_message_parser.size(),
+        m_message_parser.buffer_size()
+    );
 
     if(is_disconnecting())
     {
@@ -562,45 +620,58 @@ inline void peer_session::record_received_bytes(const int num_bytes_received) no
     m_torrent_info->total_downloaded_bytes += num_bytes_received;
 }
 
-// TODO consider shrinking receive buffer in handle_choke
 inline void peer_session::adjust_receive_buffer(
     const bool was_choked,
     const int num_bytes_received
 )
 {
+    const int buffer_size = m_message_parser.buffer_size();
     const bool got_choked = !was_choked && m_info.am_choked;
+
     if(should_grow_receive_buffer(got_choked, num_bytes_received))
     {
-        m_message_parser.ensure_capacity(m_message_parser.buffer_size() * 2);
+        m_message_parser.reserve(m_message_parser.buffer_size() * 2);
+        log(
+            log_event::incoming,
+            "grew receive buffer form %i to %i",
+            buffer_size,
+            m_message_parser.buffer_size()
+        );
     }
-    else if(should_shrink_receive_buffer(got_choked, num_bytes_received))
+    else if(num_bytes_received < 0.1 * m_message_parser.buffer_size()
+            && !am_expecting_piece()
+            && !m_info.am_interested)
     {
+        // shrink buffer if the number of bytes received in the last read is small and
+        // we don't expect pieces TODO consider if necessary
+        //m_message_parser.shrink_to_fit(m_message_parser.buffer_size() * 0.3);
+    }
+    else if(got_choked)
+    {
+        // we're choked, 100 bytes should suffice to receive further protocol chatter
         m_message_parser.shrink_to_fit(100);
+        log(
+            log_event::incoming,
+            "shrunk receive buffer form %i to %i",
+            buffer_size,
+            m_message_parser.buffer_size()
+        );
     }
 }
 
-inline bool
-peer_session::should_grow_receive_buffer(
+inline bool peer_session::should_grow_receive_buffer(
     const bool got_choked,
     const int num_bytes_received
 ) const noexcept
 {
+    assert(m_settings.max_receive_buffer_size != -1);
+    // grow if we didn't get choked and filled the buffer, or if we didn't get choked
+    // and we're expecting a block and don't have space for it (and we can't exceed the
+    // user set max buffer size)
     return !got_choked
-        && num_bytes_received == m_message_parser.buffer_size()
-        || (am_expecting_piece() && (m_message_parser.num_free_bytes() < 0x4000));
-}
-
-inline bool
-peer_session::should_shrink_receive_buffer(
-    const bool got_choked,
-    const int num_bytes_received
-) const noexcept
-{
-    // shrink buffer if we got choked (not gonna receive large messages) or if the number
-    // of bytes received is small and we don't expect large messages (piece)
-    return got_choked
-        || ((num_bytes_received < 0.1 * m_message_parser.buffer_size())
-            && !am_expecting_piece());
+        && m_message_parser.buffer_size() < m_settings.max_receive_buffer_size
+        && (num_bytes_received == m_message_parser.buffer_size())
+            || (am_expecting_piece() && (m_message_parser.free_space_size() < 0x4000));
 }
 
 inline bool peer_session::am_expecting_piece() const noexcept
@@ -610,6 +681,7 @@ inline bool peer_session::am_expecting_piece() const noexcept
 
 inline int peer_session::flush_socket()
 {
+    assert(m_message_parser.is_full());
     // we may not have read all of the available bytes buffered in socket: try sync read
     // remaining bytes
     std::error_code ec;
@@ -620,7 +692,8 @@ inline int peer_session::flush_socket()
     }
     else if(num_available_bytes > 0)
     {
-        auto buffer = m_message_parser.get_receive_buffer(num_available_bytes);
+        m_message_parser.reserve(m_message_parser.buffer_size() + num_available_bytes);
+        view<uint8_t> buffer = m_message_parser.get_receive_buffer(num_available_bytes);
         const auto num_bytes_read = m_socket->read_some(
             asio::mutable_buffers_1(buffer.data(), buffer.size()), ec
         );
@@ -634,6 +707,7 @@ inline int peer_session::flush_socket()
         }
         else
         {
+            log(log_event::incoming, "sync read %i bytes from socket", num_bytes_read);
             m_message_parser.record_received_bytes(num_bytes_read);
             return num_bytes_read;
         }
@@ -662,7 +736,7 @@ inline void peer_session::handle_messages()
     {
         // we can set the state to connected here (handle_bitfield() won't test this),
         // so we don't have to set it twice due to the early exit below
-        m_info.state == peer_info::connected;
+        m_info.state = peer_info::state_t::connected;
         if(m_message_parser.type() == message_t::bitfield)
         {
             handle_bitfield();
@@ -670,7 +744,7 @@ inline void peer_session::handle_messages()
         }
     }
 
-    // send messages at the end of the function in one batch
+    // send response messages at the end of the function in one batch
     send_cork cork(*this);
     while(!is_disconnecting() && m_message_parser.has_message())
     {
@@ -722,7 +796,7 @@ void peer_session::handle_handshake()
     }
     catch(const std::runtime_error& error)
     {
-        log(log_event::invalid_message, "COULDN'T PARSE HANDSHAKE");
+        log(log_event::invalid_message, "couldn't parse handshake");
         disconnect(peer_session_error_t::invalid_handshake);
         return;
     }
@@ -792,7 +866,7 @@ inline void peer_session::handle_choke()
 {
     if(m_message_parser.extract().data.size() != 1)
     {
-        log(log_event::invalid_message, "WRONG MESSAGE LENGTH");
+        log(log_event::invalid_message, "wrong choke message length");
         disconnect(peer_session_error_t::invalid_choke_message);
         return;
     }
@@ -809,7 +883,7 @@ inline void peer_session::handle_unchoke()
 {
     if(m_message_parser.extract().data.size() != 1)
     {
-        log(log_event::invalid_message, "WRONG MESSAGE LENGTH");
+        log(log_event::invalid_message, "wrong unchoke message length");
         disconnect(peer_session_error_t::invalid_unchoke_message);
         return;
     }
@@ -829,7 +903,7 @@ inline void peer_session::handle_interested()
 {
     if(m_message_parser.extract().data.size() != 1)
     {
-        log(log_event::invalid_message, "WRONG MESSAGE LENGTH");
+        log(log_event::invalid_message, "wrong interested message length");
         disconnect(peer_session_error_t::invalid_interested_message);
         return;
     }
@@ -852,7 +926,7 @@ inline void peer_session::handle_not_interested()
 {
     if(m_message_parser.extract().data.size() != 1)
     {
-        log(log_event::invalid_message, "WRONG MESSAGE LENGTH");
+        log(log_event::invalid_message, "wrong not_interested message length");
         disconnect(peer_session_error_t::invalid_not_interested_message);
         return;
     }
@@ -879,9 +953,9 @@ inline void peer_session::handle_not_interested()
 inline void peer_session::handle_have()
 {
     message msg = m_message_parser.extract();
-    if(msg.data.size() != 5)
+    if(msg.data.size() != 4)
     {
-        log(log_event::invalid_message, "WRONG MESSAGE LENGTH");
+        log(log_event::invalid_message, "wrong have message length");
         disconnect(peer_session_error_t::invalid_have_message);
         return;
     }
@@ -889,7 +963,7 @@ inline void peer_session::handle_have()
     const piece_index_t piece = parse_i32(msg.data.begin());
     if(!is_piece_index_valid(piece))
     {
-        log(log_event::invalid_message, "INVALID PIECE INDEX IN HAVE");
+        log(log_event::invalid_message, "invalid piece index in have message");
         disconnect(peer_session_error_t::invalid_have_message);
         return;
     }
@@ -912,9 +986,9 @@ inline void peer_session::handle_request()
 {
 
     message msg = m_message_parser.extract();
-    if(msg.data.size() != 1 + 3 * 4)
+    if(msg.data.size() != 3 * 4)
     {
-        log(log_event::invalid_message, "WRONG MESSAGE LENGTH");
+        log(log_event::invalid_message, "wrong request message length");
         disconnect(peer_session_error_t::invalid_request_message);
         return;
     }
@@ -935,7 +1009,13 @@ inline void peer_session::handle_request()
     const block_info block_info = parse_block_info(msg.data);
     if(!is_request_valid(block_info))
     {
-        log(log_event::invalid_message, "INVALID REQUEST");
+        log(
+            log_event::invalid_message,
+            "invalid request (piece: %i, offset: %i, length: %i)",
+            block_info.index,
+            block_info.offset,
+            block_info.length
+        );
         disconnect(peer_session_error_t::invalid_request_message);
         return;
     }
@@ -955,6 +1035,14 @@ inline void peer_session::handle_request()
         );
         m_work_state.started(reading_disk);
         m_info.num_pending_disk_read_bytes += block_info.length;
+
+        log(
+            log_event::disk,
+            "disk read launched, serving request (piece: %i, offset: %i, length: %i)",
+            block_info.index,
+            block_info.offset,
+            block_info.length
+        );
     }
 }
 
@@ -972,7 +1060,7 @@ inline void peer_session::handle_cancel()
     message msg = m_message_parser.extract();
     if(msg.data.size() != 1 + 3 * 4)
     {
-        log(log_event::invalid_message, "WRONG MESSAGE LENGTH");
+        log(log_event::invalid_message, "wrong cancel message length");
         disconnect(peer_session_error_t::invalid_cancel_message);
         return;
     }
@@ -980,7 +1068,13 @@ inline void peer_session::handle_cancel()
     const block_info block_info = parse_block_info(msg.data);
     if(!is_request_valid(block_info))
     {
-        log(log_event::invalid_message, "INVALID REQUEST");
+        log(
+            log_event::invalid_message,
+            "invalid cancel (piece: %i, offset: %i, length: %i)",
+            block_info.index,
+            block_info.offset,
+            block_info.length
+        );
         disconnect(peer_session_error_t::invalid_cancel_message);
         return;
     }
@@ -997,6 +1091,14 @@ inline void peer_session::handle_cancel()
     {
         m_disk_io.abort_block_fetch(m_info.torrent_id, block_info);
         m_received_requests.erase(request);
+
+        log(
+            log_event::disk,
+            "disk abort launched, cancelling request (piece: %i, offset: %i, length: %i)",
+            block_info.index,
+            block_info.offset,
+            block_info.length
+        );
     }
 }
 
@@ -1005,7 +1107,7 @@ void peer_session::handle_block()
     message msg = m_message_parser.extract();
     if(msg.data.size() < 12)
     {
-        log(log_event::invalid_message, "WRONG MESSAGE LENGTH");
+        log(log_event::invalid_message, "wrong block message length");
         disconnect(peer_session_error_t::invalid_block_message);
         return;
     }
@@ -1013,7 +1115,13 @@ void peer_session::handle_block()
     const block_info block_info = parse_block_info(msg.data);
     if(!is_block_info_valid(block_info))
     {
-        log(log_event::invalid_message, "INVALID BLOCK");
+        log(
+            log_event::invalid_message,
+            "invalid block (piece: %i, offset: %i, length: %i)",
+            block_info.index,
+            block_info.offset,
+            block_info.length
+        );
         disconnect(peer_session_error_t::invalid_block_message);
         return;
     }
@@ -1053,7 +1161,7 @@ void peer_session::handle_block()
     }
 
     const auto request_rtt = cached_clock::now() - m_last_outgoing_request_time;
-    //m_avg_request_time.add_sample(total_milliseconds(request_rtt));
+    m_avg_request_time.add_sample(total_milliseconds(request_rtt));
 
     if((request_rtt < request_timeout()) && m_info.has_peer_timed_out)
     {
@@ -1069,6 +1177,13 @@ void peer_session::handle_block()
     if(m_piece_picker->my_bitfield()[block_info.index])
     {
         // we already have this piece
+        log(
+            log_event::incoming,
+            "already have block (piece: %i, offset: %i, length: %i)",
+            block_info.index,
+            block_info.offset,
+            block_info.length
+        );
         m_info.total_wasted_bytes += block_info.length;
         return;
     }
@@ -1132,6 +1247,14 @@ void peer_session::handle_block()
     );
     m_work_state.started(writing_disk);
     m_info.num_pending_disk_write_bytes += block_info.length;
+
+    log(
+        log_event::disk, 
+        "launched disk write, saving block (piece: %i, offset: %i, length: %i)",
+        block_info.index,
+        block_info.offset,
+        block_info.length
+    );
 }
 
 inline bool peer_session::is_request_valid(const block_info& request) const noexcept
@@ -1164,13 +1287,14 @@ inline bool peer_session::is_piece_index_valid(const piece_index_t index) const 
 
 inline void peer_session::handle_unexpected_block(const block_info& block, message msg)
 {
-    m_info.total_wasted_bytes += block_info.length;
+    m_info.total_wasted_bytes += block.length;
     // TODO uhm, we should probably do more here
 }
 
 inline void peer_session::handle_illicit_request()
 {
     ++m_num_invalid_requests;
+    log(log_event::incoming, "%i illicit requests", m_num_invalid_requests);
     if(cached_clock::now() - seconds(2) <= m_last_outgoing_choke_time)
     {
         // don't mind request messages (though don't serve them) up to 2 seconds after
@@ -1200,13 +1324,13 @@ inline void peer_session::handle_illicit_block()
 
 inline void peer_session::handle_illicit_bitfield()
 {
-    log(log_event::invalid_message, "RECEIVED BITFIELD, NOT IN HANDSHAKE");
+    log(log_event::invalid_message, "received bitfield (not after handshake)");
     disconnect(peer_session_error_t::invalid_bitfield_message);
 }
 
 inline void peer_session::handle_unknown_message()
 {
-    log(log_event::invalid_message, "RECEIVED UNKNOWN MESSAGE");
+    log(log_event::invalid_message, "received unknown message");
     disconnect(peer_session_error_t::unknown_message);
 }
 
@@ -1232,13 +1356,26 @@ void peer_session::on_piece_hashed(const piece_index_t piece, const bool is_piec
         {
             // peer cleared itself, so it's no longer on parole
             m_info.is_on_parole = false;
+            log(log_event::parole, "peer cleared suspicion, no longer on parole");
         }
     }
     else
     {
         ++m_info.num_hash_fails;
+
+        log(
+            log_event::parole,
+            "peer participated in corrupt piece download (%i hash fails)",
+            m_info.num_hash_fails
+        );
+
         if(is_on_parole() || (*piece_download)->is_unique_download())
         {
+            if(is_on_parole())
+            {
+                // release parole piece download
+                m_parole_piece.reset();
+            }
             // this peer was the sole participant in this download so we know that it
             // sent us a corrupt piece
             disconnect(peer_session_error_t::corrupt_piece);
@@ -1254,32 +1391,33 @@ void peer_session::on_piece_hashed(const piece_index_t piece, const bool is_piec
 
 void peer_session::on_block_saved(const std::error_code& error, const block_info& block)
 {
-    log(
-        log_event::disk,
-        "BLOCK SAVED TO DISK (index:" + std::to_string(block.index)
-        + ", offset: " + std::to_string(block.offset)
-        + ", length: " + std::to_string(block.length)
-        + ')'
-    );
-    // TODO stats
-
     m_work_state.stopped(writing_disk);
     m_info.num_pending_disk_write_bytes -= block.length;
-    m_info.total_bytes_written_to_disk += block.length;
-
     if(error)
     {
-        // TODO
-        // tell corresponding piece_download instance that we failed to download this
-        // piece and to block any other peer_session to issue the same request as we
-        // *do* have the piece, we just need to sort the error out first
-        if(++m_disk_io_failures > 100)
+        log(log_event::disk, "disk failure #%i", m_num_disk_io_failures + 1);
+        if(++m_num_disk_io_failures > 100)
         {
             disconnect(error);
         }
         return;
     }
-    m_disk_io_failures = 0;
+    m_num_disk_io_failures = 0;
+    m_info.total_bytes_written_to_disk += block.length;
+
+    log(
+        log_event::disk,
+        "saved block to disk (piece: %i, offset: %i, length: %i)\n"
+        "disk stats (written: %i; pending write: %i; read: %i; pending read: %i)",
+        block.index,
+        block.offset,
+        block.length,
+        m_info.total_bytes_written_to_disk,
+        m_info.num_pending_disk_write_bytes,
+        m_info.total_bytes_read_from_disk,
+        m_info.num_pending_disk_read_bytes
+    );
+
     // we can likely receive more now that we finished writing to disk
     receive();
 }
@@ -1287,22 +1425,44 @@ void peer_session::on_block_saved(const std::error_code& error, const block_info
 void peer_session::on_block_read(const std::error_code& error, const block_source& block)
 {
     m_work_state.stopped(reading_disk);
-    m_info.num_pending_disk_read_bytes -= block_info.length;
+    m_info.num_pending_disk_read_bytes -= block.length;
     if(error == asio::error::operation_aborted)
     {
+        log(
+            log_event::disk,
+            "block fetch aborted (piece: %i, offset: %i, length: %i)",
+            block.index,
+            block.offset,
+            block.length
+        );
         // we aborted the block fetch, we no longer need to send the block
         return;
     }
     else if(error)
     {
-        if(++m_disk_io_failures > 100)
+        log(log_event::disk, "disk failure #%i", m_num_disk_io_failures + 1);
+        if(++m_num_disk_io_failures > 100)
         {
             disconnect(error);
         }
         return;
     }
-    m_disk_io_failures = 0;
+    m_num_disk_io_failures = 0;
     m_info.total_bytes_read_from_disk += block.length;
+
+    log(
+        log_event::disk,
+        "read block from disk (piece: %i, offset: %i, length: %i)\n"
+        "disk stats (written: %i; pending write: %i; read: %i; pending read: %i)",
+        block.index,
+        block.offset,
+        block.length,
+        m_info.total_bytes_written_to_disk,
+        m_info.num_pending_disk_write_bytes,
+        m_info.total_bytes_read_from_disk,
+        m_info.num_pending_disk_read_bytes
+    );
+
     send_block(block);
 }
 
@@ -1335,7 +1495,14 @@ void peer_session::send_handshake()
 
     send();
 
-    log(log_event::outgoing, "HANDSHAKE");
+    log(
+        log_event::outgoing,
+        "sending handshake (protocol: %s; reserved: %s; info_hash: %s, client_id: %s)",
+        protocol_id,
+        "0",
+        m_torrent_info->info_hash.data(),
+        m_settings.client_id.data()
+    );
 }
 
 // ----------------------------------
@@ -1366,7 +1533,11 @@ void peer_session::send_bitfield()
 
     send();
 
-    log(log_event::outgoing, "BITFIELD");
+    log(
+        log_event::outgoing,
+        "sending bitfield (%s)",
+        m_piece_picker->my_bitfield().to_string()
+    );
 }
 
 // ------------------
@@ -1379,7 +1550,7 @@ void peer_session::send_keep_alive()
 
     send();
 
-    log(log_event::outgoing, "KEEP_ALIVE");
+    log(log_event::outgoing, "sending keep_alive");
 }
 
 // -------------
@@ -1394,7 +1565,7 @@ void peer_session::send_choke()
 
     send();
 
-    log(log_event::outgoing, "CHOKE");
+    log(log_event::outgoing, "sending choke");
 }
 
 // ---------------
@@ -1409,7 +1580,7 @@ void peer_session::send_unchoke()
 
     send();
 
-    log(log_event::outgoing, "UNCHOKE");
+    log(log_event::outgoing, "sending unchoke");
 }
 
 // ------------------
@@ -1426,7 +1597,7 @@ void peer_session::send_interested()
 
     send();
 
-    log(log_event::outgoing, "INTERESTED");
+    log(log_event::outgoing, "sending interested");
 }
 
 // ----------------------
@@ -1443,7 +1614,7 @@ void peer_session::send_not_interested()
 
     send();
 
-    log(log_event::outgoing, "UNINTERESTED");
+    log(log_event::outgoing, "sending not_interested");
 }
 
 // -------------------------------
@@ -1458,7 +1629,7 @@ inline void peer_session::send_have(const piece_index_t piece)
             .i32(piece)
     );
     send();
-    log(log_event::outgoing, "HAVE (" + std::to_string(piece) + ')');
+    log(log_event::outgoing, "sending have (piece: %i)", piece);
 }
 
 // ---------------------------------------------
@@ -1480,7 +1651,13 @@ void peer_session::send_request(const block& block)
     );
     m_sent_requests.emplace(block.index, block.offset, block.length);
 
-    log(log_event::outgoing, "REQUEST");
+    log(
+        log_event::outgoing,
+        "sending request (piece: %i, offset: %i, length: %i)",
+        block.index,
+        block.offset,
+        block.length
+    );
 }
 */
 // To eliminate the full round trip time of receiving the requested piece before sending
@@ -1490,7 +1667,7 @@ void peer_session::send_requests()
 {
     assert(m_info.am_interested && !m_info.am_choked);
 
-    std::vector<pending_block> blocks = make_request_queue();
+    std::vector<block_info> blocks = make_request_queue();
     if(blocks.size() == 0)
     {
         return;
@@ -1504,25 +1681,61 @@ void peer_session::send_requests()
                .i32(block.index)
                .i32(block.offset)
                .i32(block.length);
+
         m_sent_requests.emplace_back(std::move(block));
         m_info.num_pending_download_bytes += block.length;
+
+        log(
+            log_event::outgoing,
+            "sending request (piece: %i, offset: %i, length: %i)",
+            block.index,
+            block.offset,
+            block.length
+        );
     }
     m_send_buffer.append(std::move(payload));
 
     send();
 
-    log(
-        log_event::outgoing,
-        "REQUEST QUEUE (length: " + std::to_string(blocks.size()) + ')'
-    );
+    log(log_event::outgoing, "sent request queue (length: %i)", blocks.size());
 }
 
-std::vector<peer_session::pending_block> peer_session::make_request_queue()
+inline std::vector<block_info> peer_session::make_request_queue()
 {
-    // if we have active downloads, prefer to finish those (this will result in less
-    // peers per piece download, i.e. higher chance of a bad peer polluting many pieces)
-    std::vector<pending_block> request_queue;
+    return is_on_parole() ? make_requests_in_parole_mode()
+                          : make_requests_in_normal_mode();
+}
+
+inline std::vector<block_info> peer_session::make_requests_in_parole_mode()
+{
+    assert(m_piece_picker != nullptr);
+
+    if(m_parole_piece == nullptr)
+    {
+        const auto piece = m_piece_picker->pick_and_reserve(m_info.available_pieces);
+        if(piece == piece_picker::no_piece)
+        {
+            return {};
+        }
+        m_parole_piece = std::make_unique<piece_download>(piece, get_piece_length(piece));
+    }
+
+    if(m_parole_piece->can_request())
+    {
+        return m_parole_piece->make_request_queue(m_best_request_queue_length);
+    }
+    return {};
+}
+
+inline std::vector<block_info> peer_session::make_requests_in_normal_mode()
+{
+    assert(m_piece_picker && m_piece_download_pool);
+
+    std::vector<block_info> request_queue;
     int left = m_best_request_queue_length;
+
+    // if we have active downloads, prefer to finish those (this will result in less
+    // peers per piece download, i.e. lower chance of a bad peer polluting many pieces)
     for(auto& download : m_piece_downloads)
     {
         if(request_queue.size() == left)
@@ -1538,7 +1751,43 @@ std::vector<peer_session::pending_block> peer_session::make_request_queue()
             }
         }
     }
-    // TODO
+
+    // if left is not 0, we try to join a download using piece_download_pool
+    if(left > 0)
+    {
+        auto download = m_piece_download_pool->find_for(m_info.available_pieces);
+        if(download != nullptr)
+        {
+            for(auto& block : download->make_request_queue(left))
+            {
+                request_queue.emplace_back(std::move(block));
+                --left;
+            }
+            // now we participated in this piece download as well
+            m_piece_downloads.emplace_back(download);
+        }
+    }
+
+    // if we still need blocks, we pick a piece and start a new download, and add it
+    // to the shared downloads via m_piece_download_pool
+    if(left > 0)
+    {
+        const auto piece = m_piece_picker->pick_and_reserve(m_info.available_pieces);
+        if(piece != piece_picker::no_piece)
+        {
+            auto download = std::make_shared<piece_download>(
+                piece, get_piece_length(piece)
+            );
+            for(auto& block : download->make_request_queue(left))
+            {
+                request_queue.emplace_back(std::move(block));
+                --left;
+            }
+            m_piece_downloads.emplace_back(download);
+            m_piece_download_pool->add(download);
+        }
+    }
+
     return request_queue;
 }
 
@@ -1548,14 +1797,17 @@ std::vector<peer_session::pending_block> peer_session::make_request_queue()
 void peer_session::send_block(const block_source& block)
 {
     const int msg_size = 1 + 2 * 4 + block.length;
-    m_send_buffer.append(
-        payload(4 + msg_size)
-            .i32(msg_size)
-            .i8(message_t::block)
-            .i32(block.index)
-            .i32(block.offset)
-            //.buffers(block.chunks) // TODO
-    );
+    payload payload(4 + msg_size);
+    payload.i32(msg_size)
+           .i8(message_t::block)
+           .i32(block.index)
+           .i32(block.offset);
+    for(const auto& chunk : block.chunks)
+    {
+        payload.buffer(chunk);
+    }
+    m_send_buffer.append(std::move(payload));
+
     m_info.total_uploaded_piece_bytes += block.length;
     m_sent_requests.emplace_back(block.index, block.offset, block.length);
 
@@ -1563,10 +1815,10 @@ void peer_session::send_block(const block_source& block)
 
     log(
         log_event::outgoing,
-        "PIECE (index:" + std::to_string(block.index)
-        + ", offset: " + std::to_string(block.offset)
-        + ", length: " + std::to_string(block.length)
-        + ')'
+        "sending block (piece: %i, offset: %i, length: %i)",
+        block.index,
+        block.offset,
+        block.length
     );
 }
 
@@ -1584,6 +1836,14 @@ void peer_session::send_cancel(const block_info& block)
             .i32(block.length)
     );
     send();
+
+    log(
+        log_event::outgoing,
+        "sending cancel (piece: %i, offset: %i, length: %i)",
+        block.index,
+        block.offset,
+        block.length
+    );
 }
 
 // -------------------------------
@@ -1598,6 +1858,7 @@ void peer_session::send_port(const int port)
             .i16(port)
     );
     send();
+    log(log_event::outgoing, "sending port (%i)", port);
 }
 
 // -------------------
@@ -1621,6 +1882,8 @@ void peer_session::handle_request_timeout(const std::error_code& error)
         disconnect(error);
         return;
     }
+
+    log(log_event::outgoing, "request to peer has timed out");
 
     m_best_request_queue_length = 1;
     m_info.has_peer_timed_out = true;
@@ -1677,8 +1940,16 @@ void peer_session::handle_request_timeout(const std::error_code& error)
                 cancel_request_handler(block);
             }
         );
+
+        log(
+            log_event::timeout,
+            "timing out block (piece: %i, offset: %i, length: %i)",
+            request.index,
+            request.offset,
+            request.length
+        );
     }
-    // try to send requests again
+    // try to send requests again, with updated queue length
     send_requests();
 }
 
@@ -1706,6 +1977,11 @@ void peer_session::handle_connect_timeout(const std::error_code& error)
     }
     else
     {
+        log(
+            log_event::timeout,
+            "connecting timedout, elapsed time: %ims",
+            total_milliseconds(cached_clock::now() - m_connection_time)
+        );
         disconnect(peer_session_error_t::connect_timeout);
     }
 }
@@ -1722,6 +1998,7 @@ void peer_session::handle_inactivity_timeout(const std::error_code& error)
     }
     else
     {
+        log(log_event::timeout, "inactivity timeout");
         disconnect(peer_session_error_t::inactivity_timeout);
     }
 }
@@ -1738,6 +2015,7 @@ void peer_session::handle_keep_alive_timeout(const std::error_code& error)
         return;
     }
 
+    log(log_event::timeout, "keep_alive timeout");
     if(cached_clock::now() - m_last_send_time > seconds(m_settings.peer_timeout_s))
     {
         send_keep_alive();
@@ -1755,6 +2033,21 @@ void peer_session::handle_keep_alive_timeout(const std::error_code& error)
 // -----------
 // -- utils --
 // -----------
+
+template<typename... Args>
+void peer_session::log(
+    const log_event log_event,
+    const std::string& format,
+    Args&&... args
+)
+{
+    // + 1 for '\0'
+    const size_t length = std::snprintf(nullptr, 0, format.c_str(), args...) + 1;
+    std::unique_ptr<char[]> buffer(new char[length]);
+    std::snprintf(buffer.get(), length, format.c_str(), args...);
+    // -1 to exclude the '\0' at the end
+    std::string message(buffer.get(), buffer.get() + length - 1);
+}
 
 template<
     typename Duration,

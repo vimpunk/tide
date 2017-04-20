@@ -4,6 +4,7 @@
 #include <type_traits>
 #include <stdexcept>
 #include <iterator>
+#include <string>
 #include <vector>
 #include <limits>
 #include <cmath>
@@ -238,6 +239,19 @@ public:
     {
     }
     */
+
+    std::string to_string() const
+    {
+        std::string s(size(), '0');
+        for(auto i = 0; i < size(); ++i)
+        {
+            if((*this)[i])
+            {
+                s[i] = '1';
+            }
+        }
+        return s;
+    }
 
     // Bitwise operations
 
@@ -584,7 +598,7 @@ public:
     };
 };
 
-void swap(bt_bitfield& a , bt_bitfield& b)
+inline void swap(bt_bitfield& a , bt_bitfield& b)
 {
     using std::swap;
     swap(a.m_blocks, b.m_blocks);

@@ -44,13 +44,13 @@ struct disk_io_error_category : public std::error_category
     }
 };
 
-const disk_io_error_category& disk_io_category()
+inline const disk_io_error_category& disk_io_category()
 {
     static disk_io_error_category instance;
     return instance;
 }
 
-std::error_code make_error_code(disk_io_error_t e)
+inline std::error_code make_error_code(disk_io_error_t e)
 {
     return std::error_code(
         static_cast<int>(e),

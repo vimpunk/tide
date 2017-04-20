@@ -163,7 +163,7 @@ private:
 
     // After a certain number of subsequent disk read/write failures peer is disconnected
     // because it implies that there is a problem that could not be fixed.
-    int m_disk_io_failures = 0;
+    int m_num_disk_io_failures = 0;
 
     // If the number of unserved and currently served requests from peer exceeds this
     // number, further requests will be dropped (once FAST extension is implemented
@@ -174,10 +174,9 @@ private:
     // TODO consider only collecting stats in peer_info
     //stat m_stats;
 
-    sliding_average m_send_rate;
-    sliding_average m_receive_rate;
-    // The average request time between incoming blocks.
-    sliding_average m_avg_request_time;
+    sliding_average<20> m_send_rate;
+    sliding_average<20> m_receive_rate;
+    sliding_average<20> m_avg_request_time;
 
     time_point m_connection_time;
     time_point m_connected_time;
@@ -371,10 +370,6 @@ private:
         const bool got_choked,
         const int num_bytes
     ) const noexcept;
-    bool should_shrink_receive_buffer(
-        const bool got_choked,
-        const int num_bytes
-    ) const noexcept;
     bool am_expecting_piece() const noexcept;
 
     /**
@@ -487,7 +482,9 @@ private:
     bool can_send_requests() const noexcept;
 
     /** Picks m_best_request_queue_length blocks or less to be requested next. */
-    std::vector<pending_block> make_request_queue();
+    std::vector<block_info> make_request_queue();
+    std::vector<block_info> make_requests_in_parole_mode();
+    std::vector<block_info> make_requests_in_normal_mode();
 
     // -------------------
     // -- timeout logic --
@@ -508,14 +505,20 @@ private:
 
     enum class log_event
     {
+        connected,
+        disconnected,
         incoming,
         outgoing,
         disk,
-        invalid_message
+        invalid_message,
+        parole,
+        timeout
     };
 
+    template<typename... Args>
+    void log(const log_event log_event, const std::string& format, Args&&... args);
+
     int get_piece_length(const piece_index_t piece) const noexcept;
-    void log(const log_event log_event, const std::string& message);
 
     template<
         typename Duration,

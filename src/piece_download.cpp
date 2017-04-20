@@ -74,7 +74,9 @@ void piece_download::abort_download(const block_info& block)
 std::vector<block_info> piece_download::make_request_queue(const int n)
 {
     std::vector<block_info> request_queue;
-    for(auto i = 0; i  < int(m_completion.size()) && int(request_queue.size()) < n; ++i)
+    for(auto i = 0;
+        (i  < int(m_completion.size())) && (int(request_queue.size()) < n);
+        ++i)
     {
         if(!m_completion[i])
         {

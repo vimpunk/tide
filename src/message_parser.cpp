@@ -14,29 +14,31 @@ void message_parser::change_capacity(const int n)
     shrink_to_fit(m_capacity);
 }
 
-void message_parser::ensure_buffer_size(const int n)
+void message_parser::reserve(const int n)
 {
-    if(num_free_bytes() >= n)
+    if(n <= buffer_size())
     {
         return;
     }
-    m_buffer.resize(n);
+    m_buffer.resize(std::min(n, capacity()));
 }
 
 void message_parser::shrink_to_fit(const int n)
 {
-    if(buffer_size() <= n)
+    if(n >= buffer_size())
     {
         return;
     }
-    m_buffer.resize(std::max(n, m_unused_begin));
+    // make sure not to delete unparsed messages
+    m_buffer.resize(std::max(n, size()));
 }
 
-view<uint8_t> message_parser::get_receive_buffer(const int n)
+view<uint8_t> message_parser::get_receive_buffer(int n)
 {
-    if(num_free_bytes() < n)
+    if(n > free_space_size())
     {
-        m_buffer.resize(buffer_size() + n - num_free_bytes());
+        reserve(n);
+        n = free_space_size();
     }
     return view<uint8_t>(&m_buffer[m_unused_begin], n);
 }

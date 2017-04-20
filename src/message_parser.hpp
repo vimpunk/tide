@@ -85,16 +85,16 @@ public:
     bool is_empty() const noexcept;
     int size() const noexcept;
     int buffer_size() const noexcept;
-    int num_free_bytes() const noexcept;
+    int free_space_size() const noexcept;
     int capacity() const noexcept;
 
     void change_capacity(const int n);
 
     /**
-     * Ensures that we have space to receive n bytes. Does nothing if we do, resizes
-     * the receive buffer if we don't. The resize value will never go above 
+     * Ensures that we have space to receive min(n, capacity()) bytes. Does nothing if
+     * we do, resizes the receive buffer if we don't.
      */
-    void ensure_buffer_size(const int n);
+    void reserve(const int n);
 
     /**
      * If n is below m_unused_begin, it will only shrink to m_unused_begin, to preserve
@@ -103,10 +103,12 @@ public:
     void shrink_to_fit(const int n);
 
     /**
-     * This returns the range of memory [unused_begin, unused_begin + n) in which we can
-     * receive bytes. Buffer is resized if there isn't enough space for n more bytes.
+     * This returns the range of memory:
+     * [unused_begin, unused_begin + min(n, free_space_size())
+     * in which we can receive bytes. If there is no space for n bytes, reserve(n) is
+     * called.
      */
-    view<uint8_t> get_receive_buffer(const int n);
+    view<uint8_t> get_receive_buffer(int n);
 
     /**
      * Records the number of bytes we managed to read (as it may not be the same amount
@@ -234,7 +236,7 @@ inline int message_parser::size() const noexcept
     return m_unused_begin;
 }
 
-inline int message_parser::num_free_bytes() const noexcept
+inline int message_parser::free_space_size() const noexcept
 {
     return buffer_size() - size();
 }
