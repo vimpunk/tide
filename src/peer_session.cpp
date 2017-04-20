@@ -1352,6 +1352,8 @@ void peer_session::on_piece_hashed(const piece_index_t piece, const bool is_piec
     {
         if(is_on_parole())
         {
+            // release parole piece download
+            m_parole_piece.reset();
             // peer cleared itself, so it's no longer on parole
             m_info.is_on_parole = false;
             log(log_event::parole, "peer cleared suspicion, no longer on parole");
@@ -1714,7 +1716,9 @@ inline std::vector<block_info> peer_session::make_requests_in_parole_mode()
         {
             return {};
         }
-        m_parole_piece = std::make_unique<piece_download>(piece, get_piece_length(piece));
+        m_parole_piece = std::make_unique<piece_download>(
+            piece, get_piece_length(piece)
+        );
     }
 
     if(m_parole_piece->can_request())
@@ -1947,7 +1951,10 @@ void peer_session::handle_request_timeout(const std::error_code& error)
         );
     }
     // try to send requests again, with updated queue length
-    send_requests();
+    if(m_info.am_interested && !m_info.am_choked)
+    {
+        send_requests();
+    }
 }
 
 void peer_session::cancel_request_handler(const block_info& block)

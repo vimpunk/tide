@@ -43,7 +43,7 @@ private:
     std::map<peer_id, completion_handler> m_participants;
 
     // All pending blocks that have timed out and were made free to be downloaded from
-    // other peers are place here.
+    // other peers are placed here.
     std::map<block_info, cancel_candidate> m_timed_out_blocks;
 
     // A block is either free or not. The latter may mean that it has been received or

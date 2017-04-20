@@ -437,7 +437,7 @@ private:
 
     bool should_delete_group(groups::iterator group) const noexcept
     {
-        return (group->is_empty()) && (group->type() != group::type_t::normal);
+        return group->is_empty() && (group->type() != group::type_t::normal);
     }
 
     // groups represent the group of pieces that constitute a file. But since files are
@@ -559,12 +559,12 @@ public:
             , m_groups_end(groups_end)
         {}
 
-        // Pieces are stored in a set whose elements are const by default. But since
-        // we cannot modify data essential to the ordering of the set (frequency), it
-        // is OK to remove the const qualifier, as is_reserved field in block_info is
-        // mutable.
         reference operator*() noexcept
         {
+            // Pieces are stored in a set whose elements are const by default. But since
+            // we cannot modify data essential to the ordering of the set (frequency),
+            // it is OK to remove the const qualifier, as is_reserved field in
+            // block_info is mutable.
             return const_cast<reference>(*m_piece);
         }
 
