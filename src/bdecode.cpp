@@ -1,6 +1,5 @@
 #include "bdecode.hpp"
 
-#include <algorithm>
 #include <cctype> // isdigit
 
 class bdecoder
@@ -229,13 +228,14 @@ private:
         const int list_pos = m_tokens.size() - 1;
         // go to first element in list
         ++m_pos;
-        while((m_pos < m_encoded.length() - 1) && (m_encoded[m_pos] != 'e'))
+        while((m_pos < m_encoded.length()) && (m_encoded[m_pos] != 'e'))
         {
             // add the number of tokens that were parsed while decoding value; this is
             // necessary to determine where the list ends
             m_tokens[list_pos].next_item_array_offset += decode_dispatch();
             ++m_tokens[list_pos].length;
         }
+
         if(m_encoded[m_pos] != 'e')
         {
             throw std::runtime_error("invalid blist encoding (missing 'e' end token)");
@@ -252,7 +252,7 @@ private:
         const int map_pos = m_tokens.size() - 1;
         // go to first element in map
         ++m_pos;
-        while((m_pos < m_encoded.length() - 1) && (m_encoded[m_pos] != 'e'))
+        while((m_pos < m_encoded.length()) && (m_encoded[m_pos] != 'e'))
         {
             if(!std::isdigit(m_encoded[m_pos]))
             {
@@ -275,6 +275,7 @@ private:
             // a map's length is its number of key-value pairs
             ++m_tokens[map_pos].length;
         }
+
         if(m_encoded[m_pos] != 'e')
         {
             throw std::runtime_error("invalid bmap encoding (missing 'e' end token)");
