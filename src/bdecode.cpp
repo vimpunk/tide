@@ -1,139 +1,13 @@
 #include "bdecode.hpp"
 
 #include <algorithm>
-#include <cctype>
-
-/**
- * This is a simple RAII wrapper intended to replace raw buffer/array building when a
- * std::vector is unsuitable. Releases memory upon destruction and dynamically increases
- * the buffer size if adding an element would make it exceed its capacity.
- * When the buffer is deemed complete, call release(), which hands over ownership to the
- * caller and no longer manages the buffer, i.e., doesn't free the memory in the dtor.
- */
-template<
-    typename T
-> class buffer_builder
-{
-    T* m_buffer = nullptr;
-    int m_capacity = 0;
-    int m_size = 0;
-
-public:
-
-    buffer_builder() = default;
-
-    explicit buffer_builder(const int capacity) : m_capacity(capacity)
-    {
-        m_buffer = new T[m_capacity];
-    }
-
-    buffer_builder(const buffer_builder&) = delete;
-    buffer_builder& operator=(const buffer_builder&) = delete;
-
-    ~buffer_builder()
-    {
-        if(m_buffer)
-        {
-            delete[] m_buffer;
-        }
-        m_buffer = nullptr;
-        m_capacity = m_size = 0;
-    }
-
-    int size() const noexcept
-    {
-        return m_size;
-    }
-
-    bool is_empty() const noexcept
-    {
-        return size() == 0;
-    }
-
-    T& front() noexcept
-    {
-        assert(m_size > 0);
-        return m_buffer[0];
-    }
-
-    T& back() noexcept
-    {
-        assert(m_size > 0);
-        return m_buffer[m_size - 1];
-    }
-
-    T* data()
-    {
-        return m_buffer;
-    }
-
-    void reserve(const int n)
-    {
-        if(n <= m_capacity)
-        {
-            return;
-        }
-
-        T* new_buffer = new T[n];
-        assert(new_buffer);
-        if(m_buffer)
-        {
-            std::copy(m_buffer, m_buffer + m_size, new_buffer);
-            delete[] m_buffer;
-        }
-        m_buffer = new_buffer;
-        m_capacity = n;
-    }
-
-    void push(T t)
-    {
-        if(m_size >= m_capacity)
-        {
-            grow_buffer();
-        }
-        m_buffer[m_size++] = std::move(t);
-    }
-
-    template<typename... Args>
-    void emplace(Args&&... args)
-    {
-        if(m_size >= m_capacity)
-        {
-            grow_buffer();
-        }
-        m_buffer[m_size++] = T(std::forward<Args>(args)...);
-    }
-
-    T* release()
-    {
-        T* buffer = m_buffer;
-        m_buffer = nullptr;
-        m_capacity = m_size = 0;
-        return buffer;
-    }
-
-    T& operator[](const int i)
-    {
-        assert(i < m_size);
-        return m_buffer[i];
-    }
-
-private:
-
-    void grow_buffer()
-    {
-        // TODO use realloc
-        const int new_capacity = m_capacity == 0 ? 8
-                                                 : 2 * m_capacity;
-        reserve(new_capacity);
-    }
-};
+#include <cctype> // isdigit
 
 class bdecoder
 {
     // Temporary holds the list of tokens, ownership of which will be passed to the
-    // decoded bcontainer or discarded if the decoded element is a bstring or bnumber.
-    buffer_builder<btoken> m_tokens;
+    // decoded bcontainer. (Unused when the decoded element is a bstring or bnumber.)
+    std::vector<btoken> m_tokens;
 
     // This is the raw bencoded string. Ownership of this string will be handed over to
     // the belement instance produced after decoding.
@@ -158,7 +32,7 @@ public:
         }
         m_tokens.reserve(count_tokens());
         decode_bmap();
-        return bmap(m_tokens.release(), std::move(m_encoded));
+        return bmap(std::move(m_tokens), std::move(m_encoded));
     }
 
     blist decode_list()
@@ -173,7 +47,7 @@ public:
         }
         m_tokens.reserve(count_tokens());
         decode_blist();
-        return blist(m_tokens.release(), std::move(m_encoded));
+        return blist(std::move(m_tokens), std::move(m_encoded));
     }
 
     std::unique_ptr<belement> decode()
@@ -263,10 +137,10 @@ private:
         {
         case '0': case '1': case '2': case '3': case '4':
         case '5': case '6': case '7': case '8': case '9':
-            m_tokens.emplace(decode_bstring());
+            m_tokens.emplace_back(decode_bstring());
             return 1;
         case 'i':
-            m_tokens.emplace(decode_bnumber());
+            m_tokens.emplace_back(decode_bnumber());
             return 1;
         case 'l':
             decode_blist();
@@ -349,7 +223,7 @@ private:
 
     void decode_blist()
     {
-        m_tokens.emplace(btype::list, m_pos);
+        m_tokens.emplace_back(btype::list, m_pos);
         // save the position of list header so we can refer to it later (cannot use
         // reference as m_tokens may reallocate)
         const int list_pos = m_tokens.size() - 1;
@@ -372,7 +246,7 @@ private:
 
     void decode_bmap()
     {
-        m_tokens.emplace(btype::map, m_pos);
+        m_tokens.emplace_back(btype::map, m_pos);
         // save the position of map header so we can refer to it later (cannot use
         // reference as m_tokens may reallocate)
         const int map_pos = m_tokens.size() - 1;
@@ -386,7 +260,7 @@ private:
                 throw std::runtime_error("invalid bmap encoding (key not a string)");
             }
             // decode key
-            m_tokens.emplace(decode_bstring());
+            m_tokens.emplace_back(decode_bstring());
             ++m_tokens[map_pos].next_item_array_offset;
             // TODO validate key
 

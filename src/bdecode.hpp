@@ -83,7 +83,7 @@ namespace detail
         // only needs a subset of it. This is to always keep the reference count of
         // m_tokens (and m_encoded) at at least one. To refer to the actual start of the
         // container, use m_head.
-        std::shared_ptr<const btoken> m_tokens;
+        std::shared_ptr<std::vector<btoken>> m_tokens;
         std::shared_ptr<const std::string> m_encoded;
 
         // Both container types (list, map) have a head token that defines the start and
@@ -98,11 +98,13 @@ namespace detail
          * string, it stores the tokens buffer, the encoded string and initializes the
          * head of the container to the first element in the tokens buffer.
          */
-        bcontainer(const btoken* tokens, std::string&& encoded)
-            : m_tokens(tokens, std::default_delete<const btoken[]>())
+        bcontainer(std::vector<btoken>&& tokens, std::string&& encoded)
+            : m_tokens(std::make_shared<std::vector<btoken>>(std::move(tokens)))
             , m_encoded(std::make_shared<const std::string>(std::move(encoded)))
-            , m_head(tokens)
-        {}
+            , m_head(m_tokens->data())
+        {
+            assert(!m_tokens->empty());
+        }
 
         /**
          * This ctor is called every time a nested container is extracted from its
@@ -128,8 +130,9 @@ namespace detail
          */
         const btoken* tail() const noexcept
         {
-            assert(m_head);
-            return m_head + m_head->next_item_array_offset;
+            assert(head());
+            // TODO handle nullptr head (i.e. empty collection)
+            return head() + head()->next_item_array_offset;
         }
 
     public:
@@ -201,7 +204,7 @@ namespace detail
             {
                 return "";
             }
-            if(head() == m_tokens.get())
+            if(head() == m_tokens->data())
             {
                 // this is the root container, just return the whole encoded string
                 return encoded();
@@ -348,8 +351,8 @@ public:
     using blists = list_proxy<blist, btype::list>;
     using bmaps = list_proxy<bmap, btype::map>;
 
-    blist(const btoken* tokens, std::string&& encoded)
-        : bcontainer(tokens, std::move(encoded))
+    blist(std::vector<btoken>&& tokens, std::string&& encoded)
+        : bcontainer(std::move(tokens), std::move(encoded))
     {}
 
     blist(const bcontainer& b, const btoken* list_head)
@@ -587,8 +590,8 @@ struct bmap
     : public detail::bcontainer
     , public belement
 {
-    bmap(const btoken* tokens, std::string&& encoded)
-        : bcontainer(tokens, std::move(encoded))
+    bmap(std::vector<btoken>&& tokens, std::string&& encoded)
+        : bcontainer(std::move(tokens), std::move(encoded))
     {}
 
     bmap(const detail::bcontainer& b, const btoken* map_head)
