@@ -10,14 +10,32 @@
 #include <memory>
 #include <vector>
 
+/** All the possible bencoded types. */
 enum class btype
 {
+    // Encoded format: i<number>e, e.g.: i3244e
     number,
+    // Encoded format: <len(str)>:<str>, e.g.: 6:string
     string,
+    // Encoded format: l<elements>e, e.g.: l4:abcdi53452eli234ei234eee
     list,
+    // Encoded format: d<<(str)key><value> pairs>e, and keys must be in lexicographical
+    // order, e.g.: d4:eggsi324e4:spami432ee
     map
 };
 
+/**
+ * Since parsing a bencoded string is not done by building a heterogenous tree of
+ * bencode elements but rather by maintaining a shared_ptr to the encoded string and
+ * only extracting elements on demand, some identifier is necessary with which we can
+ * parse and construct the requested element from the source string. For this purpose
+ * the btoken struct is used, which is aggregated in a flat sequence (array) of all the
+ * other btokens describing the entire object tree, also kept in a shared_ptr for a
+ * single decoded object tree.
+ * This object describes where in the string the would-be element resides, where its
+ * logical neighbour is (since the sequence is flat, just incrementing the pointer would
+ * not correctly traverse the logical tree), and other info, see the comments below.
+ */
 struct btoken
 {
     // Specifies the position in the bencoded string where this element resides.
@@ -27,6 +45,7 @@ struct btoken
     // number | string: 0 if last or only element, otherwise always 1
     // map | list: the number of btokens till the first element that's not in list/map
     int next_item_array_offset = 0;
+
     // number: the total length of the match of this regex: i-?\d+e
     // string: the length of the string header, i.e. the length value plus colon, so
     // must be at least 2
@@ -61,7 +80,7 @@ namespace detail
     class bcontainer
     {
         // This is the entire list of tokens, no matter if the container is nested and
-        // only needs to a subset of it. This is to always keep the reference count of
+        // only needs a subset of it. This is to always keep the reference count of
         // m_tokens (and m_encoded) at at least one. To refer to the actual start of the
         // container, use m_head.
         std::shared_ptr<const btoken> m_tokens;
