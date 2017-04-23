@@ -9,7 +9,7 @@ struct file_info
     int64_t length;
 
     file_info(std::string p, int64_t l)
-        : path(std::move(path))
+        : path(std::move(p))
         , length(l)
     {}
 };

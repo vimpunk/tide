@@ -3,6 +3,7 @@
 
 #include <stdexcept>
 #include <iterator>
+#include <sstream>
 #include <cstdlib> // atoi
 #include <cstdint>
 #include <cassert>
@@ -50,7 +51,8 @@ struct btoken
     // string: the length of the string header, i.e. the length value plus colon, so
     // must be at least 2
     // map: the number of key-value pairs (excluding the 'map' header token)
-    // list: the number of elements in the list (excluding the 'list' header token)
+    // list: the number of elements in the list (excluding the 'list' header token), and
+    // nested containers count as one element
     int length = 0;
 
     btype type;
@@ -68,8 +70,25 @@ struct btoken
     }
 };
 
+struct bmap;
+class blist;
+
 namespace detail
 {
+    class bcontainer;
+    void format_map(
+        std::stringstream& ss,
+        const bcontainer& map,
+        const btoken* head = nullptr,
+        int nesting_level = 0
+    );
+    void format_list(
+        std::stringstream& ss,
+        const bcontainer& list,
+        const btoken* head = nullptr,
+        int nesting_level = 0
+    );
+
     /**
      * Defines common operations for container type bencode classes (list, map).
      * It holds a contiguous sequence of btokens and the raw bencoded string and provides
@@ -199,43 +218,20 @@ namespace detail
          * root container), it just returns a copy of the encoded string (although in
          * this case it is recommended to just use encoded() to avoid the copy).
          */
-        std::string encode() const
-        {
-            // TODO verify this
-            if(!head())
-            {
-                return "";
-            }
-            if(head() == m_tokens->data())
-            {
-                // this is the root container, just return the whole encoded string
-                return encoded();
-            }
-            const btoken* last_element = tail() - 1;
-            int last_element_offset = last_element->offset;
-            if(last_element->type == btype::string)
-            {
-                const auto str_header = encoded().c_str() + last_element_offset;
-                const auto str_length = std::atoi(str_header);
-                last_element_offset += last_element->length + str_length;
-            }
-            else if(last_element->type == btype::number)
-            {
-                last_element_offset += last_element->length;
-            }
-            else if(last_element->type == btype::list
-                    && last_element->type == btype::map)
-            {
-                // if last element is a blist or bmap header token, it means they are
-                // empty, so they only have 2 characters: the header tag ('l') and the end
-                // tag ('e')
-                last_element_offset += 2;
-            }
-            return std::string(
-                encoded().c_str() + head()->offset,
-                encoded().c_str() + last_element_offset + 1
-            );
-        }
+        std::string encode() const;
+
+        friend void format_map(
+            std::stringstream& ss,
+            const bcontainer& map,
+            const btoken* head,
+            int nesting_level
+        );
+        friend void format_list(
+            std::stringstream& ss,
+            const bcontainer& list,
+            const btoken* head,
+            int nesting_level
+        );
     };
 
     inline
@@ -321,12 +317,12 @@ public:
 
 /**
  * The following two classes (blist, bmap) are containers, which means that they take
- * ownership of the original (bencoded) source string and btokens list, and only these
- * instances are used by all subsequent nested container instances that are extracted
- * from the root container.
+ * ownership of the original (bencoded) source string and btokens list, and only a
+ * single instace of those are used by all subsequent nested container instances that
+ * are extracted from the root container.
  * Therefore copying is relatively cheap with shared_ptr semantics, meaning that the
- * encoded source and btoken list are kept valid until this or the last nested container
- * extracted from this container is destroyed.
+ * encoded source and btoken list are kept valid until the root or the last nested
+ * container in root is destroyed.
  *
  * Values (strings and numbers) are only parsed when explicitly requested, in which case
  * the requested type is constructed from the value extracted from the source bencode
@@ -337,8 +333,6 @@ public:
  * string) are both a single contiguous memory sequence. The drawback of this is that
  * bmap cannot provide O(logn) like a regular tree based map would.
  */
-
-struct bmap;
 
 class blist
     : public detail::bcontainer
@@ -395,29 +389,9 @@ public:
     /** Returns a JSON-like, human readable string of this list. */
     std::string to_string() const
     {
-        std::string s;
-        s += '[';
-        if(head())
-        {
-            const btoken* token = head() + 1;
-            const btoken* const list_end = tail();
-            while(token != list_end)
-            {
-                switch(token->type)
-                {
-                case btype::number:
-                    break;
-                case btype::string:
-                    break;
-                case btype::list:
-                    break;
-                case btype::map:
-                    break;
-                }
-                token += token->next_item_array_offset;
-            }
-        }
-        return s += ']';
+        std::stringstream ss;
+        detail::format_list(ss, *this);
+        return ss.str();
     }
 
 private:
@@ -463,7 +437,7 @@ private:
             const btoken* token = m_list.head();
             const btoken* const list_end = m_list.tail();
 
-            assert(token && token->type == btype::list);
+            assert(token->type == btype::list);
 
             // advance past the first element as that's the opening tag of the blist
             // (the result is either the first list element or list_end)
@@ -734,16 +708,10 @@ struct bmap
     /** Returns a JSON-like, human readable string of this map. */
     std::string to_string() const
     {
-        std::string s;
-        s += '{';
-        if(head())
-        {
-            const btoken* token = head() + 1;
-            const btoken* const map_end = tail();
-        }
-        return s += '}';
+        std::stringstream ss;
+        detail::format_map(ss, *this);
+        return ss.str();
     }
-
 
 private:
 
@@ -758,100 +726,16 @@ private:
     const btoken* find_token(
         const std::string& key,
         const btoken* start_pos = nullptr
-    ) const noexcept
-    {
-        const btoken* token = start_pos == nullptr ? head()
-                                                   : start_pos;
-        const btoken* const map_end = token + token->next_item_array_offset;
-
-        assert(token);
-        assert(token->type == btype::map);
-
-        // advance past the first element as that's the opening tag of the bmap
-        // (note to self: don't offset ptr by next_item_array_offset becauce that would
-        // transport it to the first element not in map; instead, go one to the right,
-        // it's either the first key or map_end, if map is empty)
-        ++token;
-
-        while(token != map_end
-              // stop looping if the distance till the end of the encoded string from
-              // the current token is less than key's length (to avoid SIGSEGV in
-              // std::equal())
-              && encoded().length() - token->offset - token->length >= key.length())
-        {
-            const auto encoded_key_header = encoded().c_str() + token->offset;
-            assert(token->type == btype::string);
-            const auto encoded_key_length = std::atoi(encoded_key_header);
-            const auto encoded_key_start = encoded_key_header + token->length;
-            // advance to value
-            token += token->next_item_array_offset;
-            // compare search key to key token
-            if(std::equal(
-                key.c_str(),
-                key.c_str() + key.length(),
-                encoded_key_start,
-                encoded_key_start + encoded_key_length))
-            {
-                return token;
-            }
-            else if(token->type == btype::map)
-            {
-                // recursively search nested map
-                // TODO decide if we want DFS or BFS
-                auto result = find_token(key, token);
-                if(result)
-                {
-                    return result;
-                }
-            }
-            else if(token->type == btype::list)
-            {
-                auto result = find_token_in_list(key, token);
-                if(result)
-                {
-                    return result;
-                }
-            }
-            // advance to next key, which may be map_end
-            token += token->next_item_array_offset;
-        }
-        return nullptr;
-    }
+    ) const noexcept;
 
     /**
-     * If list (starting at token) has any nested maps, the search for key is continued
-     * in them, otherwise nullptr is returned.
+     * If list nested in this map (starting at token) has any nested maps, the search
+     * for key is continued in them, otherwise nullptr is returned.
      */
     const btoken* find_token_in_list(
         const std::string& key,
         const btoken* token
-    ) const noexcept
-    {
-        const btoken* const list_end = token + token->next_item_array_offset;
-        // advance past the opening tag of list
-        ++token;
-        while(token != list_end)
-        {
-            if(token->type == btype::map)
-            {
-                auto result = find_token(key, token);
-                if(result)
-                {
-                    return result;
-                }
-            }
-            if(token->type == btype::list)
-            {
-                auto result = find_token_in_list(key, token);
-                if(result)
-                {
-                    return result;
-                }
-            }
-            token += token->next_item_array_offset;
-        }
-        return nullptr;
-    }
+    ) const noexcept;
 };
 
 inline std::ostream& operator<<(std::ostream& out, const blist& b)

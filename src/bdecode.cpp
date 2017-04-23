@@ -1,7 +1,6 @@
 #include "bdecode.hpp"
 
 #include <cctype> // isdigit
-#include <iostream>
 
 class bdecoder
 {
@@ -26,11 +25,9 @@ public:
         {
             throw std::runtime_error("empty source string, cannot decode");
         }
-        //else if((m_encoded.front() != 'd') || (m_encoded.back() != 'e'))
         else if(m_encoded.front() != 'd')
         {
-            //std::cout << "end token: " << m_encoded.back() << '\n';
-            throw std::runtime_error("invalid bmap encoding (invalid header or end token)");
+            throw std::runtime_error("invalid bmap encoding (invalid header)");
         }
         m_tokens.reserve(count_tokens());
         decode_bmap();
@@ -43,9 +40,9 @@ public:
         {
             throw std::runtime_error("empty source string, cannot decode");
         }
-        else if((m_encoded.front() != 'l') || (m_encoded.back() != 'e'))
+        else if(m_encoded.front() != 'l')
         {
-            throw std::runtime_error("invalid blist encoding (invalid header or end token)");
+            throw std::runtime_error("invalid blist encoding (invalid header)");
         }
         m_tokens.reserve(count_tokens());
         decode_blist();
@@ -301,4 +298,270 @@ blist decode_blist(std::string s)
 std::unique_ptr<belement> decode(std::string s)
 {
     return bdecoder(std::move(s)).decode();
+}
+
+namespace detail
+{
+    std::string bcontainer::encode() const
+    {
+        // TODO verify this
+        if(!head())
+        {
+            return "";
+        }
+        if(head() == m_tokens->data())
+        {
+            // this is the root container, just return the whole encoded string
+            return encoded();
+        }
+        const btoken* last_element = tail() - 1;
+        int last_element_offset = last_element->offset;
+        if(last_element->type == btype::string)
+        {
+            const auto str_header = encoded().c_str() + last_element_offset;
+            const auto str_length = std::atoi(str_header);
+            last_element_offset += last_element->length + str_length;
+        }
+        else if(last_element->type == btype::number)
+        {
+            last_element_offset += last_element->length;
+        }
+        else if(last_element->type == btype::list
+                && last_element->type == btype::map)
+        {
+            // if last element is a blist or bmap header token, it means they are
+            // empty, so they only have 2 characters: the header tag ('l') and the end
+            // tag ('e')
+            last_element_offset += 2;
+        }
+        return std::string(
+            encoded().c_str() + head()->offset,
+            encoded().c_str() + last_element_offset + 1
+        );
+    }
+
+    void format_map(
+        std::stringstream& ss,
+        const bcontainer& map,
+        const btoken* head,
+        int nesting_level
+    )
+    {
+        ss << '{';
+        if(!map.head())
+        {
+            ss << '}';
+            return;
+        }
+
+        const btoken* token = head ? head
+                                   : map.head();
+        const btoken* const map_end = token + token->next_item_array_offset;
+        ++token;
+
+        if(token == map_end)
+        {
+            ss << '}';
+            return;
+        }
+
+        while(token != map_end)
+        {
+            ss << '\n';
+            for(auto i = 0; i < nesting_level + 1; ++i)
+            {
+                ss << "  ";
+            }
+            ss << '"' << make_string_from_token(map.encoded(), *token) << "\": ";
+            token += token->next_item_array_offset;
+            switch(token->type)
+            {
+            case btype::number:
+                ss << make_number_from_token(map.encoded(), *token);
+                break;
+            case btype::string:
+                ss << '"' << make_string_from_token(map.encoded(), *token) << '"';
+                break;
+            case btype::list:
+                format_list(ss, map, token, nesting_level + 1);
+                break;
+            case btype::map:
+                format_map(ss, map, token, nesting_level + 1);
+                break;
+            }
+            token += token->next_item_array_offset;
+            if(token != map_end)
+            {
+                ss << ',';
+            }
+        }
+
+        ss << '\n';
+        for(auto i = 0; i < nesting_level; ++i)
+        {
+            ss << "  ";
+        }
+        ss << '}';
+    }
+
+    void format_list(
+        std::stringstream& ss,
+        const bcontainer& list,
+        const btoken* head,
+        int nesting_level
+    )
+    {
+        ss << '[';
+        if(!list.head())
+        {
+            ss << ']';
+            return;
+        }
+
+        const btoken* token = head ? head
+                                   : list.head();
+        const btoken* const list_end = token + token->next_item_array_offset;
+        ++token;
+
+        if(token == list_end)
+        {
+            ss << ']';
+            return;
+        }
+
+        while(token != list_end)
+        {
+            ss << '\n';
+            for(auto i = 0; i < nesting_level + 1; ++i)
+            {
+                ss << "  ";
+            }
+            switch(token->type)
+            {
+            case btype::number:
+                ss << make_number_from_token(list.encoded(), *token);
+                break;
+            case btype::string:
+                ss << '"' << make_string_from_token(list.encoded(), *token) << '"';
+                break;
+            case btype::list:
+                format_list(ss, list, token, nesting_level + 1);
+                break;
+            case btype::map:
+                format_map(ss, list, token, nesting_level + 1);
+                break;
+            }
+            token += token->next_item_array_offset;
+            if(token != list_end)
+            {
+                ss << ", ";
+            }
+        }
+
+        ss << '\n';
+        for(auto i = 0; i < nesting_level; ++i)
+        {
+            ss << "  ";
+        }
+        ss << ']';
+    }
+} // namespace detail
+
+const btoken* bmap::find_token(
+    const std::string& key,
+    const btoken* start_pos
+) const noexcept
+{
+    if(!head())
+    {
+        return nullptr;
+    }
+
+    const btoken* token = start_pos == nullptr ? head()
+                                               : start_pos;
+    const btoken* const map_end = token + token->next_item_array_offset;
+
+    assert(token);
+    assert(token->type == btype::map);
+
+    // advance past the first element as that's the opening tag of the bmap
+    // (note to self: don't offset ptr by next_item_array_offset becauce that would
+    // transport it to the first element not in map; instead, go one to the right,
+    // it's either the first key or map_end, if map is empty)
+    ++token;
+
+    while(token != map_end
+          // stop looping if the distance till the end of the encoded string from
+          // the current token is less than key's length (to avoid SIGSEGV in
+          // std::equal())
+          && encoded().length() - token->offset - token->length >= key.length())
+    {
+        const auto encoded_key_header = encoded().c_str() + token->offset;
+        assert(token->type == btype::string);
+        const auto encoded_key_length = std::atoi(encoded_key_header);
+        const auto encoded_key_start = encoded_key_header + token->length;
+        // advance to value
+        token += token->next_item_array_offset;
+        // compare search key to key token
+        if(std::equal(
+            key.c_str(),
+            key.c_str() + key.length(),
+            encoded_key_start,
+            encoded_key_start + encoded_key_length))
+        {
+            return token;
+        }
+        else if(token->type == btype::map)
+        {
+            // recursively search nested map
+            // TODO decide if we want DFS or BFS
+            auto result = find_token(key, token);
+            if(result)
+            {
+                return result;
+            }
+        }
+        else if(token->type == btype::list)
+        {
+            auto result = find_token_in_list(key, token);
+            if(result)
+            {
+                return result;
+            }
+        }
+        // advance to next key, which may be map_end
+        token += token->next_item_array_offset;
+    }
+    return nullptr;
+}
+
+const btoken* bmap::find_token_in_list(
+    const std::string& key,
+    const btoken* token
+) const noexcept
+{
+    const btoken* const list_end = token + token->next_item_array_offset;
+    // advance past the opening tag of list
+    ++token;
+    while(token != list_end)
+    {
+        if(token->type == btype::map)
+        {
+            auto result = find_token(key, token);
+            if(result)
+            {
+                return result;
+            }
+        }
+        if(token->type == btype::list)
+        {
+            auto result = find_token_in_list(key, token);
+            if(result)
+            {
+                return result;
+            }
+        }
+        token += token->next_item_array_offset;
+    }
+    return nullptr;
 }
