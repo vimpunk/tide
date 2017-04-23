@@ -93,6 +93,8 @@ namespace detail
 
     protected:
 
+        bcontainer() = default;
+
         /**
          * This ctor is called the first time a container is decoded from a bencoded
          * string, it stores the tokens buffer, the encoded string and initializes the
@@ -351,6 +353,8 @@ public:
     using blists = list_proxy<blist, btype::list>;
     using bmaps = list_proxy<bmap, btype::map>;
 
+    blist() = default;
+
     blist(std::vector<btoken>&& tokens, std::string&& encoded)
         : bcontainer(std::move(tokens), std::move(encoded))
     {}
@@ -424,7 +428,7 @@ private:
      * This is the iterable object that is returned by the getter functions. Its
      * iterator lazily filters the enclosing list for BType objects while iterating.
      *
-     * NOTE: it must not outlive its enclosing blist.
+     * NOTE: it must not outlive its enclosing blist. // TODO fix this
      */
     template<
         typename BType,
@@ -451,6 +455,11 @@ private:
 
         const_iterator cbegin() const noexcept
         {
+            if(!m_list.head())
+            {
+                return const_iterator(*this, nullptr);
+            }
+
             const btoken* token = m_list.head();
             const btoken* const list_end = m_list.tail();
 
@@ -590,6 +599,8 @@ struct bmap
     : public detail::bcontainer
     , public belement
 {
+    bmap() = default;
+
     bmap(std::vector<btoken>&& tokens, std::string&& encoded)
         : bcontainer(std::move(tokens), std::move(encoded))
     {}
@@ -603,37 +614,88 @@ struct bmap
         return btype::map;
     }
 
-    // TODO not finding an element shouldn't result in an exception, think of a good
-    // way to return back an invalid element. iterators?
+    int64_t find_number(const std::string& key)
+    {
+        int64_t result;
+        if(try_find_number(key, result))
+        {
+            return result;
+        }
+        throw std::invalid_argument(key + " not in bmap");
+    }
+
+    bool try_find_number(const std::string& key, int64_t& result)
+    {
+        const auto token = find_token(key);
+        if(!token || (token->type != btype::number))
+        {
+            return false;
+        }
+        result = detail::make_number_from_token(encoded(), *token);
+        return true;
+    }
 
     std::string find_string(const std::string& key)
     {
-        const auto token = find_token(key);
-        if(!token)
+        std::string result;
+        if(try_find_string(key, result))
         {
-            return "";
+            return result;
         }
-        return detail::make_string_from_token(encoded(), *token);
+        throw std::invalid_argument(key + " not in bmap");
     }
 
-    int64_t find_number(const std::string& key)
+    bool try_find_string(const std::string& key, std::string& result)
     {
         const auto token = find_token(key);
-        if(!token)
+        if(!token || (token->type != btype::string))
         {
-            return -1;
+            return false;
         }
-        return detail::make_number_from_token(encoded(), *token);
+        result = detail::make_string_from_token(encoded(), *token);
+        return true;
     }
 
     blist find_blist(const std::string& key)
     {
-        return blist(*this, find_token(key));
+        blist result;
+        if(try_find_blist(key, result))
+        {
+            return result;
+        }
+        throw std::invalid_argument(key + " not in bmap");
+    }
+
+    bool try_find_blist(const std::string& key, blist& result)
+    {
+        const auto token = find_token(key);
+        if(!token || (token->type != btype::list))
+        {
+            return false;
+        }
+        result = blist(*this, token);
+        return true;
     }
 
     bmap find_bmap(const std::string& key)
     {
-        return bmap(*this, find_token(key));
+        bmap result;
+        if(try_find_bmap(key, result))
+        {
+            return result;
+        }
+        throw std::invalid_argument(key + " not in bmap");
+    }
+
+    bool try_find_bmap(const std::string& key, bmap& result)
+    {
+        const auto token = find_token(key);
+        if(!token || (token->type != btype::map))
+        {
+            return false;
+        }
+        result = bmap(*this, token);
+        return true;
     }
 
     std::unique_ptr<belement> operator[](const std::string& key)
@@ -686,8 +748,8 @@ struct bmap
 private:
 
     /**
-     * Returns the first token that matches $key and is a map key, no matter how
-     * how deeply nested, or a nullptr if no match is found.
+     * Returns the first the value in map (no matter which level of nesting) whose key
+     * matches the search key, or a nullptr if no match is found.
      *
      * Searching is linear in the number of tokens in m_tokens.
      *
@@ -736,13 +798,56 @@ private:
             {
                 // recursively search nested map
                 // TODO decide if we want DFS or BFS
-                auto res = find_token(key, token);
-                if(res != nullptr)
+                auto result = find_token(key, token);
+                if(result)
                 {
-                    return res;
+                    return result;
+                }
+            }
+            else if(token->type == btype::list)
+            {
+                auto result = find_token_in_list(key, token);
+                if(result)
+                {
+                    return result;
                 }
             }
             // advance to next key, which may be map_end
+            token += token->next_item_array_offset;
+        }
+        return nullptr;
+    }
+
+    /**
+     * If list (starting at token) has any nested maps, the search for key is continued
+     * in them, otherwise nullptr is returned.
+     */
+    const btoken* find_token_in_list(
+        const std::string& key,
+        const btoken* token
+    ) const noexcept
+    {
+        const btoken* const list_end = token + token->next_item_array_offset;
+        // advance past the opening tag of list
+        ++token;
+        while(token != list_end)
+        {
+            if(token->type == btype::map)
+            {
+                auto result = find_token(key, token);
+                if(result)
+                {
+                    return result;
+                }
+            }
+            if(token->type == btype::list)
+            {
+                auto result = find_token_in_list(key, token);
+                if(result)
+                {
+                    return result;
+                }
+            }
             token += token->next_item_array_offset;
         }
         return nullptr;

@@ -115,6 +115,25 @@ public:
         return { data() + offset, count };
     }
 
+    void remove_prefix(const size_type n)
+    {
+        if(n > size())
+        {
+            throw std::out_of_range("tried to remove prefix larger than size");
+        }
+        m_data += n;
+        m_length -= n;
+    }
+
+    void remove_suffix(const size_type n)
+    {
+        if(n > size())
+        {
+            throw std::out_of_range("tried to remove suffix larger than size");
+        }
+        m_length -= n;
+    }
+
     iterator begin() noexcept { return data(); }
     const_iterator begin() const noexcept { return begin(); }
     const_iterator cbegin() const noexcept { return begin(); }

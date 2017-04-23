@@ -68,7 +68,7 @@ public:
         if(num_blocks_for(num_bits) != int(m_blocks.size()))
         {
             throw std::invalid_argument(
-                "byte sequence does not much the requested number of bits in bitfield"
+                "byte sequence does not match the requested number of bits in bitfield"
             );
         }
         zero_unused_bits();
@@ -434,7 +434,6 @@ private:
             return (m_block & m_mask) != 0;
         }
 
-        // TODO consider doing away with the assignments as that's not "referency"
         bit_reference& operator=(bool x) noexcept
         {
             if(x)

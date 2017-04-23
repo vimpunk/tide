@@ -10,9 +10,11 @@ piece_download::piece_download(const piece_index_t index, const int piece_length
     , m_num_blocks_left(num_blocks(piece_length))
 {}
 
-void piece_download::got_block(const peer_id& peer,
-                               const block_info& block,
-                               completion_handler completion_handler)
+void piece_download::got_block(
+    const peer_id& peer,
+    const block_info& block,
+    completion_handler completion_handler
+)
 {
     if(block.index != m_index
        || block.offset >= m_piece_length
@@ -53,9 +55,11 @@ void piece_download::notify_all_of_hash_result(const bool is_piece_good)
     }
 }
 
-void piece_download::time_out(const peer_id& peer,
-                              const block_info& block,
-                              cancel_handler handler)
+void piece_download::time_out(
+    const peer_id& peer,
+    const block_info& block,
+    cancel_handler handler
+)
 {
     if(m_num_blocks_left == 1)
     {

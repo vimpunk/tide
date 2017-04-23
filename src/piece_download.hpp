@@ -32,9 +32,9 @@ private:
         cancel_handler handler;
         const peer_id& peer;
 
-        cancel_candidate(cancel_handler handler_, const peer_id& peer_)
-            : handler(std::move(handler_))
-            , peer(peer)
+        cancel_candidate(cancel_handler h, const peer_id& p)
+            : handler(std::move(h))
+            , peer(p)
         {}
     };
 
@@ -117,7 +117,7 @@ public:
      */
     void abort_download(const block_info& block);
 
-    /** Returns n or less block blocks to request. */
+    /** Returns n or less blocks to request. */
     std::vector<block_info> make_request_queue(const int n);
 
 private:

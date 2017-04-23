@@ -1,8 +1,9 @@
 #ifndef TORRENT_SEND_BUFFER_HEADER
 #define TORRENT_SEND_BUFFER_HEADER
 
-#include "payload.hpp"
 #include "block_disk_buffer.hpp"
+#include "mmap/mmap.hpp"
+#include "payload.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -31,7 +32,7 @@ class send_buffer
 {
     struct buffer_holder
     {
-        virtual ~buffer_holder() {}
+        virtual ~buffer_holder() = default;
         virtual const uint8_t* data() const noexcept = 0;
         virtual int size() const noexcept = 0;
     };

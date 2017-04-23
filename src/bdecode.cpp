@@ -1,6 +1,7 @@
 #include "bdecode.hpp"
 
 #include <cctype> // isdigit
+#include <iostream>
 
 class bdecoder
 {
@@ -25,8 +26,10 @@ public:
         {
             throw std::runtime_error("empty source string, cannot decode");
         }
-        else if((m_encoded.front() != 'd') || (m_encoded.back() != 'e'))
+        //else if((m_encoded.front() != 'd') || (m_encoded.back() != 'e'))
+        else if(m_encoded.front() != 'd')
         {
+            //std::cout << "end token: " << m_encoded.back() << '\n';
             throw std::runtime_error("invalid bmap encoding (invalid header or end token)");
         }
         m_tokens.reserve(count_tokens());

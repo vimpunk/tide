@@ -25,8 +25,8 @@ std::vector<asio::const_buffer> send_buffer::get_send_buffers(int min_num_bytes)
     {
         // first buffer may be partially sent
         buffers.emplace_back(
-            m_buffers[0]->data() + m_first_unsent_byte,
-            m_buffers[0]->size() - m_first_unsent_byte
+            m_buffers[0]->data() + m_first_unsent_byte, // pointer offset
+            m_buffers[0]->size() - m_first_unsent_byte  // array size
         );
         for(auto i = 1; i < m_buffers.size(); ++i)
         {
