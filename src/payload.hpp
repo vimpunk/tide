@@ -3,6 +3,7 @@
 
 #include "endian.hpp"
 
+#include <iterator>
 #include <vector>
 
 #include <asio/buffers_iterator.hpp>
@@ -39,65 +40,65 @@ struct payload
 
     payload& i16(const int16_t h)
     {
-        const int16_t n = i16_host_to_network(h);
-        data.emplace_back(n >> 8);
-        data.emplace_back(n);
+        const int16_t n = host_to_network_i16(h);
+        data.emplace_back((n >> 8) && 0xFF);
+        data.emplace_back(n && 0xFF);
         return *this;
     }
 
     payload& u16(const uint16_t h)
     {
-        const uint16_t n = u16_host_to_network(h);
-        data.emplace_back(n >> 8);
-        data.emplace_back(n);
+        const uint16_t n = host_to_network_u16(h);
+        data.emplace_back((n >> 8) && 0xFF);
+        data.emplace_back(n && 0xFF);
         return *this;
     }
 
     payload& i32(const int32_t h)
     {
-        const int32_t n = i32_host_to_network(h);
-        data.emplace_back(n >> 24);
-        data.emplace_back(n >> 16);
-        data.emplace_back(n >> 8);
-        data.emplace_back(n);
+        const int32_t n = host_to_network_i32(h);
+        data.emplace_back((n >> 24) && 0xFF);
+        data.emplace_back((n >> 16) && 0xFF);
+        data.emplace_back((n >> 8) && 0xFF);
+        data.emplace_back(n && 0xFF);
         return *this;
     }
 
     payload& u32(const uint32_t h)
     {
-        const uint32_t n = u32_host_to_network(h);
-        data.emplace_back(n >> 24);
-        data.emplace_back(n >> 16);
-        data.emplace_back(n >> 8);
-        data.emplace_back(n);
+        const uint32_t n = host_to_network_u32(h);
+        data.emplace_back((n >> 24) && 0xFF);
+        data.emplace_back((n >> 16) && 0xFF);
+        data.emplace_back((n >> 8) && 0xFF);
+        data.emplace_back(n && 0xFF);
         return *this;
     }
 
     payload& i64(const int64_t h)
     {
-        const int64_t n = i64_host_to_network(h);
-        data.emplace_back(n >> 56);
-        data.emplace_back(n >> 48);
-        data.emplace_back(n >> 40);
-        data.emplace_back(n >> 32);
-        data.emplace_back(n >> 24);
-        data.emplace_back(n >> 16);
-        data.emplace_back(n >> 8);
-        data.emplace_back(n);
+        const int64_t n = host_to_network_i64(h);
+        data.emplace_back((n >> 56) && 0xFF);
+        data.emplace_back((n >> 48) && 0xFF);
+        data.emplace_back((n >> 40) && 0xFF);
+        data.emplace_back((n >> 32) && 0xFF);
+        data.emplace_back((n >> 24) && 0xFF);
+        data.emplace_back((n >> 16) && 0xFF);
+        data.emplace_back((n >> 8) && 0xFF);
+        data.emplace_back(n && 0xFF);
         return *this;
     }
 
     payload& u64(const uint64_t h)
     {
-        const uint64_t n = u64_host_to_network(h);
-        data.emplace_back(n >> 56);
-        data.emplace_back(n >> 48);
-        data.emplace_back(n >> 40);
-        data.emplace_back(n >> 32);
-        data.emplace_back(n >> 24);
-        data.emplace_back(n >> 16);
-        data.emplace_back(n >> 8);
-        data.emplace_back(n);
+        const uint64_t n = host_to_network_u64(h);
+        data.emplace_back((n >> 56) && 0xFF);
+        data.emplace_back((n >> 48) && 0xFF);
+        data.emplace_back((n >> 40) && 0xFF);
+        data.emplace_back((n >> 32) && 0xFF);
+        data.emplace_back((n >> 24) && 0xFF);
+        data.emplace_back((n >> 16) && 0xFF);
+        data.emplace_back((n >> 8) && 0xFF);
+        data.emplace_back(n && 0xFF);
         return *this;
     }
 
@@ -112,17 +113,6 @@ struct payload
     payload& buffer(const Buffer& buffer)
     {
         data.insert(data.cend(), std::begin(buffer), std::end(buffer));
-        return *this;
-    }
-
-    template<typename Buffer>
-    payload& buffer(Buffer&& buffer)
-    {
-        data.insert(
-            data.cend(),
-            std::make_move_iterator(std::cbegin(buffer)),
-            std::make_move_iterator(std::cend(buffer))
-        );
         return *this;
     }
 

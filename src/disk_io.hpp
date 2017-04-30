@@ -6,9 +6,10 @@
 #include "disk_io_error.hpp"
 
 #include <system_error>
+#include <unordered_map>
 #include <functional>
+#include <memory>
 #include <vector>
-#include <map>
 
 #include <asio/io_service.hpp>
 
@@ -51,6 +52,7 @@ struct disk_io_info
 
 /**
  * All operations run asynchronously.
+ * TODO more commentz
  */
 class disk_io
 {
@@ -62,8 +64,6 @@ class disk_io
         virtual priority_t priority() = 0;
     };
 
-    class torrent_entry;
-
     // This is the io_service that runs the network thread. It is used to post handlers
     // on the network thread so that no syncing is required between the two threads.
     asio::io_service& m_network_ios;
@@ -74,13 +74,16 @@ class disk_io
     // and copies are made on demand.
     disk_io_info m_info;
 
+    class torrent_entry;
+
     // disk_io retains information about each torrent in the torrent engine. A torrent
     // entry is created when a torrent is allocated or resume data read.
-    std::map<torrent_id_t, torrent_entry> m_torrents;
+    std::unordered_map<torrent_id_t, std::unique_ptr<torrent_entry>> m_torrents;
 
 public:
 
     disk_io(asio::io_service& network_ios, const disk_io_settings& settings);
+    ~disk_io();
 
     /**
      * If there are more disk jobs running than what disk_io can keep up with, we should
@@ -180,6 +183,8 @@ public:
      * indicates a corrupt piece.
      *
      * The regular handler is always invoked after the save operation is done.
+     *
+     * The completion_handler is only stored once per piece.
      */
     void save_block(
         const torrent_id_t torrent,

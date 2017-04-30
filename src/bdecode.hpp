@@ -70,9 +70,6 @@ struct btoken
     }
 };
 
-struct bmap;
-class blist;
-
 namespace detail
 {
     class bcontainer;
@@ -334,6 +331,8 @@ public:
  * bmap cannot provide O(logn) like a regular tree based map would.
  */
 
+struct bmap;
+
 class blist
     : public detail::bcontainer
     , public belement
@@ -363,25 +362,25 @@ public:
     }
 
     /** Returns a lazy iterable range of all numbers in this list. */
-    numbers get_numbers()
+    numbers all_numbers() const
     {
         return numbers(*this);
     }
 
     /** Returns a lazy iterable range of all strings in this list. */
-    strings get_strings()
+    strings all_strings() const
     {
         return strings(*this);
     }
 
     /** Returns a lazy iterable range of all blist instances in this list. */
-    blists get_blists()
+    blists all_blists() const
     {
         return blists(*this);
     }
 
     /** Returns a lazy iterable range of all bmap instances in this list. */
-    bmaps get_bmaps()
+    bmaps all_bmaps() const
     {
         return bmaps(*this);
     }
@@ -588,7 +587,7 @@ struct bmap
         return btype::map;
     }
 
-    int64_t find_number(const std::string& key)
+    int64_t find_number(const std::string& key) const
     {
         int64_t result;
         if(try_find_number(key, result))
@@ -598,7 +597,7 @@ struct bmap
         throw std::invalid_argument(key + " not in bmap");
     }
 
-    bool try_find_number(const std::string& key, int64_t& result)
+    bool try_find_number(const std::string& key, int64_t& result) const
     {
         const auto token = find_token(key);
         if(!token || (token->type != btype::number))
@@ -609,7 +608,7 @@ struct bmap
         return true;
     }
 
-    std::string find_string(const std::string& key)
+    std::string find_string(const std::string& key) const
     {
         std::string result;
         if(try_find_string(key, result))
@@ -619,7 +618,7 @@ struct bmap
         throw std::invalid_argument(key + " not in bmap");
     }
 
-    bool try_find_string(const std::string& key, std::string& result)
+    bool try_find_string(const std::string& key, std::string& result) const
     {
         const auto token = find_token(key);
         if(!token || (token->type != btype::string))
@@ -630,7 +629,7 @@ struct bmap
         return true;
     }
 
-    blist find_blist(const std::string& key)
+    blist find_blist(const std::string& key) const
     {
         blist result;
         if(try_find_blist(key, result))
@@ -640,7 +639,7 @@ struct bmap
         throw std::invalid_argument(key + " not in bmap");
     }
 
-    bool try_find_blist(const std::string& key, blist& result)
+    bool try_find_blist(const std::string& key, blist& result) const
     {
         const auto token = find_token(key);
         if(!token || (token->type != btype::list))
@@ -651,7 +650,7 @@ struct bmap
         return true;
     }
 
-    bmap find_bmap(const std::string& key)
+    bmap find_bmap(const std::string& key) const
     {
         bmap result;
         if(try_find_bmap(key, result))
@@ -661,7 +660,7 @@ struct bmap
         throw std::invalid_argument(key + " not in bmap");
     }
 
-    bool try_find_bmap(const std::string& key, bmap& result)
+    bool try_find_bmap(const std::string& key, bmap& result) const
     {
         const auto token = find_token(key);
         if(!token || (token->type != btype::map))
@@ -672,7 +671,7 @@ struct bmap
         return true;
     }
 
-    std::unique_ptr<belement> operator[](const std::string& key)
+    std::unique_ptr<belement> operator[](const std::string& key) const
     {
         const auto token = find_token(key);
         if(!token)
@@ -700,11 +699,6 @@ struct bmap
         }
     }
 
-    std::unique_ptr<const belement> operator[](const std::string& key) const
-    {
-        return operator[](key);
-    }
-
     /** Returns a JSON-like, human readable string of this map. */
     std::string to_string() const
     {
@@ -716,7 +710,7 @@ struct bmap
 private:
 
     /**
-     * Returns the first the value in map (no matter which level of nesting) whose key
+     * Returns the first value in map (no matter at which level of nesting) whose key
      * matches the search key, or a nullptr if no match is found.
      *
      * Searching is linear in the number of tokens in m_tokens.

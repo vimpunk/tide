@@ -5,6 +5,9 @@
 #include "view.hpp"
 
 #include <memory>
+#include <array>
+
+#include <openssl/sha.h>
 
 /**
  * This class is used to verify pieces using the SHA-1 hashing algorithm.
@@ -15,16 +18,54 @@
  */
 class sha1_hasher
 {
-    struct sha1_context;
+    SHA_CTX m_context;
 
 public:
 
-    sha1_hasher() = default;
+    sha1_hasher();
 
-    sha1_hasher& update(const_view<uint8_t> data);
-    template<typename Buffer> sha1_hasher& update(const Buffer& buffer);
+    void reset();
+
+    sha1_hasher& update(const_view<uint8_t> buffer);
+    sha1_hasher& update(const std::string& buffer);
+    template<
+        typename Container,
+        typename = decltype(std::declval<Container>().data())
+    > sha1_hasher& update(const Container& buffer);
+    template<size_t N> sha1_hasher& update(const uint8_t (&buffer)[N]);
+    template<size_t N> sha1_hasher& update(const std::array<uint8_t, N>& buffer);
 
     sha1_hash finish();
 };
+
+template<typename Container, typename>
+sha1_hasher& sha1_hasher::update(const Container& buffer)
+{
+    return update(const_view<uint8_t>(buffer));
+}
+
+template<size_t N>
+sha1_hasher& sha1_hasher::update(const uint8_t (&buffer)[N])
+{
+    return update(const_view<uint8_t>(buffer));
+}
+
+template<size_t N>
+sha1_hasher& sha1_hasher::update(const std::array<uint8_t, N>& buffer)
+{
+    return update(const_view<uint8_t>(buffer));
+}
+
+/**
+ * This is a convenience method for when update would be called only once because all
+ * the data is available.
+ */
+template<typename Buffer>
+static sha1_hash create_sha1_digest(const Buffer& buffer)
+{
+    sha1_hasher hasher;
+    hasher.update(buffer);
+    return hasher.finish();
+}
 
 #endif // TORRENT_SHA1_HASHER_HEADER

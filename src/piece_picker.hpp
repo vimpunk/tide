@@ -11,7 +11,7 @@
 class piece_picker
 {
     bt_bitfield m_my_bitfield;
-    bool m_have_all_pieces = false;
+    int m_num_pieces_left;
 
     // Tracks each piece in the peer swarm and orders them by priority and frequency.
     class piece_tracker;
@@ -21,7 +21,7 @@ public:
 
     static constexpr int no_piece = -1;
 
-    explicit piece_picker(int num_pieces_);
+    explicit piece_picker(int num_pieces);
     explicit piece_picker(bt_bitfield available_pieces);
     ~piece_picker();
 
@@ -79,14 +79,22 @@ public:
     // For production code, pick_and_reserve should be used, the others are for testing.
 
     piece_index_t pick(const bt_bitfield& available_pieces) const;
-    std::vector<piece_index_t> pick(const bt_bitfield& available_pieces, const int n) const;
+    std::vector<piece_index_t> pick(
+        const bt_bitfield& available_pieces,
+        const int n
+    ) const;
 
     piece_index_t pick_and_reserve(const bt_bitfield& available_pieces);
-    std::vector<piece_index_t> pick_and_reserve(const bt_bitfield& available_pieces, const int n);
+    std::vector<piece_index_t> pick_and_reserve(
+        const bt_bitfield& available_pieces,
+        const int n
+    );
 
     piece_index_t pick_ignore_reserved(const bt_bitfield& available_pieces) const;
-    std::vector<piece_index_t>
-    pick_ignore_reserved(const bt_bitfield& available_pieces, const int n) const;
+    std::vector<piece_index_t> pick_ignore_reserved(
+        const bt_bitfield& available_pieces,
+        const int n
+    ) const;
 
     /**
      * Called when the client decides not to download the piece it has reserved using
@@ -135,7 +143,10 @@ private:
     bool should_pick(const bt_bitfield& available_pieces, const Piece& piece) const;
 
     /** Tests whether we're interested in the piece and whether peer has it. */
-    bool should_download_piece(const bt_bitfield& available_pieces, const piece_index_t piece) const;
+    bool should_download_piece(
+        const bt_bitfield& available_pieces,
+        const piece_index_t piece
+    ) const;
 };
 
 inline int piece_picker::num_pieces() const noexcept
@@ -168,12 +179,12 @@ inline const bt_bitfield& piece_picker::my_bitfield() const noexcept
 
 inline bool piece_picker::have_no_pieces() const noexcept
 {
-    return m_my_bitfield.are_none_set();
+    m_num_pieces_left == num_pieces();
 }
 
 inline bool piece_picker::have_all_pieces() const noexcept
 {
-    return m_have_all_pieces;
+    return m_num_pieces_left == 0;
 }
 
 #endif // TORRENT_PIECE_PICKER_HEADER

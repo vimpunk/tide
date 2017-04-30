@@ -68,16 +68,35 @@ public:
 
     size_type size() const noexcept { return length(); }
     size_type length() const noexcept { return m_length; }
-    bool is_empty() const noexcept { return m_length == 0; }
+    bool is_empty() const noexcept { return length() == 0; }
 
     pointer data() noexcept { return m_data; }
     const_pointer data() const noexcept { return m_data; }
 
     reference front() noexcept { return *data(); }
-    const_reference front() const noexcept { return front(); }
+    const_reference front() const noexcept { return *data(); }
 
     reference back() noexcept { return m_data[m_length - 1]; }
-    const_reference back() const noexcept { return back(); }
+    const_reference back() const noexcept { return m_data[m_length - 1]; }
+
+    iterator begin() noexcept { return data(); }
+    const_iterator begin() const noexcept { return data(); }
+    const_iterator cbegin() const noexcept { return begin(); }
+
+    iterator end() noexcept { return begin() + size(); }
+    const_iterator end() const noexcept { return begin() + size(); }
+    const_iterator cend() const noexcept { return end(); }
+
+    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+    const_reverse_iterator crbegin() const noexcept { return rbegin(); }
+
+    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+    const_reverse_iterator crend() const noexcept { return rend(); }
+
+    reference operator[](const size_type i) noexcept { return m_data[i]; }
+    const_reference operator[](const size_type i) const noexcept { return m_data[i]; }
 
     view<T> first_n(const size_type n) const
     {
@@ -133,25 +152,6 @@ public:
         }
         m_length -= n;
     }
-
-    iterator begin() noexcept { return data(); }
-    const_iterator begin() const noexcept { return begin(); }
-    const_iterator cbegin() const noexcept { return begin(); }
-
-    iterator end() noexcept { return begin() + size(); }
-    const_iterator end() const noexcept { return end(); }
-    const_iterator cend() const noexcept { return end(); }
-
-    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
-    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
-    const_reverse_iterator crbegin() const noexcept { return rbegin(); }
-
-    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
-    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
-    const_reverse_iterator crend() const noexcept { return rend(); }
-
-    reference operator[](const size_type i) noexcept { return m_data[i]; }
-    const_reference operator[](const size_type i) const noexcept { return m_data[i]; }
 };
 
 /** A specialization of the above class which holds an immutable view to its resource. */

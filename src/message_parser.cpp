@@ -10,8 +10,18 @@ message_parser::message_parser(int capacity) : m_capacity(capacity) {}
 
 void message_parser::change_capacity(const int n)
 {
+    if(n < size())
+    {
+        throw std::invalid_argument(
+            "can't set message_parser receive buffer capacity below last message"
+            "byte's position in buffer (must preserve unparsed messages)"
+        );
+    }
+    if(n < buffer_size())
+    {
+        shrink_to_fit(n);
+    }
     m_capacity = n;
-    shrink_to_fit(m_capacity);
 }
 
 void message_parser::reserve(const int n)
@@ -37,7 +47,7 @@ view<uint8_t> message_parser::get_receive_buffer(int n)
 {
     if(n > free_space_size())
     {
-        reserve(n);
+        reserve(free_space_size() + n);
         n = free_space_size();
     }
     return view<uint8_t>(&m_buffer[m_unused_begin], n);
@@ -88,19 +98,24 @@ message message_parser::extract()
 
 handshake message_parser::extract_handshake()
 {
+    if(!has(1))
+    {
+        throw std::runtime_error("message_parser has no handshake message");
+    }
     const uint8_t protocol_id_length = m_buffer[m_message_begin];
-    if(!has(1) || !has(49 + protocol_id_length))
+    if(!has(49 + protocol_id_length))
     {
         throw std::runtime_error("message_parser has no handshake message");
     }
 
     const uint8_t* pos = &m_buffer[m_message_begin + 1];
     handshake handshake;
-    handshake.protocol_id_length = protocol_id_length;
     handshake.protocol_id = const_view<uint8_t>(pos, protocol_id_length);
     handshake.reserved = const_view<uint8_t>(pos += protocol_id_length, 8);
     handshake.info_hash = const_view<uint8_t>(pos += 8, 20);
     handshake.peer_id = const_view<uint8_t>(pos += 20, 20);
+
+    // advance message cursor
     m_message_begin += 49 + protocol_id_length;
 
     optimize_receive_space();
@@ -110,11 +125,15 @@ handshake message_parser::extract_handshake()
 
 message message_parser::peek() const
 {
+    if(!has(4))
+    {
+        throw std::runtime_error("peek (4): message_parser has no messages");
+    }
     // don't use has_message() because the message length would be calculated twice then
     const int msg_length = view_message_length();
-    if(has(4 + msg_length))
+    if(!has(4 + msg_length))
     {
-        throw std::runtime_error("message_parser has no messages");
+        throw std::runtime_error("peek (4 + msg_len): message_parser has no messages");
     }
 
     message msg;
@@ -126,7 +145,8 @@ message message_parser::peek() const
     {
         const int msg_id_pos = m_message_begin + 4;
         msg.type = message_t(m_buffer[msg_id_pos]);
-        msg.data = const_view<uint8_t>(&m_buffer[msg_id_pos + 1], msg_length);
+        msg.data = const_view<uint8_t>(&m_buffer[msg_id_pos + 1], msg_length - 1);
+        // subtract message type
     }
     return msg;
 }
@@ -135,7 +155,7 @@ message_t message_parser::type() const
 {
     if(!has(4))
     {
-        throw std::runtime_error("message_parser has no messages");
+        throw std::runtime_error("type (4): message_parser has no messages");
     }
     if(view_message_length() == 0)
     {
@@ -143,7 +163,7 @@ message_t message_parser::type() const
     }
     if(!has(5))
     {
-        throw std::runtime_error("message_parser has no messages");
+        throw std::runtime_error("type (5): message_parser has no messages");
     }
     return message_t(m_buffer[m_message_begin + 4]);
 }
@@ -154,21 +174,24 @@ int message_parser::num_bytes_left_till_completion() const noexcept
     {
         return -1;
     }
-    const int num_bytes_left = m_unused_begin - m_message_begin;
+    const int num_available = m_unused_begin - m_message_begin;
     const int total_msg_length = 4 + view_message_length();
-    const int left = num_bytes_left - total_msg_length;
-    return left > 0 ? 0
-                    : left;
+    const int left = total_msg_length - num_available;
+    return std::max(left, 0);
 }
 
 void message_parser::skip()
 {
-    const int msg_length = 4 + view_message_length();
-    if(has(msg_length))
+    if(!has(4))
     {
-        throw std::runtime_error("message_parser has no messages");
+        throw std::runtime_error("skip (4): message_parser has no messages");
     }
-    m_message_begin += msg_length;
+    const int msg_length = 4 + view_message_length();
+    if(has(4 + msg_length))
+    {
+        throw std::runtime_error("skip (4 + msg_len): message_parser has no messages");
+    }
+    m_message_begin += 4 + msg_length;
     optimize_receive_space();
 }
 
@@ -180,7 +203,7 @@ inline bool message_parser::has(const int n) const noexcept
 inline int message_parser::view_message_length() const noexcept
 {
     assert(has(4));
-    return parse_u32(&m_buffer[m_message_begin]);
+    return parse_i32(&m_buffer[m_message_begin]);
 }
 
 inline void message_parser::optimize_receive_space()
@@ -192,32 +215,39 @@ inline void message_parser::optimize_receive_space()
         m_unused_begin = 0;
         return;
     }
-    // check if this is the last message
+
     if(has(4))
     {
-        const int msg_length = 4 + view_message_length();
-        if(has(msg_length) && (msg_length < m_unused_begin - m_message_begin))
+        // check if this is the last message
+        const int total_length = 4 + view_message_length();
+        if(has(total_length) && (total_length < m_unused_begin - m_message_begin))
         {
             // we only want to shift the message to the front if it's the last one
+            // (message is not the last if all its bytes are available and there's a
+            // gap between its end and the first unused byte)
             return;
         }
-        else if(msg_length > buffer_size())
+        if(total_length > buffer_size())
         {
             // it could very well be that the current (incomplete) message may not even
             // fit in the buffer, so in anticipation of completing this message, ensure
-            // that it fits in the buffer
-            m_buffer.resize(msg_length);
+            // that it completely fits in the buffer
+            // TODO decide if we want to do this here or whether this should be done
+            // by user
+            m_buffer.resize(total_length);
         }
     }
-    shift_incomplete_message_to_front();
+    shift_last_message_to_front();
 }
 
-inline void message_parser::shift_incomplete_message_to_front()
+inline void message_parser::shift_last_message_to_front()
 {
-    // the number of bytes we have of the message (not the length of the complete message)
+    // the number of bytes we have of the message (not necessarily the length of the
+    // complete message)
     const int num_have = m_unused_begin - m_message_begin;
     const auto msg_begin = m_buffer.begin() + m_message_begin;
     const auto msg_end = msg_begin + num_have;
+    assert(msg_begin != msg_end);
 
     std::copy(msg_begin, msg_end, m_buffer.begin());
 

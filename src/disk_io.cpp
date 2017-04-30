@@ -4,6 +4,9 @@
 #include "settings.hpp"
 #include "disk_io.hpp"
 
+#include <cmath>
+#include <map>
+
 // TODO cross platform
 #define PATH_SEPARATOR '/'
 
@@ -51,6 +54,11 @@ class disk_io::torrent_entry
         // This is called once the piece is complete and it has been hashed. The bool
         // parameter specifies whether the piece passed the hash test.
         std::function<void(bool)> completion_handler;
+
+        hash_context(const int num_blocks, std::function<void(bool)> handler)
+            : completion(num_blocks)
+            , completion_handler(std::move(handler))
+        {}
 
         bool is_piece_complete() const noexcept
         {
@@ -142,11 +150,20 @@ public:
         return find_hash_context(piece).hasher;
     }
 
-    void hashed_block(const block_info& block)
+    void hashed_block(
+        const block_info& block,
+        std::function<void(bool)> completion_handler)
     {
-        hash_context& context = find_hash_context(block.index);
+        auto it = m_hash_jobs.find(block.index);
+        if(it == m_hash_jobs.end())
+        {
+            it = m_hash_jobs.emplace(
+                block.index,
+                hash_context(num_blocks(block.index), std::move(completion_handler))
+            ).first;
+        }
+        hash_context& context = it->second;
         context.completion[block.offset / 0x4000] = true;
-
         if(context.is_piece_complete())
         {
             const bool is_valid = context.hasher.finish() == m_piece_hashes[block.index];
@@ -156,8 +173,8 @@ public:
 
 private:
 
-    static
-    std::map<int64_t, file_info> map_length_to_files(const std::vector<file_info>& files)
+    static std::map<int64_t, file_info>
+    map_length_to_files(const std::vector<file_info>& files)
     {
         std::map<int64_t, file_info> file_mapping;
         int64_t length_rsum = 0; // running sum
@@ -188,6 +205,14 @@ private:
         return it;
     }
 
+    int num_blocks(const piece_index_t piece) const noexcept
+    {
+        const int piece_length = piece == m_info.num_pieces - 1
+                               ? m_info.last_piece_length
+                               : m_info.piece_length;
+        return std::ceil(double(piece_length) / 0x4000);
+    }
+
     hash_context& find_hash_context(const piece_index_t piece)
     {
         auto it = m_hash_jobs.find(piece);
@@ -195,3 +220,130 @@ private:
         return it->second;
     }
 };
+
+// -------------
+// -- disk io --
+// -------------
+
+disk_io::disk_io(asio::io_service& network_ios, const disk_io_settings& settings)
+    : m_network_ios(network_ios)
+    , m_settings(settings)
+{}
+
+disk_io::~disk_io()
+{
+}
+
+bool disk_io::is_overwhelmed() const noexcept
+{
+    return false;
+}
+
+
+void disk_io::change_default_save_path(std::string path)
+{
+}
+
+void disk_io::change_cache_size(const int64_t n)
+{
+}
+
+void disk_io::read_all_torrent_states(
+    std::function<void(const std::error_code&, std::vector<torrent_state>)> handler,
+    const std::string& app_metadata_path)
+{
+}
+
+void disk_io::read_metainfo(
+    const std::string& metainfo_path,
+    std::function<void(const std::error_code&, metainfo)> handler)
+{
+}
+
+void disk_io::allocate_torrent(
+    const torrent_id_t torrent,
+    const torrent_info& info,
+    //const metainfo& metainfo,
+    std::function<void(const std::error_code&)> handler,
+    std::string save_path)
+{
+}
+
+void disk_io::move_torrent(
+    const torrent_id_t torrent,
+    std::function<void(const std::error_code&)> handler,
+    std::string new_path)
+{
+}
+
+void disk_io::rename_torrent(
+    const torrent_id_t torrent,
+    std::function<void(const std::error_code&)> handler,
+    std::string name)
+{
+}
+
+void disk_io::erase_torrent_files(
+    const torrent_id_t torrent,
+    std::function<void(const std::error_code&)> handler)
+{
+}
+
+void disk_io::erase_torrent_metadata(
+    const torrent_id_t torrent,
+    std::function<void(const std::error_code&)> handler)
+{
+}
+
+void disk_io::save_torrent_state(
+    const torrent_id_t torrent,
+    const torrent_state& state,
+    std::function<void(const std::error_code&)> handler)
+{
+}
+
+void disk_io::read_torrent_state(
+    const torrent_id_t torrent,
+    std::function<void(const std::error_code&, torrent_state)> handler)
+{
+}
+
+void disk_io::check_storage_integrity(std::function<void(const std::error_code&)> handler)
+{
+}
+
+void disk_io::create_sha1_digest(
+    const block_info& block_info,
+    const std::vector<uint8_t>& data,
+    std::function<void(const std::error_code&, sha1_hash)> handler)
+{
+}
+
+void disk_io::save_block(
+    const torrent_id_t torrent,
+    const block_info& block_info,
+    std::vector<uint8_t>&& data,
+    std::function<void(const std::error_code&)> handler,
+    std::function<void(bool)> completion_handler)
+{
+    auto it = m_torrents.find(torrent);
+    if(it == m_torrents.end())
+    {
+        return;
+    }
+    torrent_entry torrent_entry = *it->second;
+    // TODO ONLY FOR TESTING: simulate hashing block and call handler
+    torrent_entry.hashed_block(block_info, std::move(completion_handler));
+    handler(std::error_code());
+}
+
+void disk_io::fetch_block(
+    const torrent_id_t torrent,
+    const block_info& block_info,
+    std::function<void(const std::error_code&, block_source)> handler)
+{
+}
+
+void disk_io::abort_block_fetch(const torrent_id_t torrent, const block_info& block_info)
+{
+}

@@ -4,6 +4,7 @@
 #include <type_traits>
 #include <stdexcept>
 #include <iterator>
+#include <cassert>
 #include <string>
 #include <vector>
 #include <limits>
@@ -92,9 +93,10 @@ public:
             return false;
         }
         // need to check the last block separately because of the zeroed out excess bits
-        const block_type last_block_mask = ~block_type(0)
-                                         << num_excess_bits(bytes, num_bits);
-        return bytes.back() == last_block_mask;
+        const block_type last_block_mask = ~block_type(0) << num_excess_bits(bytes, num_bits);
+        return (bytes.back() & last_block_mask) == bytes.back();
+        // or, shift last block right (TODO test which is more optimal)
+        // return (block_type(bytes.back()) << (bits_per_block - num_excess_bits(bytes, num_bits))) == 0;
     }
 
     /** Returns the underlying byte sequence. */
@@ -104,8 +106,9 @@ public:
     }
 
     /**
-     * Returns the same number of bits that was supplied in the ctor (and not the
-     * number of bytes in the underlying storage).
+     * Returns the same number of bits that was supplied in the ctor (and not
+     * data().size(), which returns the number of bytes necessary to represent the
+     * bitfield).
      */
     size_type size() const noexcept
     {
@@ -357,6 +360,7 @@ private:
 
     const block_type& get_block(const int pos) const noexcept
     {
+        assert(pos < size());
         return m_blocks[block_index(pos)];
     }
 

@@ -67,7 +67,7 @@ public:
     bool can_request() const noexcept;
 
     /** Unique download means that the number of participants is one. */
-    bool is_unique_download() const noexcept;
+    bool is_exclusive() const noexcept;
     int num_participants() const noexcept;
     int num_blocks_left() const noexcept;
     piece_index_t piece_index() const noexcept;
@@ -93,7 +93,7 @@ public:
     void notify_all_of_hash_result(const bool is_piece_good);
 
     /**
-     * timeouts are handled differently depending on the completion of the piece. E.g.
+     * Timeouts are handled differently depending on the completion of the piece. E.g.
      * when we only have a single block in the piece missing, waiting for the timed out
      * peer to send its block would defer completion, so the requested block is freed so
      * that it may be downloaded from another peer sooner. If on the other hand there
@@ -127,7 +127,7 @@ private:
     int block_length(const int offset) const noexcept;
 };
 
-inline bool piece_download::is_unique_download() const noexcept
+inline bool piece_download::is_exclusive() const noexcept
 {
     return num_participants() == 1;
 }

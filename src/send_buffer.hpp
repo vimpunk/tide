@@ -71,9 +71,14 @@ class send_buffer
     // was not fully drained (m_first_unsent_byte > 0), it will have excess bytes, which
     // are not counted (since it's a temporary state and is not relevant to the caller).
     int m_size = 0;
-    //int m_capacity = 0;
+
+    // This is the upper bound on m_size.
+    // TODO CURRENTLY NOT ENFORCED
+    int m_capacity = 0;
 
 public:
+
+    explicit send_buffer(const int capacity);
 
     bool is_empty() const noexcept;
     int size() const noexcept;
@@ -86,9 +91,9 @@ public:
 
     /**
      * Returns an asio ConstBufferSequence compliant list of buffers whose total size is
-     * at least min_num_bytes.
+     * at most num_bytes (less if there aren't that many bytes available for sending).
      */
-    std::vector<asio::const_buffer> get_send_buffers(int min_num_bytes) const;
+    std::vector<asio::const_buffer> get_send_buffers(int num_bytes) const;
 
     /**
      * Must be called after send_buffer has been drained (sent to socket), so that

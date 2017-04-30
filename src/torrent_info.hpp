@@ -44,25 +44,35 @@ struct torrent_info
 
     int num_pieces;
 
-    // Latest upload and download rates in bytes/s, including BT protocol.
-    int up_rate = 0;
-    int down_rate = 0;
-
-    // Latest upload and download rates in bytes/s of actual file pieces.
-    int piece_up_rate = 0;
-    int piece_down_rate = 0;
+    // Latest payload (piece) upload and download rates in bytes/s.
+    int upload_rate = 0;
+    int download_rate = 0;
 
     // The highest upload and download rate recorded among all connections.
-    int peek_up_rate = 0;
-    int peek_down_rate = 0;
+    int peek_upload_rate = 0;
+    int peek_download_rate = 0;
 
     // The rate cap in bytes/s for this torrent (i.e. all peers in this torrent). No
     // limit is employed if the values are -1 (the default).
-    int up_rate_limit = -1;
-    int down_rate_limit = -1;
+    int upload_rate_limit = -1;
+    int download_rate_limit = -1;
+
+    // The total number of bad pieces in the entire connection.
+    int num_hash_fails = 0;
 
     // The number of requests to which we haven't gotten any response.
     int num_timed_out_requests = 0;
+
+    int total_bytes_written_to_disk = 0;
+    int total_bytes_read_from_disk = 0;
+
+    // The number of bytes that are waiting to be written to and read from disk,
+    // but are queued up.
+    int num_pending_disk_write_bytes = 0;
+    int num_pending_disk_read_bytes = 0;
+
+    // The number of piece bytes we're expecting to receive from all peers.
+    int num_pending_download_bytes = 0;
 
     bool is_seeding = false;
 };

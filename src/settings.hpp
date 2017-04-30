@@ -102,11 +102,11 @@ struct peer_session_settings
     // This is the number of seconds we wait for establishing a connection with a peer.
     // This should be lower than peer_timeout_sec, because until this peer is not
     // connected it takes up space from other potential candidates.
-    int peer_connect_timeout_s = 0;
+    int peer_connect_timeout_s = 60;
 
     // The roundtrip time threshold in seconds under which we attempt to request whole
     // pieces instead of blocks.
-    int whole_piece_rtt_threshold_s;
+    //int whole_piece_rtt_threshold_s;
 
     // The number of outstanding block requests peer is allowed to have at any given time.
     // If peer exceeds this number, all subsequent requests are rejected until the the

@@ -5,8 +5,9 @@
 #include "socket.hpp"
 #include "units.hpp"
 
-#include <vector>
 #include <string>
+#include <vector>
+#include <array>
 
 struct peer_info
 {
@@ -14,11 +15,15 @@ struct peer_info
     torrent_id_t torrent_id;
 
     // The 20 byte BitTorrent peer id.
-    sha1_hash peer_id;
+    peer_id id;
 
     // A string representing the peer's software, if available.
     std::string peer_client;
 
+    // These are the extensions peer supports.
+    std::array<uint8_t, 8> extensions;
+
+    // All pieces peer has.
     bt_bitfield available_pieces;
 
     tcp::endpoint local_endpoint;
@@ -42,22 +47,18 @@ struct peer_info
     // If we receive a piece that we already have, this is incremented.
     int64_t total_wasted_bytes = 0;
 
-    // Latest upload and download rates in bytes/s, including BT protocol.
-    int up_rate = 0;
-    int down_rate = 0;
-
-    // Latest upload and download rates in bytes/s of actual file pieces.
-    int piece_up_rate = 0;
-    int piece_down_rate = 0;
+    // Latest payload (piece) upload and download rates in bytes/s.
+    int upload_rate = 0;
+    int download_rate = 0;
 
     // The highest upload and download rate recorded in this connection.
-    int peek_up_rate = 0;
-    int peek_down_rate = 0;
+    int peek_upload_rate = 0;
+    int peek_download_rate = 0;
 
     // The maximum number of bytes/s we are allowed to send to or receive from peer. No
     // limit is employed if the values are -1 (the default).
-    int up_rate_limit = -1;
-    int down_rate_limit = -1;
+    int upload_rate_limit = -1;
+    int download_rate_limit = -1;
 
     int send_buffer_size = 0;
     int send_buffer_size_used = 0;

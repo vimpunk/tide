@@ -42,7 +42,6 @@ struct message
 
 struct handshake
 {
-    uint8_t protocol_id_length;
     const_view<uint8_t> protocol_id;
     // 8 reserved bytes used to identify extensions.
     const_view<uint8_t> reserved;
@@ -78,16 +77,37 @@ class message_parser
 
 public:
 
-    message_parser() = default; // TODO delete this
     explicit message_parser(int capacity);
 
+    /** These two operate on size() and buffer_size(). */
     bool is_full() const noexcept;
     bool is_empty() const noexcept;
+
+    /** The number of message bytes in receive buffer. */
     int size() const noexcept;
+
+    /**
+     * The total number of bytes buffer can currently hold, i.e.:
+     * size() + free_space_size().
+     */
     int buffer_size() const noexcept;
+
+    /** The number of bytes we can receive without reallocating the buffer. */
     int free_space_size() const noexcept;
+
+    /** The max number of bytes to which this buffer can grow. */
     int capacity() const noexcept;
 
+    /**
+     * The total number of bytes it can receive, though it may not have space allocated
+     * for it.
+     */
+    int capacity_left() const noexcept;
+
+    /**
+     * Changes the maximum capacity to n and shrinks the buffer size if necessary,
+     * but if n were to result in truncating unparsed messages, an exception is thrown.
+     */
     void change_capacity(const int n);
 
     /**
@@ -202,9 +222,9 @@ private:
     void optimize_receive_space();
 
     /**
-     * Shift incomplete message to the front of the buffer so that we can maximize the
-     * free receive space (because after the last valid message the message parser will
-     * most likely be filled with new messages).
+     * Shift last message to the front of the buffer so that we can maximize the free
+     * receive space (because after the last valid message the message parser will most
+     * likely be filled with new messages).
      *
      * from:
      *
@@ -218,7 +238,7 @@ private:
      *        vvvvvvvvvvvvvvvv
      *  ======----------------
      */
-    void shift_incomplete_message_to_front();
+    void shift_last_message_to_front();
 };
 
 inline bool message_parser::is_empty() const noexcept
@@ -251,5 +271,9 @@ inline int message_parser::capacity() const noexcept
     return m_capacity;
 }
 
+inline int message_parser::capacity_left() const noexcept
+{
+    return capacity() - size();
+}
 
 #endif // TORRENT_SEND_BUFFER_HEADER

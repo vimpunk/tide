@@ -1,5 +1,10 @@
 #include "send_buffer.hpp"
 
+#include <bitset>
+#include <cmath>
+
+send_buffer::send_buffer(const int capacity) : m_capacity(capacity) {}
+
 void send_buffer::append(std::vector<uint8_t> bytes)
 {
     assert(!bytes.empty() && "tried to add empty payload to send_buffer");
@@ -17,25 +22,37 @@ void send_buffer::append(const block_source& block)
     }
 }
 
-std::vector<asio::const_buffer> send_buffer::get_send_buffers(int min_num_bytes) const
+std::vector<asio::const_buffer> send_buffer::get_send_buffers(int num_bytes) const
 {
-    assert(min_num_bytes <= m_size && "requested more from send_buffer than available");
+    assert(num_bytes <= m_size && "requested more from send_buffer than available");
+
     std::vector<asio::const_buffer> buffers;
+    int send_size = 0;
     if(!m_buffers.empty())
     {
-        // first buffer may be partially sent
-        buffers.emplace_back(
-            m_buffers[0]->data() + m_first_unsent_byte, // pointer offset
-            m_buffers[0]->size() - m_first_unsent_byte  // array size
+        // first buffer may be partially sent, so treat separately
+        const int first_size = std::min(
+            m_buffers[0]->size() - m_first_unsent_byte, num_bytes
         );
-        for(auto i = 1; i < m_buffers.size(); ++i)
+        buffers.emplace_back(m_buffers[0]->data() + m_first_unsent_byte, first_size);
+        num_bytes -= first_size;
+        send_size += first_size;
+
+        for(auto i = 1; (i < m_buffers.size()) && (num_bytes > 0); ++i)
         {
             const auto& buffer = m_buffers[i];
-            buffers.emplace_back(buffer->data(), buffer->size());
-            min_num_bytes -= buffer->size();
-            if(min_num_bytes <= 0)
+            const int buffer_size = buffer->size();
+            if(buffer_size > num_bytes)
             {
-                break;
+                buffers.emplace_back(buffer->data(), num_bytes);
+                num_bytes = 0;
+                send_size += num_bytes;
+            }
+            else
+            {
+                buffers.emplace_back(buffer->data(), buffer_size);
+                num_bytes -= buffer_size;
+                send_size += buffer_size;
             }
         }
     }
@@ -45,11 +62,6 @@ std::vector<asio::const_buffer> send_buffer::get_send_buffers(int min_num_bytes)
 void send_buffer::consume(int num_sent_bytes)
 {
     assert(num_sent_bytes <= m_size && "sent more than what buffer has");
-
-    if(m_buffers.empty())
-    {
-        return;
-    }
 
     while(!m_buffers.empty() && (num_sent_bytes > 0))
     {

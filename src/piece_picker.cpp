@@ -2,6 +2,7 @@
 #include "random.hpp"
 
 #include <iostream>
+#include <cassert>
 #include <cmath>
 #include <list>
 #include <set>
@@ -720,18 +721,20 @@ public:
 // -- piece picker --
 // ------------------
 
-piece_picker::piece_picker(int num_pieces_)
-    : m_my_bitfield(num_pieces_)
-    , m_piece_tracker(new piece_tracker(num_pieces_))
+piece_picker::piece_picker(int num_pieces)
+    : m_my_bitfield(num_pieces)
+    , m_num_pieces_left(num_pieces)
+    , m_piece_tracker(new piece_tracker(num_pieces))
 {}
 
 piece_picker::piece_picker(bt_bitfield available_pieces)
     : m_my_bitfield(std::move(available_pieces))
-    , m_piece_tracker(new piece_tracker(available_pieces.size()))
+    , m_num_pieces_left(m_my_bitfield.size())
+    , m_piece_tracker(new piece_tracker(m_my_bitfield.size()))
 {}
 
-// In short: DO NOT DELETE THIS.
-// (unique_ptr's default deleter is a function that employs a static_assert
+// DO NOT DELETE THIS.
+// (unique_ptr's default deleter employs a static_assert
 // to ensure the raw pointer does not point to an incomplete type before
 // executing delete. Thus, the compiler generated dtor encounters a
 // static_assert and fails, because the default dtor is inline where
@@ -781,6 +784,7 @@ void piece_picker::decrease_frequency(const piece_index_t piece)
 
 void piece_picker::decrease_frequency(const bt_bitfield& available_pieces)
 {
+    assert(available_pieces.size() == num_pieces());
     for(piece_index_t piece = 0; piece < num_pieces(); ++piece)
     {
         if(available_pieces[piece])
@@ -826,7 +830,8 @@ piece_index_t piece_picker::pick(const bt_bitfield& available_pieces) const
     return candidates[detail::random_int(candidates.size() - 1)];
 }
 
-std::vector<piece_index_t> piece_picker::pick(const bt_bitfield& available_pieces, const int n) const
+std::vector<piece_index_t>
+piece_picker::pick(const bt_bitfield& available_pieces, const int n) const
 {
     std::vector<piece_index_t> indices;
     for(const auto& piece : *m_piece_tracker)
@@ -869,7 +874,8 @@ piece_picker::pick_and_reserve(const bt_bitfield& available_pieces, const int n)
     return indices;
 }
 
-piece_index_t piece_picker::pick_ignore_reserved(const bt_bitfield& available_pieces) const
+piece_index_t
+piece_picker::pick_ignore_reserved(const bt_bitfield& available_pieces) const
 {
     auto piece_it = m_piece_tracker->cbegin();
     const auto pieces_end = m_piece_tracker->cend();
@@ -928,13 +934,14 @@ void piece_picker::got(const piece_index_t piece)
 {
     m_my_bitfield.set(piece);
     unreserve(piece);
-    m_have_all_pieces = m_my_bitfield.are_all_set();
+    --m_num_pieces_left;
+    assert(m_num_pieces_left >= 0);
 }
 
 void piece_picker::lost(const piece_index_t piece)
 {
     m_my_bitfield.reset(piece);
-    m_have_all_pieces = false;
+    ++m_num_pieces_left;
 }
 
 void piece_picker::lost(const std::vector<piece_index_t>& pieces)
@@ -943,7 +950,7 @@ void piece_picker::lost(const std::vector<piece_index_t>& pieces)
     {
         m_my_bitfield.reset(piece);
     }
-    m_have_all_pieces = false;
+    m_num_pieces_left += pieces.size();
 }
 
 void piece_picker::make_top_priority(interval interval)
