@@ -72,17 +72,10 @@ class send_buffer
     // are not counted (since it's a temporary state and is not relevant to the caller).
     int m_size = 0;
 
-    // This is the upper bound on m_size.
-    // TODO CURRENTLY NOT ENFORCED
-    int m_capacity = 0;
-
 public:
-
-    explicit send_buffer(const int capacity);
 
     bool is_empty() const noexcept;
     int size() const noexcept;
-    //int capacity() const noexcept;
 
     void append(payload payload);
     void append(std::vector<uint8_t> bytes);

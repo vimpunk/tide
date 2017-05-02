@@ -17,8 +17,9 @@ struct peer_info
     // The 20 byte BitTorrent peer id.
     peer_id id;
 
-    // A string representing the peer's software, if available.
-    std::string peer_client;
+    // A string representing the peer's software, if available (left empty if peer
+    // could not be identified).
+    std::string client;
 
     // These are the extensions peer supports.
     std::array<uint8_t, 8> extensions;
@@ -31,7 +32,9 @@ struct peer_info
 
     // The pieces we're currently downloading from this peer (those that have been
     // downloaded but not yet been verified count as well).
-    std::vector<piece_index_t> downloading_pieces;
+    std::vector<piece_index_t> piece_downloads;
+
+    time_point connection_established_time;
 
     // The total number of piece bytes exchanged with this peer. Does not include
     // protocol overhead (both BitTorrent protocol and TCP/IP protocol).
@@ -52,19 +55,17 @@ struct peer_info
     int download_rate = 0;
 
     // The highest upload and download rate recorded in this connection.
-    int peek_upload_rate = 0;
-    int peek_download_rate = 0;
+    int peak_upload_rate = 0;
+    int peak_download_rate = 0;
 
     // The maximum number of bytes/s we are allowed to send to or receive from peer. No
     // limit is employed if the values are -1 (the default).
     int upload_rate_limit = -1;
     int download_rate_limit = -1;
 
+    // The amount of message bytes in these buffers.
     int send_buffer_size = 0;
-    int send_buffer_size_used = 0;
-
     int receive_buffer_size = 0;
-    int receive_buffer_size_used = 0;
 
     // The number of bad pieces in which this peer has participated.
     int num_hash_fails = 0;
@@ -86,9 +87,7 @@ struct peer_info
     int num_pending_disk_read_bytes = 0;
 
     // The number of piece bytes we're expecting to receive from peer.
-    int num_pending_download_bytes = 0;
-
-    int best_request_queue_length = 8;
+    int num_outstanding_bytes = 0;
 
     // The number of bytes this peer is allowed to send and receive until it is allotted
     // more (typically once per second) or requests more if it runs out.

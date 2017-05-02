@@ -20,10 +20,10 @@ struct torrent_info
     // All the files in this torrent.
     std::vector<file_info> files;
 
-    // The total size of the download, i.e. the sum of all file lengths.
-    int64_t size;
     // A value between 0 and 1.
     double completion;
+    // The total size of the download, i.e. the sum of all file lengths.
+    int64_t size;
 
     // The total number of piece bytes exchanged with all peers in this torrent. Does
     // not include protocol overhead (both BitTorrent protocol and TCP/IP protocol).
@@ -49,8 +49,8 @@ struct torrent_info
     int download_rate = 0;
 
     // The highest upload and download rate recorded among all connections.
-    int peek_upload_rate = 0;
-    int peek_download_rate = 0;
+    int peak_upload_rate = 0;
+    int peak_download_rate = 0;
 
     // The rate cap in bytes/s for this torrent (i.e. all peers in this torrent). No
     // limit is employed if the values are -1 (the default).
@@ -72,7 +72,7 @@ struct torrent_info
     int num_pending_disk_read_bytes = 0;
 
     // The number of piece bytes we're expecting to receive from all peers.
-    int num_pending_download_bytes = 0;
+    int num_outstanding_bytes = 0;
 
     bool is_seeding = false;
 };

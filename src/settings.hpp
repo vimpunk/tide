@@ -97,6 +97,7 @@ struct peer_session_settings
     // The number of seconds we should wait for a peer (regardless of the last sent
     // message type) before concluding it to have timed out and closing the connection.
     // The default is 2 minutes.
+    // TODO rework
     int peer_timeout_s = 120;
 
     // This is the number of seconds we wait for establishing a connection with a peer.
@@ -108,9 +109,9 @@ struct peer_session_settings
     // pieces instead of blocks.
     //int whole_piece_rtt_threshold_s;
 
-    // The number of outstanding block requests peer is allowed to have at any given time.
-    // If peer exceeds this number, all subsequent requests are rejected until the the
-    // number of outstanding requests drops below the limit.
+    // The number of outstanding block requests peer is allowed to have at any given
+    // time. If peer exceeds this number, all subsequent requests are rejected until the
+    // number of outstanding requests drops below this limit.
     int max_incoming_request_queue_size;
 
     // This is the number of outstanding block requests to peer we are allowed to have.

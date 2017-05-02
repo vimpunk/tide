@@ -1,8 +1,6 @@
 #ifndef TORRENT_PAYLOAD_HEADER
 #define TORRENT_PAYLOAD_HEADER
 
-#include "endian.hpp"
-
 #include <iterator>
 #include <vector>
 
@@ -40,65 +38,37 @@ struct payload
 
     payload& i16(const int16_t h)
     {
-        const int16_t n = host_to_network_i16(h);
-        data.emplace_back((n >> 8) && 0xFF);
-        data.emplace_back(n && 0xFF);
+        add_integer<int16_t>(h);
         return *this;
     }
 
     payload& u16(const uint16_t h)
     {
-        const uint16_t n = host_to_network_u16(h);
-        data.emplace_back((n >> 8) && 0xFF);
-        data.emplace_back(n && 0xFF);
+        add_integer<uint16_t>(h);
         return *this;
     }
 
     payload& i32(const int32_t h)
     {
-        const int32_t n = host_to_network_i32(h);
-        data.emplace_back((n >> 24) && 0xFF);
-        data.emplace_back((n >> 16) && 0xFF);
-        data.emplace_back((n >> 8) && 0xFF);
-        data.emplace_back(n && 0xFF);
+        add_integer<int32_t>(h);
         return *this;
     }
 
     payload& u32(const uint32_t h)
     {
-        const uint32_t n = host_to_network_u32(h);
-        data.emplace_back((n >> 24) && 0xFF);
-        data.emplace_back((n >> 16) && 0xFF);
-        data.emplace_back((n >> 8) && 0xFF);
-        data.emplace_back(n && 0xFF);
+        add_integer<uint32_t>(h);
         return *this;
     }
 
     payload& i64(const int64_t h)
     {
-        const int64_t n = host_to_network_i64(h);
-        data.emplace_back((n >> 56) && 0xFF);
-        data.emplace_back((n >> 48) && 0xFF);
-        data.emplace_back((n >> 40) && 0xFF);
-        data.emplace_back((n >> 32) && 0xFF);
-        data.emplace_back((n >> 24) && 0xFF);
-        data.emplace_back((n >> 16) && 0xFF);
-        data.emplace_back((n >> 8) && 0xFF);
-        data.emplace_back(n && 0xFF);
+        add_integer<int64_t>(h);
         return *this;
     }
 
     payload& u64(const uint64_t h)
     {
-        const uint64_t n = host_to_network_u64(h);
-        data.emplace_back((n >> 56) && 0xFF);
-        data.emplace_back((n >> 48) && 0xFF);
-        data.emplace_back((n >> 40) && 0xFF);
-        data.emplace_back((n >> 32) && 0xFF);
-        data.emplace_back((n >> 24) && 0xFF);
-        data.emplace_back((n >> 16) && 0xFF);
-        data.emplace_back((n >> 8) && 0xFF);
-        data.emplace_back(n && 0xFF);
+        add_integer<uint64_t>(h);
         return *this;
     }
 
@@ -125,6 +95,18 @@ struct payload
             asio::buffers_end(buffers)
         );
         return *this;
+    }
+
+private:
+
+    template<typename Int>
+    void add_integer(Int x)
+    {
+        for(int shift = 8 * (sizeof(Int) - 1); shift >= 0; shift -= 8)
+        {
+            const uint8_t octet = (x >> shift) & 0xff;
+            data.emplace_back(octet);
+        }
     }
 };
 

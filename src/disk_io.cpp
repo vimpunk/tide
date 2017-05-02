@@ -7,6 +7,8 @@
 #include <cmath>
 #include <map>
 
+#include <iostream>
+
 // TODO cross platform
 #define PATH_SEPARATOR '/'
 
@@ -44,8 +46,7 @@ class disk_io::torrent_entry
 
     struct hash_context
     {
-        // Each block that has been hashed is set to true. This is to avoid hashing the
-        // same blocks twice.
+        // Each block that has been hashed is set to true.
         std::vector<bool> completion;
 
         // Incremental hashing is employed, so this hasher is updated with each block.
@@ -56,11 +57,11 @@ class disk_io::torrent_entry
         std::function<void(bool)> completion_handler;
 
         hash_context(const int num_blocks, std::function<void(bool)> handler)
-            : completion(num_blocks)
+            : completion(num_blocks, false)
             , completion_handler(std::move(handler))
         {}
 
-        bool is_piece_complete() const noexcept
+        bool is_complete() const noexcept
         {
             for(const bool is_set : completion)
             {
@@ -154,6 +155,7 @@ public:
         const block_info& block,
         std::function<void(bool)> completion_handler)
     {
+        std::cerr << "hashing block...\n";
         auto it = m_hash_jobs.find(block.index);
         if(it == m_hash_jobs.end())
         {
@@ -164,9 +166,12 @@ public:
         }
         hash_context& context = it->second;
         context.completion[block.offset / 0x4000] = true;
-        if(context.is_piece_complete())
+        if(context.is_complete())
         {
-            const bool is_valid = context.hasher.finish() == m_piece_hashes[block.index];
+            //const bool is_valid = context.hasher.finish() == m_piece_hashes[block.index];
+            // TODO only for the duration of the initial tests
+            std::cerr << "piece is fully downloaded, notifying its completors of the hash  test results\n";
+            const bool is_valid = true;
             context.completion_handler(is_valid);
         }
     }
@@ -267,6 +272,14 @@ void disk_io::allocate_torrent(
     std::function<void(const std::error_code&)> handler,
     std::string save_path)
 {
+    m_torrents.emplace(
+        torrent,
+        std::make_unique<torrent_entry>(
+            std::move(save_path),
+            info,
+            std::vector<sha1_hash>()
+        )
+    );
 }
 
 void disk_io::move_torrent(
@@ -329,12 +342,23 @@ void disk_io::save_block(
     auto it = m_torrents.find(torrent);
     if(it == m_torrents.end())
     {
+        std::cerr << "error, torrent not found\n";
         return;
     }
-    torrent_entry torrent_entry = *it->second;
-    // TODO ONLY FOR TESTING: simulate hashing block and call handler
-    torrent_entry.hashed_block(block_info, std::move(completion_handler));
-    handler(std::error_code());
+    // TODO ONLY FOR THE DURATION OF THE TESTS
+    m_network_ios.post(
+        [handler = std::move(handler)]
+        {
+            handler(std::error_code());
+        }
+    );
+    m_network_ios.post(
+        [completion_handler = std::move(completion_handler), it, block_info]
+        {
+            torrent_entry torrent_entry = *it->second;
+            torrent_entry.hashed_block(block_info, std::move(completion_handler));
+        }
+    );
 }
 
 void disk_io::fetch_block(

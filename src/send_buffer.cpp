@@ -3,8 +3,6 @@
 #include <bitset>
 #include <cmath>
 
-send_buffer::send_buffer(const int capacity) : m_capacity(capacity) {}
-
 void send_buffer::append(std::vector<uint8_t> bytes)
 {
     assert(!bytes.empty() && "tried to add empty payload to send_buffer");

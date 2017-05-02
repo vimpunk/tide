@@ -59,6 +59,12 @@ private:
     // Thus this is only decremented on a call to got_block().
     int m_num_blocks_left;
 
+    // This is incremented with every block request that was made and only decremented
+    // if a request times out. This means that even if we receive the block this is not
+    // decremented. This is used to check if we can make requests for this piece or we
+    // should move on to another.
+    int m_num_blocks_picked = 0;
+
 public:
 
     piece_download(const piece_index_t index, const int piece_length);
@@ -71,6 +77,9 @@ public:
     int num_participants() const noexcept;
     int num_blocks_left() const noexcept;
     piece_index_t piece_index() const noexcept;
+
+    /** Checks if we already downloaded block. */
+    bool got_block(const block_info& block) const noexcept;
 
     /**
      * When a part of the piece is received, it must be registered. The completion
@@ -122,6 +131,7 @@ public:
 
 private:
 
+    void verify_block(const block_info& block) const;
     int block_index(const block_info& block) const noexcept;
     int num_blocks(const int piece_length) const noexcept;
     int block_length(const int offset) const noexcept;
@@ -139,7 +149,7 @@ inline int piece_download::num_participants() const noexcept
 
 inline bool piece_download::can_request() const noexcept
 {
-    return num_blocks_left() > 0;
+    return m_num_blocks_picked < m_completion.size();
 }
 
 inline int piece_download::num_blocks_left() const noexcept

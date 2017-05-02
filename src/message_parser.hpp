@@ -68,18 +68,12 @@ class message_parser
     // message length field.
     int m_message_begin = 0;
 
-    // Since we're filling m_buffer when ensuring capacity, we need to know where
-    // received bytes end and where the "empty" space start.
+    // This is first byte after the last message byte, so anything in the range
+    // [m_unused_begin, buffer_size()) is garbage.
     int m_unused_begin = 0;
-
-    // This is the upper bound on the receive buffer's capacity.
-    int m_capacity;
 
 public:
 
-    explicit message_parser(int capacity);
-
-    /** These two operate on size() and buffer_size(). */
     bool is_full() const noexcept;
     bool is_empty() const noexcept;
 
@@ -95,24 +89,9 @@ public:
     /** The number of bytes we can receive without reallocating the buffer. */
     int free_space_size() const noexcept;
 
-    /** The max number of bytes to which this buffer can grow. */
-    int capacity() const noexcept;
-
     /**
-     * The total number of bytes it can receive, though it may not have space allocated
-     * for it.
-     */
-    int capacity_left() const noexcept;
-
-    /**
-     * Changes the maximum capacity to n and shrinks the buffer size if necessary,
-     * but if n were to result in truncating unparsed messages, an exception is thrown.
-     */
-    void change_capacity(const int n);
-
-    /**
-     * Ensures that we have space to receive min(n, capacity()) bytes. Does nothing if
-     * we do, resizes the receive buffer if we don't.
+     * Ensures that we have space to receive n bytes. Does nothing if we do, resizes
+     * the receive buffer if we don't.
      */
     void reserve(const int n);
 
@@ -264,16 +243,6 @@ inline int message_parser::free_space_size() const noexcept
 inline int message_parser::buffer_size() const noexcept
 {
     return m_buffer.size();
-}
-
-inline int message_parser::capacity() const noexcept
-{
-    return m_capacity;
-}
-
-inline int message_parser::capacity_left() const noexcept
-{
-    return capacity() - size();
 }
 
 #endif // TORRENT_SEND_BUFFER_HEADER

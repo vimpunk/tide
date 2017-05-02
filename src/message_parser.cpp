@@ -6,31 +6,13 @@
 #include <cassert>
 #include <cmath>
 
-message_parser::message_parser(int capacity) : m_capacity(capacity) {}
-
-void message_parser::change_capacity(const int n)
-{
-    if(n < size())
-    {
-        throw std::invalid_argument(
-            "can't set message_parser receive buffer capacity below last message"
-            "byte's position in buffer (must preserve unparsed messages)"
-        );
-    }
-    if(n < buffer_size())
-    {
-        shrink_to_fit(n);
-    }
-    m_capacity = n;
-}
-
 void message_parser::reserve(const int n)
 {
     if(n <= buffer_size())
     {
         return;
     }
-    m_buffer.resize(std::min(n, capacity()));
+    m_buffer.resize(n);
 }
 
 void message_parser::shrink_to_fit(const int n)
@@ -186,10 +168,10 @@ void message_parser::skip()
     {
         throw std::runtime_error("skip (4): message_parser has no messages");
     }
-    const int msg_length = 4 + view_message_length();
-    if(has(4 + msg_length))
+    const int msg_length = view_message_length();
+    if(!has(4 + msg_length))
     {
-        throw std::runtime_error("skip (4 + msg_len): message_parser has no messages");
+        throw std::runtime_error("skip (4 + msg_length): message_parser has no messages");
     }
     m_message_begin += 4 + msg_length;
     optimize_receive_space();
