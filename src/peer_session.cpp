@@ -4,6 +4,7 @@
 #include "piece_picker.hpp"
 #include "peer_session.hpp"
 #include "torrent_info.hpp"
+#include "string_utils.hpp"
 #include "settings.hpp"
 #include "disk_io.hpp"
 #include "payload.hpp"
@@ -14,6 +15,7 @@
 #include <stdexcept>
 #include <cassert>
 #include <string>
+#include <bitset>
 #include <cmath> // min, max
 #include <cstdio> // snprintf
 
@@ -777,6 +779,7 @@ inline int peer_session::flush_socket()
         if((ec == asio::error::would_block) || (ec == asio::error::try_again))
         {
             // this is not an error, just ignore
+            log(log_event::incoming, "failed to sync read from socket");
         }
         else if(ec)
         {
@@ -949,12 +952,38 @@ void peer_session::handle_handshake()
     }
 
     log(log_event::incoming,
-        "HANDSHAKE (protocol: %s; extensions: %s; info_hash: %s, client_id: %s)",
+        "HANDSHAKE (protocol: %s; extensions: %s; info_hash: %s; client_id: %s%s)",
         handshake.protocol_id.data(),
         m_info.extensions.data(),
         info_hash.data(),
-        m_info.id.data()
+        m_info.id.data(),
+        m_info.client.empty() ? "" : ("; " + m_info.client).c_str()
     );
+
+    /*
+    std::string extensions_str = [this]() -> std::string
+    {
+        std::string ret;
+        ret.reserve(64);
+        for(const uint8_t b : m_info.extensions)
+        {
+            for(const char c : std::bitset<8>(b).to_string())
+            {
+                ret += c;
+            }
+        }
+        return ret;
+    }();
+    std::string info_hash_str = detail::to_hex(info_hash);
+    log(log_event::outgoing,
+        "HANDSHAKE (protocol: %s; extensions: %s; info_hash: %s; client_id: %s%s)",
+        handshake.protocol_id,
+        extensions_str.c_str(),
+        info_hash_str.c_str(),
+        m_info.id.data(),
+        m_info.client.empty() ? "" : ("; " + m_info.client).c_str()
+    );
+    */
 
     // move on to the next stage
     m_info.state = peer_info::state_t::bitfield_exchange;
@@ -1336,12 +1365,11 @@ void peer_session::handle_block()
                 on_piece_hashed(piece, is_piece_good);
             }
         );
-        save_block(
-            block_info,
-            // exclude the block header (index and offset)
-            std::vector<uint8_t>(msg.data.begin() + 8, msg.data.end()),
-            *piece_download
-        );
+        disk_buffer block = m_disk_io.get_write_buffer();
+        assert(block);
+        // exclude the block header (index and offset, both 4 bytes)
+        std::copy(msg.data.begin() + 8, msg.data.end(), block.data());
+        save_block(block_info, std::move(block), *piece_download);
     }
     send_requests();
 }
@@ -1386,7 +1414,6 @@ inline void peer_session::adjust_request_timeout() // TODO rename
 
 inline void peer_session::adjust_best_request_queue_size() noexcept
 {
-    const int old_best_request_queue_size = m_best_request_queue_size;
     if(m_info.has_peer_timed_out)
     {
         m_best_request_queue_size = 1;
@@ -1394,6 +1421,7 @@ inline void peer_session::adjust_best_request_queue_size() noexcept
         return;
     }
 
+    const int old_best_request_queue_size = m_best_request_queue_size;
     if(m_work_state(slow_start))
     {
         // if our download rate is not increasing significantly anymore, exit slow start
@@ -1426,6 +1454,8 @@ inline void peer_session::adjust_best_request_queue_size() noexcept
     {
         m_best_request_queue_size = 2;
     }
+
+    assert(m_best_request_queue_size > 0);
 
     if(m_best_request_queue_size != old_best_request_queue_size)
     {
@@ -1535,7 +1565,7 @@ inline void peer_session::handle_unknown_message()
 
 inline void peer_session::save_block(
     const block_info& block_info,
-    std::vector<uint8_t> block_data,
+    disk_buffer block_data,
     piece_download& piece_download)
 {
     m_work_state.started(writing_disk);
@@ -1554,7 +1584,8 @@ inline void peer_session::save_block(
         [this, &piece_download](const bool is_piece_good)
         {
             // this callback is invoked when adding this block has finished piece and
-            // hashing the piece is done
+            // hashing the piece is done; it notifies all peer_sessions who helped to
+            // download this piece of the hash test, including this instance
             piece_download.notify_all_of_hash_result(is_piece_good);
         }
     );
@@ -1747,6 +1778,31 @@ void peer_session::send_handshake()
         m_torrent_info->info_hash.data(),
         m_settings.client_id.data()
     );
+
+    /*
+    std::string extensions_str = [&extensions]() -> std::string
+    {
+        std::string ret;
+        ret.reserve(64);
+        for(const uint8_t b : extensions)
+        {
+            for(const char c : std::bitset<8>(b).to_string())
+            {
+                ret += c;
+            }
+        }
+        return ret;
+    }();
+    std::string info_hash_str = detail::to_hex(m_torrent_info->info_hash);
+    log(log_event::outgoing,
+        "HANDSHAKE (protocol: %s; extensions: %s; info_hash: %s; client_id: %s)",
+        protocol_id,
+        extensions_str.c_str(),
+        info_hash_str.c_str(),
+        m_settings.client_id.data()
+    );
+    */
+
 }
 
 // ----------------------------------
@@ -1955,8 +2011,8 @@ void peer_session::send_requests()
 inline bool peer_session::can_send_requests() const noexcept
 {
     return m_sent_requests.size() < m_best_request_queue_size
-        && !m_info.am_choked
-        && m_info.am_interested;
+        && m_info.am_interested
+        && !m_info.am_choked;
 }
 
 inline int peer_session::make_requests_in_parole_mode()
@@ -2321,43 +2377,52 @@ void peer_session::log(
     const std::string& format,
     Args&&... args) const
 {
+    // TODO proper logging
+    std::cerr << '[';
+    if(event != log_event::connecting)
+    {
+        std::cerr << '+';
+        std::cerr << total_seconds(cached_clock::now() - m_connection_established_time);
+        std::cerr << "s | ";
+    }
+    switch(event)
+    {
+    case log_event::connecting:
+        std::cerr << "CONNECTING";
+        break;
+    case log_event::disconnecting:
+        std::cerr << "DISCONNECTING";
+        break;
+    case log_event::incoming:
+        std::cerr << "IN";
+        break;
+    case log_event::outgoing:
+        std::cerr << "OUT";
+        break;
+    case log_event::disk:
+        std::cerr << "DISK";
+        break;
+    case log_event::invalid_message:
+        std::cerr << "INVALID MESSAGE";
+        break;
+    case log_event::parole:
+        std::cerr << "PAROLE";
+        break;
+    case log_event::timeout:
+        std::cerr << "TIMEOUT";
+        break;
+    case log_event::request:
+        std::cerr << "REQUEST";
+        break;
+    }
+    std::cerr << "] -- ";
+
     // + 1 for '\0'
     const size_t length = std::snprintf(nullptr, 0, format.c_str(), args...) + 1;
     std::unique_ptr<char[]> buffer(new char[length]);
     std::snprintf(buffer.get(), length, format.c_str(), args...);
     // -1 to exclude the '\0' at the end
     std::string message(buffer.get(), buffer.get() + length - 1);
-    switch(event)
-    {
-    case log_event::connecting:
-        std::cerr << "[CONNECTING] -- ";
-        break;
-    case log_event::disconnecting:
-        std::cerr << "[DISCONNECTING] -- ";
-        break;
-    case log_event::incoming:
-        std::cerr << "[IN] -- ";
-        break;
-    case log_event::outgoing:
-        std::cerr << "[OUT] -- ";
-        break;
-    case log_event::disk:
-        std::cerr << "[DISK] -- ";
-        break;
-    case log_event::invalid_message:
-        std::cerr << "[INVALID MESSAGE] -- ";
-        break;
-    case log_event::parole:
-        std::cerr << "[PAROLE] -- ";
-        break;
-    case log_event::timeout:
-        std::cerr << "[TIMEOUT] -- ";
-        break;
-    case log_event::request:
-        std::cerr << "[REQUEST] -- ";
-        break;
-    }
-    // TODO proper logging
     std::cerr << message << '\n';
 }
 

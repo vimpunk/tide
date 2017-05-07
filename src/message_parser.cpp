@@ -25,14 +25,13 @@ void message_parser::shrink_to_fit(const int n)
     m_buffer.resize(std::max(n, size()));
 }
 
-view<uint8_t> message_parser::get_receive_buffer(int n)
+view<uint8_t> message_parser::get_receive_buffer(const int n)
 {
     if(n > free_space_size())
     {
-        reserve(free_space_size() + n);
-        n = free_space_size();
+        reserve(buffer_size() + n - free_space_size());
     }
-    return view<uint8_t>(&m_buffer[m_unused_begin], n);
+    return view<uint8_t>(&m_buffer[m_unused_begin], m_unused_begin + n);
 }
 
 void message_parser::record_received_bytes(const int n) noexcept

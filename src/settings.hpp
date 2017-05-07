@@ -1,6 +1,8 @@
 #ifndef TORRENT_GLOBAL_SETTINGS_HEADER
 #define TORRENT_GLOBAL_SETTINGS_HEADER
 
+#include "units.hpp"
+
 #include <string>
 #include <array>
 
@@ -9,11 +11,11 @@ struct torrent_engine_settings
     // The client's name and version should come here. This will be used when contacting
     // trackers and when interacting with peers that support the extension.
     // It must be 20 bytes long.
-    std::array<char, 20> client_id;
+    peer_id client_id;
 
     // This is the ip address that will be used when contacting trackers. Omitted if
     // not specified.
-    std::string announce_ip;
+    //std::string announce_ip;
 
     // Normally the TCP/IP overhead is not included when limiting torrent bandwidth. With
     // this set, an esimate of the overhead is added to the traffic.

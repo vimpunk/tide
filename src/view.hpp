@@ -98,24 +98,6 @@ public:
     reference operator[](const size_type i) noexcept { return m_data[i]; }
     const_reference operator[](const size_type i) const noexcept { return m_data[i]; }
 
-    view<T> first_n(const size_type n) const
-    {
-        if(n > size())
-        {
-            throw std::out_of_range("tried to create a subview that is larger than view");
-        }
-        return { data(), n };
-    }
-
-    view<T> last_n(const size_type n) const
-    {
-        if(n > size())
-        {
-            throw std::out_of_range("tried to create a subview that is larger than view");
-        }
-        return { data() + n, n };
-    }
-
     view<T> subview(const size_type offset) const
     {
         if(offset > size())
@@ -134,21 +116,21 @@ public:
         return { data() + offset, count };
     }
 
-    void remove_prefix(const size_type n)
+    void trim_front(const size_type n)
     {
         if(n > size())
         {
-            throw std::out_of_range("tried to remove prefix larger than size");
+            throw std::out_of_range("tried to trim more from front of view than its size");
         }
         m_data += n;
         m_length -= n;
     }
 
-    void remove_suffix(const size_type n)
+    void trim_back(const size_type n)
     {
         if(n > size())
         {
-            throw std::out_of_range("tried to remove suffix larger than size");
+            throw std::out_of_range("tried to trim more from back of view than its size");
         }
         m_length -= n;
     }

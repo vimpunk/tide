@@ -8,6 +8,7 @@
 #include "message_parser.hpp"
 #include "state_tracker.hpp"
 #include "send_buffer.hpp"
+#include "disk_buffer.hpp"
 #include "block_info.hpp"
 #include "peer_info.hpp"
 #include "socket.hpp"
@@ -460,7 +461,7 @@ private:
 
     void save_block(
         const block_info& block_info,
-        std::vector<uint8_t> block_data,
+        disk_buffer block_data,
         piece_download& piece_download
     );
 

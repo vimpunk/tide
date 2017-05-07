@@ -104,10 +104,10 @@ public:
     /**
      * This returns the range of memory:
      * [unused_begin, unused_begin + min(n, free_space_size())
-     * in which we can receive bytes. If there is no space for n bytes, reserve(n) is
-     * called.
+     * in which we can receive bytes. If there is no space for n bytes, space is
+     * reserved.
      */
-    view<uint8_t> get_receive_buffer(int n);
+    view<uint8_t> get_receive_buffer(const int n);
 
     /**
      * Records the number of bytes we managed to read (as it may not be the same amount

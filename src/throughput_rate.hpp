@@ -4,6 +4,9 @@
 #include "sliding_average.hpp"
 #include "time.hpp"
 
+#include <cassert>
+#include <iostream>
+
 /**
  * This is an exponential moving average accumulator that can be used for measuring
  * anything where a bytes/second unit makes sense, such as measuring network throughput,
@@ -22,7 +25,7 @@ template<
 {
     sliding_average<WindowSizeSeconds> m_rate;
     time_point m_last_update_time;
-    int64_t m_num_leftover_bytes = 0;
+    int64_t m_num_bytes_left = 0;
 
 public:
 
@@ -32,40 +35,48 @@ public:
      * Every time a transfer occured on the link whose throughput rate this object is
      * monitoring, this function should be called with the number of transferred bytes.
      */
-    void update(int num_bytes)
+    void update(const int num_bytes)
     {
-        num_bytes += m_num_leftover_bytes;
+        m_num_bytes_left += num_bytes;
         const time_point now = cached_clock::now();
         const duration elapsed = now - m_last_update_time;
 
-        if(elapsed < seconds(1))
+        std::cerr << "\tnum_bytes: " << m_num_bytes_left << '\n';
+        std::cerr << "\telapsed time in ms since last update: "
+            << total_milliseconds(elapsed) << '\n';
+        std::cerr << "\tlast update time in s: "
+            << duration_cast<seconds>(m_last_update_time.time_since_epoch()).count() << '\n';
+
+        if(elapsed >= seconds(1))
         {
-            m_num_leftover_bytes += num_bytes;
-        }
-        else
-        {
+            std::cerr << "\tmore than a second elapsed\n";
             // the number of bytes that was transferred over the link in the time
             // elapsed is partitioned up in proportion to the number of full and the
             // fraction of a second that passed, and only update m_rate with the full
             // second's number of bytes and leave the fraction second's ratio for the
             // next update (this ensures that the running average accumulator records
             // consistent values)
-            auto elapsed_ms = total_milliseconds(elapsed);
-            const int full_elapsed_s = total_seconds(elapsed);
+            const auto elapsed_ms = total_milliseconds(elapsed);
+            const int full_elapsed_s = elapsed_ms / 1000;
+            assert(full_elapsed_s >= 1);
             // the number of bytes that was transmitted in a full second
-            const int full_second_num_bytes = num_bytes / full_elapsed_s;
+            const int full_second_num_bytes = m_num_bytes_left / full_elapsed_s;
+            std::cerr << "\tms: " << elapsed_ms << "\tfull s: " << full_elapsed_s
+                << "\tb/full s: " << full_second_num_bytes << '\n';
 
             for(auto i = 0; i < full_elapsed_s; ++i)
             {
                 m_rate.add_sample(full_second_num_bytes);
-                num_bytes -= full_second_num_bytes;
+                m_num_bytes_left -= full_second_num_bytes;
             }
             // updates happen at full seconds and since the bytes left over here are
             // going to be added when the next full second is reached, we must keep the
             // update time points aligned at full seconds (relative to our starting
             // point) as well
             m_last_update_time = m_last_update_time + seconds(full_elapsed_s);
-            m_num_leftover_bytes = num_bytes;
+            std::cerr << "\tleftover bytes: " << m_num_bytes_left << '\n';
+        std::cerr << "\tupdate time in s: "
+            << duration_cast<seconds>(m_last_update_time.time_since_epoch()).count() << '\n';
         }
     }
 

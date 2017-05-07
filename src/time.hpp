@@ -26,21 +26,12 @@ using deadline_timer = asio::basic_waitable_timer<clock_type>;
  * global cached time_point instance can be used where accuracy is not instrumental.
  *
  * Some event loop should call update() at fixed intervals to update the cached clock.
- * Currently this is done my torrent_engine's internal update method.
+ * Currently this is done by one of torrent_engine's internal update method.
  */
 namespace cached_clock
 {
-    static time_point g_cached_time(clock_type::now());
-
-    inline time_point now() noexcept
-    {
-        return g_cached_time;
-    }
-
-    inline void update()
-    {
-        g_cached_time = clock_type::now();
-    }
+    time_point now() noexcept;
+    void update();
 }
 
 template<typename Duration>

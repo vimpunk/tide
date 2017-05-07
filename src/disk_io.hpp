@@ -2,8 +2,11 @@
 #define TORRENT_DISK_IO_HEADER
 
 #include "block_disk_buffer.hpp"
+#include "average_counter.hpp"
 #include "torrent_state.hpp"
 #include "disk_io_error.hpp"
+#include "disk_buffer.hpp"
+#include "time.hpp"
 
 #include <system_error>
 #include <unordered_map>
@@ -12,8 +15,10 @@
 #include <vector>
 
 #include <asio/io_service.hpp>
+#include <boost/pool/pool.hpp>
 
 class metainfo;
+class torrent_storage;
 struct torrent_info;
 struct disk_io_settings;
 
@@ -33,6 +38,7 @@ struct disk_io_info
     // The average number of milliseconds a job is queued up (is waiting to be executed).
     int avg_wait_time_ms = 0;
     // The average number of milliseconds it takes to write to and read from disk.
+    // TODO use chrono duration types for these
     int avg_write_time_ms = 0;
     int avg_read_time_ms = 0;
     int avg_hash_time_ms = 0;
@@ -61,24 +67,42 @@ class disk_io
         enum class priority_t { high, normal, low };
         virtual ~disk_job() = default;
         virtual void execute() = 0;
-        virtual priority_t priority() = 0;
+        virtual priority_t priority() { return priority_t::normal; }
     };
 
     // This is the io_service that runs the network thread. It is used to post handlers
-    // on the network thread so that no syncing is required between the two threads.
+    // on the network thread so that no syncing is required between the two threads, as
+    // io_service is thread-safe.
     asio::io_service& m_network_ios;
 
     const disk_io_settings& m_settings;
 
     // Statistics are gathered here. One copy persists throughout the entire application
-    // and copies are made on demand.
+    // and copies for other modules are made on demand.
     disk_io_info m_info;
 
-    class torrent_entry;
+    // Only disk_io can instantiate disk_buffers so that instances can be resued.
+    boost::pool<> m_disk_buffer_pool;
 
-    // disk_io retains information about each torrent in the torrent engine. A torrent
-    // entry is created when a torrent is allocated or resume data read.
-    std::unordered_map<torrent_id_t, std::unique_ptr<torrent_entry>> m_torrents;
+    // These are the partial pieces we already have. They contain information about the
+    // state of the hashing. The blocks/partial piece to which this state object refers
+    // may or may not be in memory, depending on whether it has been evicted from cache
+    // (write jobs are deferred as much as possible).
+    std::vector<incomplete_piece_state> m_write_pieces;
+
+    // Each torrent is associated with a torrent_storage instance which encapsulates the
+    // implementation of instantiating the storage, saving and loading blocks from disk,
+    // renaming/moving/deleting files etc.
+    std::unordered_map<torrent_id_t, std::unique_ptr<torrent_storage>> m_torrents;
+
+    // TODO record pending disk reads: this is necessary if multiple requests are issued
+    // for blocks in the same piece to avoid multiple disk jobs for the same piece
+    //std::deque<std::shared_ptr<disk_job>> m_outstanding_read_jobs;
+
+    average_counter m_avg_hash_time;
+    average_counter m_avg_write_time;
+    average_counter m_avg_read_time;
+    average_counter m_avg_job_time;
 
 public:
 
@@ -167,10 +191,21 @@ public:
      * The lifetime of data must be ensured until the invocation of the handler.
      */
     void create_sha1_digest(
-        const block_info& block_info,
-        const std::vector<uint8_t>& data,
-        std::function<void(const std::error_code&, sha1_hash)> handler
+        const_view<uint8_t> data,
+        std::function<void(sha1_hash)> handler
     );
+
+    /**
+     * This creates a page aligend disk buffer into which peer_session can receive or
+     * copy blocks. This is necessary to save blocks (save_block takes a disk_buffer as
+     * argument), as better performance can be achieved this way.
+     * This method is always guaranteed to return a valid disk_buffer, but peer_session
+     * must make sure that it doesn't abuse disk performance and its receive buffer
+     * capacity which includes its outstanding bytes being written to disk.
+     * TODO create a stronger constraint on this
+     */
+    disk_buffer get_write_buffer();
+    void return_write_buffer(disk_buffer buffer);
 
     /**
      * This launches two disk_jobs. It saves the block to disk and it also hashes it,
@@ -179,19 +214,20 @@ public:
      * If by adding this block the piece to which it belongs is completed, the hasher
      * finalizes the incremental hashing and produces a SHA-1 hash of the piece. Then,
      * this hash is compared to the expected hash, and the result is passed onto the
-     * completion_handler. A true value means the piece passed, while a false value
-     * indicates a corrupt piece.
+     * piece_completion_handler. A true value means the piece passed, while a false
+     * value indicates a corrupt piece.
      *
-     * The regular handler is always invoked after the save operation is done.
+     * save_handler is always invoked after the save operation has finished.
      *
-     * The completion_handler is only stored once per piece.
+     * The piece_completion_handler is only stored once per piece, i.e. the handler
+     * supplied with the first block in piece that was saved.
      */
     void save_block(
         const torrent_id_t torrent,
         const block_info& block_info,
-        std::vector<uint8_t>&& data,
-        std::function<void(const std::error_code&)> handler,
-        std::function<void(bool)> completion_handler
+        disk_buffer block_data,
+        std::function<void(const std::error_code&)> save_handler,
+        std::function<void(bool)> piece_completion_handler
     );
 
     /**

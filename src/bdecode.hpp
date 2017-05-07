@@ -59,7 +59,9 @@ struct btoken
 
     btoken() = default;
 
-    explicit btoken(btype t, int o) : type(t), offset(o)
+    explicit btoken(btype t, int o)
+        : type(t)
+        , offset(o)
     {
         if((type == btype::list) || (type == btype::map))
         {
@@ -91,7 +93,7 @@ namespace detail
      * It holds a contiguous sequence of btokens and the raw bencoded string and provides
      * shared_ptr semantics, so for any given copy there exists only a single token list
      * and encoded string. Since all belements are read only, this avoids memory churn
-     * and space overhead.
+     * and space overhead and is cache friendly.
      */
     class bcontainer
     {
@@ -104,7 +106,7 @@ namespace detail
 
         // Both container types (list, map) have a head token that defines the start and
         // size of the container. m_head points into m_tokens, to the btoken that's the
-        // head of this container.
+        // conceptual head of this container.
         const btoken* m_head = nullptr;
 
     protected:
@@ -318,7 +320,7 @@ public:
  * single instace of those are used by all subsequent nested container instances that
  * are extracted from the root container.
  * Therefore copying is relatively cheap with shared_ptr semantics, meaning that the
- * encoded source and btoken list are kept valid until the root or the last nested
+ * encoded source and btoken list are kept alive until the root or the last nested
  * container in root is destroyed.
  *
  * Values (strings and numbers) are only parsed when explicitly requested, in which case
@@ -326,9 +328,10 @@ public:
  * string and token list (this is why they are kept alive). This avoids needless memory
  * churn which would occur if every element were to be preparsed and allocated.
  *
- * Both structures are cache friendly, as the two sources (token list and bencoded
- * string) are both a single contiguous memory sequence. The drawback of this is that
- * bmap cannot provide O(logn) like a regular tree based map would.
+ * Both structures are cache friendly, as both sources (token list and bencoded string)
+ * are a single contiguous memory sequence. The drawback of this is that bmap cannot
+ * provide O(logn) element lookup like a regular tree based map would, since it has
+ * to traverse the token list to determine the elements in the source string.
  */
 
 struct bmap;
@@ -671,6 +674,10 @@ struct bmap
         return true;
     }
 
+    /**
+     * Prefer the lookup methods specialized for each type if the type is known
+     * beforehand, as those avoid a dynamic memory allocation.
+     */
     std::unique_ptr<belement> operator[](const std::string& key) const
     {
         const auto token = find_token(key);

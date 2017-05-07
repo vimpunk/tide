@@ -14,9 +14,6 @@
 #include <iostream>
 #include <cassert>
 
-// TODO
-// universal file paths (boost has one but let's decrease dependencies)
-
 inline size_t get_page_size()
 {
 #if defined(_WIN32)
@@ -63,9 +60,9 @@ struct mmap_impl
 private:
 
 #if defined(_WIN32)
-    using handle_t = void*;
+    using handle_type = void*;
 #else
-    using handle_t = int;
+    using handle_type = int;
 #endif
 
     // Points to the first requested byte, and NOT to the actual start of the mapping!
@@ -75,9 +72,9 @@ private:
     size_type m_length = 0;
     size_type m_mapped_length = 0;
 
-    handle_t m_file_handle;
+    handle_type m_file_handle;
 #if defined(_WIN32)
-    handle_t m_file_mapping_handle;
+    handle_type m_file_mapping_handle;
 #endif
 
 public:
@@ -92,7 +89,7 @@ public:
     {}
 
     mmap_impl(
-        const std::string& path,
+        const path& path,
         size_type offset,
         size_type length,
         mmap_base::access_mode mode
@@ -102,24 +99,32 @@ public:
         map(path, offset, length, mode);
     }
 
+    mmap_impl(
+        handle_type handle,
+        size_type offset,
+        size_type length,
+        mmap_base::access_mode mode
+    )
+        : mmap_impl()
+    {
+        m_file_handle = handle;
+        map(offset, length, mode);
+    }
+
     ~mmap_impl()
     {
         unmap();
     }
 
     void map(
-        const std::string& path,
+        const path& path,
         size_type offset,
         size_type length,
-        mmap_base::access_mode mode
-    )
+        mmap_base::access_mode mode)
     {
         assert(!is_open());
         open_file(path, mode);
-        const mmap_context ctx(offset, length, query_file_size());
-        m_data = mmap(ctx, mode);
-        m_length = ctx.length;
-        m_mapped_length = ctx.length_to_map;
+        map(offset, length, mode);
     }
 
     void unmap()
@@ -181,7 +186,8 @@ public:
         {
             return nullptr;
         }
-        return m_data - (m_mapped_length - m_length);
+        const auto offset = m_mapped_length - m_length;
+        return m_data - offset;
     }
 
     void flush()
@@ -213,6 +219,15 @@ public:
 
 private:
 
+    void map(size_type offset, size_type length, mmap_base::access_mode mode)
+    {
+        assert(!is_open());
+        const mmap_context ctx(offset, length, query_file_size());
+        m_data = mmap(ctx, mode);
+        m_length = ctx.length;
+        m_mapped_length = ctx.length_to_map;
+    }
+
     /**
      * This is used to map values requested by user to values compatible with the
      * operating system, and store these values.
@@ -239,7 +254,7 @@ private:
             assert(offset < file_size);
         }
 
-        size_type offset_till_requested_start() const noexcept
+        size_type requested_start_offset() const noexcept
         {
             return offset - aligned_offset;
         }
@@ -266,8 +281,7 @@ private:
         static size_type adjust_length_to_file_size(
             size_type offset,
             size_type length,
-            size_type file_size
-        ) noexcept
+            size_type file_size) noexcept
         {
             return offset + length >= file_size ? file_size - offset
                                                 : length;
@@ -281,7 +295,7 @@ private:
         }
     };
 
-    void open_file(const std::string& path, mmap_base::access_mode mode)
+    void open_file(const path& path, mmap_base::access_mode mode)
     {
         if(path.empty())
         {
@@ -374,7 +388,7 @@ private:
             throw std::runtime_error("error while mapping file");
         }
 #endif
-        return mapping_start + mmap_ctx.offset_till_requested_start();
+        return mapping_start + mmap_ctx.requested_start_offset();
     }
 
     void munmap()
@@ -405,11 +419,10 @@ bool mmap_base::is_open() const noexcept
 }        
 
 void mmap_base::map(
-    const std::string& path,
+    const path& path,
     size_type offset,
     size_type length,
-    access_mode mode
-)
+    access_mode mode)
 {
     if(!m_impl)
     {

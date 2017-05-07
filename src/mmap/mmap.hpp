@@ -1,6 +1,8 @@
 #ifndef MMAP_HEADER
 #define MMAP_HEADER
 
+#include "../path.hpp"
+
 #include <iterator>
 #include <cstdint>
 #include <string>
@@ -62,10 +64,14 @@ protected:
     pointer data() noexcept;
 
     void map(
-        const std::string& path,
+        const path& path,
         size_type offset,
         size_type length,
         access_mode mode
+    );
+
+    void map(
+
     );
 };
 
@@ -88,18 +94,18 @@ protected:
 struct mmap_source: public mmap_base
 {
     mmap_source() = default;
-    mmap_source(const std::string& path, size_type offset, size_type length);
-    void map(const std::string& path, size_type offset, size_type length);
+    mmap_source(const path& path, size_type offset, size_type length);
+    void map(const path& path, size_type offset, size_type length);
 };
 
 /** A read-write file memory mapping. */
 struct mmap_sink: public mmap_base
 {
     mmap_sink() = default;
-    mmap_sink(const std::string& path, size_type offset, size_type length);
+    mmap_sink(const path& path, size_type offset, size_type length);
     ~mmap_sink();
 
-    void map(const std::string& path, size_type offset, size_type length);
+    void map(const path& path, size_type offset, size_type length);
     void flush();
 
     pointer data() noexcept;
@@ -146,12 +152,12 @@ inline mmap_base::const_iterator mmap_base::cend() const noexcept
 // -----------------
 
 inline
-mmap_source::mmap_source(const std::string& path, size_type offset, size_type length)
+mmap_source::mmap_source(const path& path, size_type offset, size_type length)
 {
     map(path, offset, length);
 }
 
-inline void mmap_source::map(const std::string& path, size_type offset, size_type length)
+inline void mmap_source::map(const path& path, size_type offset, size_type length)
 {
     mmap_base::map(path, offset, length, access_mode::read_only);
 }
@@ -160,7 +166,7 @@ inline void mmap_source::map(const std::string& path, size_type offset, size_typ
 // -- mmap sink --
 // ---------------
 
-inline mmap_sink::mmap_sink(const std::string& path, size_type offset, size_type length)
+inline mmap_sink::mmap_sink(const path& path, size_type offset, size_type length)
 {
     map(path, offset, length);
 }
@@ -170,7 +176,7 @@ inline mmap_sink::~mmap_sink()
     flush();
 }
 
-inline void mmap_sink::map(const std::string& path, size_type offset, size_type length)
+inline void mmap_sink::map(const path& path, size_type offset, size_type length)
 {
     mmap_base::map(path, offset, length, access_mode::read_write);
 }
