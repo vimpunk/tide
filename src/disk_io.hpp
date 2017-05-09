@@ -84,11 +84,37 @@ class disk_io
     // Only disk_io can instantiate disk_buffers so that instances can be resued.
     boost::pool<> m_disk_buffer_pool;
 
-    // These are the partial pieces we already have. They contain information about the
-    // state of the hashing. The blocks/partial piece to which this state object refers
-    // may or may not be in memory, depending on whether it has been evicted from cache
-    // (write jobs are deferred as much as possible).
-    std::vector<incomplete_piece_state> m_write_pieces;
+    struct partial_piece
+    {
+        // This contains the sha1_context that holds the current hashing progress and is
+        // used to incrementally hash blocks. NOTE: you can only hash blocks in order,
+        // otherwise out of order blocks must be buffered until the next block to be
+        // hashed is downloaded.
+        sha1_hasher hasher;
+
+        // This is always the first byte of the first unhashed block (or one past the
+        // last hashed block's last byte). This is used to check if we can hash blocks
+        // since they may only be passed to m_hasher.update() in order.
+        int hash_offset = 0;
+
+        torrent_id_t torrent;
+        piece_index_t piece_index;
+
+        // These are the actual blocks that we have in this piece.
+        std::vector<disk_buffer> blocks;
+    };
+
+    // This effectively acts as a "write cache" where blocks that we hvae received go
+    // into their respective partial_pieces. The blocks of a piece are kept in memory
+    // until their number satisfies the minimum write cache line size and they have all
+    // been hashed (though hashing and writing to disk migth be pipelined so as to be
+    // performed by a single thread).
+    // This essentially defers write jobs as much as possible to increase the amount of
+    // work a thread can do in one job.
+    // TODO will blocks be kept in memory until we have enogh blocks or will they be
+    // flusehd to disk should circumstances demand it?
+    // TODO explain how they relate to cache size
+    std::vector<partial_piece> m_write_buffer;
 
     // Each torrent is associated with a torrent_storage instance which encapsulates the
     // implementation of instantiating the storage, saving and loading blocks from disk,

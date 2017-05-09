@@ -37,7 +37,7 @@ void torrent_storage::create_file_entries(const std::vector<file_info>& files)
             first_overlapped_piece,
             last_overlapped_piece,
             first_full_piece,
-            last_full_piec
+            last_full_piece
         );
         m_size += info.length;
     }
