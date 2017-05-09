@@ -219,14 +219,36 @@ void thread_pool::run(std::shared_ptr<worker> worker)
             break;
         }
 
-        // move worker out of the waiters' stack by decrementing the last worker
-        // position, as it's guaranteed to execute at least the job that it was
-        // notified about
-        // TODO there is one issue with this: we are stalled from doing work until we
-        // can acquire m_workers_mutex in move_to_active, which is counterproductive
-        // think about a way in which we can minimize the work that needs to be done here
+        // we're guaranteed to have at least the job we were notified about, so claim
+        // that job before releasing the job queue lock and do the transfer of this
+        // worker to the active workers list and the job execution outside the lock
+        auto job = std::move(m_job_queue.front());
+        m_job_queue.pop_front();
+        job_queue_lock.unlock();
+
         move_to_active(*worker);
-        execute_jobs(std::move(job_queue_lock));
+
+        while(!m_is_running.load(std::memory_order_acquire))
+        {
+            time_point work_start = ts_cached_clock::now();
+            // TODO exception safety
+            job();
+            m_work_time.fetch_add(
+                duration_cast<milliseconds>(ts_cached_clock::now() - work_start).count()
+            );
+            m_num_executed_jobs.fetch_add(1, std::memory_order_relaxed);
+
+            job_queue_lock.lock();
+            if(m_job_queue.empty())
+            {
+                job_queue_lock.unlock();
+                break;
+            }
+            job = std::move(m_job_queue.front());
+            m_job_queue.pop_front();
+            job_queue_lock.unlock();
+        }
+
         // if we're shutting down, do NOT access m_workers (moving worker would do that)
         // as that's already acquired by join_all() (we'd otherwise deadlock)
         if(!m_is_running.load(std::memory_order_acquire))
@@ -273,29 +295,6 @@ void thread_pool::move_to_active(const worker& worker)
     // now that worker was moved to the top of the waiters' stack, decrement the last
     // idle worker's position as this worker is about to become active
     --m_last_idle_worker_pos;
-}
-
-void thread_pool::execute_jobs(std::unique_lock<std::mutex> job_queue_lock)
-{
-    assert(job_queue_lock.owns_lock());
-    while(m_is_running.load(std::memory_order_acquire) && !m_job_queue.empty())
-    {
-        auto job = std::move(m_job_queue.front());
-        m_job_queue.pop_front();
-        job_queue_lock.unlock();
-
-        time_point work_start = ts_cached_clock::now();
-        // TODO exception safety
-        job();
-        m_work_time.fetch_add(
-            duration_cast<milliseconds>(ts_cached_clock::now() - work_start).count()
-        );
-        m_num_executed_jobs.fetch_add(1, std::memory_order_relaxed);
-
-        // lock again for the next round
-        job_queue_lock.lock();
-    }
-    job_queue_lock.unlock();
 }
 
 void thread_pool::move_to_idle(const worker& worker)

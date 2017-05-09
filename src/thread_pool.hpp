@@ -128,6 +128,10 @@ public:
     explicit thread_pool(int concurrency);
     ~thread_pool();
 
+    /**
+     * These are recommended for debugging only as each query function needs to acquire
+     * a mutex to get the latest info.
+     */
     bool is_idle() const;
     int num_threads() const;
     int num_active_threads() const;
@@ -192,13 +196,6 @@ private:
      */
     void move_to_active(const worker& worker);
     void move_to_idle(const worker& worker);
-
-    /**
-     * This is called from run, executes as many jobs as the worker executing this
-     * method can grab.
-     * NOTE: the supplied job_queue_lock must be holding m_job_queue_mutex.
-     */
-    void execute_jobs(std::unique_lock<std::mutex> job_queue_lock);
 
     /** If a thread unexpectedly terminated, this function decides what should happen. */
     // TODO make this a user settable policy, i.e. what should happen with exceptions
