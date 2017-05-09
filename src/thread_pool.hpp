@@ -38,16 +38,16 @@ private:
     {
         std::thread thread;
 
-        // If a worker has not had work for 60 consecutive seconds, it marks itself as
-        // stopped, waiting for another thread to reap it.
-        // TODO what if we only have on worker. caller thread should also check this
-        // in fact, why not just let caller thread reap dead threads?
-        std::atomic<bool> is_active;
+        // Thread pool notifies workers to shut down through this variable. Also, if a
+        // worker has not had work for 60 consecutive seconds, it marks itself as dead,
+        // waiting for another thread to reap it.
+        std::atomic<bool> is_dead;
 
         // Among waiting workers we pick the one that has done work the most recently,
         // so we need each worker to have its own condition variable with which we can
         // wake it up.
         // NOTE: wait() must be called while holding onto m_job_queue_mutex.
+        // TODO give more general name as we use it for notifying workers that we're stopping as well
         std::condition_variable job_available;
     };
 
@@ -88,10 +88,6 @@ private:
     mutable std::mutex m_job_queue_mutex;
     mutable std::mutex m_workers_mutex;
 
-    // When this is set to false it is used to notify each worker that thread pool is
-    // shutting down.
-    std::atomic<bool> m_is_running;
-
     std::atomic<int> m_num_executed_jobs;
 
     // The total time in milliseonds all threads spent working (executing jobs) and
@@ -99,7 +95,7 @@ private:
     std::atomic<int> m_work_time;
     std::atomic<int> m_idle_time;
 
-    // See m_workers comment. -1 means there are no idle workers at the moment.
+    // See m_workers comment. -1 means there are no idle workers.
     //
     // NOTE: must only be handled after acquiring m_workers_mutex.
     int m_last_idle_worker_pos = -1;
@@ -157,7 +153,10 @@ public:
     /** Removes all jobs that are queued up. Does not affect currently executing jobs. */
     void clear_pending_jobs();
 
-    /** Stops all threads by waiting for them to finish their current jobs. */
+    /**
+     * Stops all threads by waiting for them to finish their current jobs (pending jobs
+     * won't get executed).
+     */
     void join_all();
 
     /**
@@ -189,6 +188,20 @@ private:
      * them.
      */
     void run(std::shared_ptr<worker> worker);
+
+    /**
+     * This is called right after worker is woken up to execute a new job, which means
+     * job_queue_lock must be held when moved into this function.
+     * Executes at least one job for which worker was woken up, and more if there are
+     * jobs available. At the start of the function, worker is moved into the active
+     * workers list, and when it's done, it's moved back to the top of the waiters
+     * stack.
+     * If during execution worker is signaled to shut down, it stops and returns false,
+     * otherwise it returns true (this is only so that run() doesn't have to check
+     * worker->is_dead again, which this already does (which would be a superfluous
+     * atomix load)).
+     */
+    bool execute_jobs(worker& worker, std::unique_lock<std::mutex> job_queue_lock);
 
     /**
      * When a worker starts executing a job, it moves itself out of the waiters' stack,
