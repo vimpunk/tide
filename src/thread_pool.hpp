@@ -8,7 +8,6 @@
 #include <memory>
 #include <thread>
 #include <atomic>
-#include <vector>
 #include <deque>
 #include <mutex>
 
@@ -173,8 +172,8 @@ private:
     static int auto_concurrency();
 
     /**
-     * Depending on the current workload, the following might happen:
-     * If the workload is high and
+     * If there is an idle worker, hands off job to it, if not, checks if we can spin
+     * up a new thread to which the new job can be given.
      */
     void handle_new_job();
 

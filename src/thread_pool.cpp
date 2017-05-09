@@ -23,7 +23,8 @@ thread_pool::~thread_pool()
 
 bool thread_pool::is_idle() const
 {
-    return num_idle_threads() == num_threads();
+    std::lock_guard<std::mutex> l(m_workers_mutex);
+    return m_workers.size() == m_last_idle_worker_pos + 1;
 }
 
 int thread_pool::num_threads() const
@@ -34,7 +35,8 @@ int thread_pool::num_threads() const
 
 int thread_pool::num_active_threads() const
 {
-    return num_threads() - num_idle_threads();
+    std::lock_guard<std::mutex> l(m_workers_mutex);
+    return m_workers.size() - (m_last_idle_worker_pos + 1);
 }
 
 int thread_pool::num_idle_threads() const
@@ -298,8 +300,6 @@ void thread_pool::execute_jobs(std::unique_lock<std::mutex> job_queue_lock)
 
 void thread_pool::move_to_idle(const worker& worker)
 {
-    // since other workers may have become active since this worker had become active,
-    // it may be anywhere beyond the last idle worker marker, so we have to find it
     std::unique_lock<std::mutex> l(m_workers_mutex);
 
     if(m_workers.size() == 1)
@@ -313,6 +313,8 @@ void thread_pool::move_to_idle(const worker& worker)
     // there must be at least one active worker
     assert(pos >= 0);
 
+    // since other workers may have become active since this worker had become active,
+    // it may be anywhere beyond the last idle worker marker, so we have to find it
     while((pos < m_workers.size()) && (m_workers[pos].get() != &worker))
     {
         ++pos;
