@@ -6,6 +6,7 @@
 #include "torrent_state.hpp"
 #include "disk_io_error.hpp"
 #include "disk_buffer.hpp"
+#include "thread_pool.hpp"
 #include "time.hpp"
 
 #include <system_error>
@@ -75,6 +76,9 @@ class disk_io
     // io_service is thread-safe.
     asio::io_service& m_network_ios;
 
+    // All async jobs are posted to and executed on this thread pool.
+    thread_pool m_thread_pool;
+
     const disk_io_settings& m_settings;
 
     // Statistics are gathered here. One copy persists throughout the entire application
@@ -100,12 +104,15 @@ class disk_io
         torrent_id_t torrent;
         piece_index_t piece_index;
 
-        // These are the actual blocks that we have in this piece.
+        // These are the actual blocks that we have in this piece. The vector is
+        // preallocated for the number of blocks that we expect to receive (disk_buffer
+        // only stores a pointer so it shouldn't take up much space). This way blocks
+        // can be immediately placed in their correct position (block.offset / 16KiB).
         std::vector<disk_buffer> blocks;
     };
 
-    // This effectively acts as a "write cache" where blocks that we hvae received go
-    // into their respective partial_pieces. The blocks of a piece are kept in memory
+    // This effectively acts as a "write cache" where blocks that we have received go
+    // into their respective partial_piece. The blocks of a piece are kept in memory
     // until their number satisfies the minimum write cache line size and they have all
     // been hashed (though hashing and writing to disk migth be pipelined so as to be
     // performed by a single thread).
@@ -113,12 +120,14 @@ class disk_io
     // work a thread can do in one job.
     // TODO will blocks be kept in memory until we have enogh blocks or will they be
     // flusehd to disk should circumstances demand it?
-    // TODO explain how they relate to cache size
+    // TODO explain how they relate to cache size, i.e. are they part of the cache size
+    // limit do we ever flush it even if the target write cache line size is not reached etc
     std::vector<partial_piece> m_write_buffer;
 
     // Each torrent is associated with a torrent_storage instance which encapsulates the
     // implementation of instantiating the storage, saving and loading blocks from disk,
-    // renaming/moving/deleting files etc.
+    // renaming/moving/deleting files etc. Higher level logic, like buffering writes is
+    // done in disk_io, a torrent_storage only takes care of the low level functions.
     std::unordered_map<torrent_id_t, std::unique_ptr<torrent_storage>> m_torrents;
 
     // TODO record pending disk reads: this is necessary if multiple requests are issued
@@ -141,8 +150,6 @@ public:
      */
     bool is_overwhelmed() const noexcept;
 
-    /** Does not move current downloads to new save path. */
-    void change_default_save_path(std::string path);
     void change_cache_size(const int64_t n);
 
     /**
@@ -151,8 +158,7 @@ public:
      * application.
      */
     void read_all_torrent_states(
-        std::function<void(const std::error_code&, std::vector<torrent_state>)> handler,
-        const std::string& app_metadata_path = ""
+        std::function<void(const std::error_code&, std::vector<torrent_state>)> handler
     );
 
     void read_metainfo(

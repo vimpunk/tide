@@ -1,21 +1,9 @@
 #include "file.hpp"
 
-file::file(
-    path path,
-    int64_t length,
-    uint8_t open_mode,
-    piece_index_t first_overlapped_piece,
-    piece_index_t last_overlapped_piece,
-    piece_index_t first_full_piece,
-    piece_index_t last_full_piece
-)
+file::file(path path, int64_t length, uint8_t open_mode)
     : m_absolute_path(std::move(path))
     , m_length(length)
     , m_open_mode(open_mode)
-    , m_first_overlapped_piece(first_overlapped_piece)
-    , m_last_overlapped_piece(last_overlapped_piece)
-    , m_first_full_piece(first_full_piece)
-    , m_last_full_piece(last_full_piece)
 {}
 
 file::~file()
@@ -23,21 +11,21 @@ file::~file()
     close();
 }
 
-std::error_code file::allocate_storage()
+void file::allocate_storage(std::error_code& error)
 {
-    std::error_code ec;
-    verify_file_handle(ec);
-    if(ec)
+    error.clear();
+    verify_file_handle(error);
+    if(error)
     {
-        return ec;
+        return;
     }
 
 #ifdef _WIN32
     LARGE_INTEGER size;
     if(GetFileSizeEx(m_file_handle, &size) == FALSE)
     {
-        ec.assign(GetLastError(), std::system_category());
-        return ec;
+        error.assign(GetLastError(), std::system_category());
+        return;
     }
     if(size.QuadPart != length())
     {
@@ -45,33 +33,33 @@ std::error_code file::allocate_storage()
         distance.QuadPart = length();
         if(SetFilePointerEx(m_file_handle, distance, &distance, FILE_BEGIN) == FALSE)
         {
-            ec.assign(GetLastError(), std::system_category());
-            return ec;
+            error.assign(GetLastError(), std::system_category());
+            return;
         }
         if(SetEndOfFile(m_file_handle) == FALSE)
         {
-            ec.assign(GetLastError(), std::system_category());
-            return ec;
+            error.assign(GetLastError(), std::system_category());
+            return;
         }
     }
 #else
     struct stat stat;
     if(fstat(m_file_handle, &stat) != 0)
     {
-        ec.assign(errno, std::system_category());
-        return ec;
+        error.assign(errno, std::system_category());
+        return;
     }
 
     // don't truncate file if it's already truncated (has the correct length)
     if(stat.st_size == length())
     {
-        return ec;
+        return;
     }
 
     if(ftruncate(m_file_handle, length()) < 0)
     {
-        ec.assign(errno, std::system_category());
-        return ec;
+        error.assign(errno, std::system_category());
+        return;
     }
 
     // only allocate file blocks if it isn't allocated yet (check if the correct number
@@ -82,27 +70,26 @@ std::error_code file::allocate_storage()
         const int ret = posix_fallocate(m_file_handle, 0, length());
         if(ret != 0)
         {
-            ec.assign(ret, std::system_category());
-            return ec;
+            error.assign(ret, std::system_category());
+            return;
         }
     }
 #endif
-    return ec;
 }
 
-std::error_code file::open()
+void file::open(std::error_code& error)
 {
-    return open(m_open_mode);
+    return open(m_open_mode, error);
 }
 
-std::error_code file::open(uint8_t open_mode)
+void file::open(uint8_t open_mode, std::error_code& error)
 {
-    std::error_code ec;
+    error.clear();
     if(is_open())
     {
         if(open_mode == m_open_mode)
         {
-            return ec;
+            return;
         }
         // close file because we want to open it in a different mode
         close();
@@ -111,12 +98,10 @@ std::error_code file::open(uint8_t open_mode)
 #ifdef _WIN32
     // TODO
 #else
-    int permissions = S_IRUSR  // 00400 user has read permission
-                    | S_IWUSR  // 00200 user has write permission
-                    | S_IRGRP  // 00040 group has read permission
-                    | S_IWGRP  // 00020 group has write permission
-                    | S_IROTH  // 00004 other has read permission
-                    | S_IWOTH; // 00002 other has write permission
+    // use default permissions and let the OS decide the rest
+    int permissions = S_IRUSR | S_IWUSR  // user: read, write (00600)
+                    | S_IRGRP | S_IWGRP  // group: read, write (00060)
+                    | S_IROTH | S_IWOTH; // other: read, write (00006)
     if(open_mode & executable)
     {
         // give executable permission for all groups
@@ -149,8 +134,9 @@ std::error_code file::open(uint8_t open_mode)
 
     m_file_handle = ::open(m_absolute_path.c_str(), mode, permissions);
 
-    if((m_file_handle == TORRENT_INVALID_FILE_HANDLE)
-        && ((mode & no_atime) && (errno == EPERM)))
+    if(m_file_handle == TORRENT_INVALID_FILE_HANDLE
+       && (open_mode & no_atime)
+       && errno == EPERM)
     {
         // O_NOATIME is not allowed for files we don't own, so try again without it
         mode &= ~O_NOATIME;
@@ -160,13 +146,11 @@ std::error_code file::open(uint8_t open_mode)
 
     if(m_file_handle == TORRENT_INVALID_FILE_HANDLE)
     {
-        ec.assign(errno, std::system_category());
-        return ec;
+        error.assign(errno, std::system_category());
+        return;
     }
-#endif // ifdef _WIN32
-
+#endif // _WIN32
     m_open_mode = open_mode;
-    return ec;
 }
 
 void file::close()
@@ -184,68 +168,72 @@ void file::close()
 }
 
 mmap_source file::create_ro_mmap(
-    std::error_code& error,
     const int64_t offset,
-    const int64_t length)
+    const int64_t length,
+    std::error_code& error)
 {
+    error.clear();
     verify_args(offset, length);
     verify_file_handle(error);
     if(error && !is_allocated())
     {
+        // TODO
         //return mmap_source(m_file_handle);
     }
-    error.clear();
 }
 
 mmap_sink file::create_rw_mmap(
-    std::error_code& error,
     const int64_t offset,
-    const int64_t length)
+    const int64_t length,
+    std::error_code& error)
 {
+    error.clear();
     verify_args(offset, length);
     verify_file_handle(error);
     if(error && !is_allocated())
     {
+        // TODO
         //return mmap_sink(m_file_handle);
     }
     if(is_read_only())
     {
         error = std::make_error_code(std::errc::read_only_file_system);
+        //return;
     }
-    error.clear();
 }
 
 int file::read(
-    std::error_code& error,
     view<view<uint8_t>> buffers,
     const int64_t offset,
-    const int64_t length)
+    const int64_t length,
+    std::error_code& error)
 {
+    error.clear();
     verify_args(offset, length);
     verify_file_handle(error);
     if(error && !is_allocated())
     {
         return 0;
     }
-    error.clear();
     return do_io_operation(
-        error,
         [this](uint8_t* buffer, int64_t offset, int64_t length) -> int
         {
             return read_at(buffer, offset, length);
         },
         buffers,
         offset,
-        length
+        length,
+        error
     );
 }
 
 int file::write(
-    std::error_code& error,
     view<view<uint8_t>> buffers,
     const int64_t offset,
-    const int64_t length)
+    const int64_t length,
+    std::error_code& error)
 {
+    error.clear();
     verify_args(offset, length);
     verify_file_handle(error);
     if(error && !is_allocated())
@@ -258,32 +246,31 @@ int file::write(
         return 0;
     }
 
-    error.clear();
     const int total_written = do_io_operation(
-        error,
         [this](uint8_t* buffer, int64_t offset, int64_t length) -> int
         {
             return write_at(buffer, offset, length);
         },
         buffers,
         offset,
-        length
+        length,
+        error
     );
     if(m_open_mode & no_os_cache)
     {
-        sync_with_disk();
+        sync_with_disk(error);
     }
 
     return total_written;
 }
 
-std::error_code file::sync_with_disk()
+void file::sync_with_disk(std::error_code& error)
 {
-    std::error_code error;
+    error.clear();
     if(is_read_only())
     {
         // don't sync if we're not in write mode
-        return error;
+        return;
     }
 #ifdef _WIN32
     // TODO find windows equivalent
@@ -293,7 +280,6 @@ std::error_code file::sync_with_disk()
         error.assign(errno, std::system_category());
     }
 #endif
-    return error;
 }
 
 inline int file::write_at(uint8_t* buffer, const int64_t offset, const int64_t length)
@@ -315,11 +301,11 @@ inline int file::read_at(uint8_t* buffer, const int64_t offset, const int64_t le
 
 template<typename IOFunction>
 int file::do_io_operation(
-    std::error_code& error,
     IOFunction io_fn,
     view<view<uint8_t>> buffers,
     const int64_t offset,
-    const int64_t length)
+    const int64_t length,
+    std::error_code& error)
 {
     int total_transferred = 0;
     int64_t file_offset = offset;

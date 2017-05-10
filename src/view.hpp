@@ -40,6 +40,11 @@ public:
         , m_length(length)
     {}
 
+    view(pointer begin, pointer end)
+        : m_data(begin)
+        , m_length(end - begin)
+    {}
+
     template<typename U>
     view(const view<U>& other)
         : m_data(other.m_data)
@@ -88,11 +93,13 @@ public:
     const_iterator cend() const noexcept { return end(); }
 
     reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
-    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+    const_reverse_iterator rbegin() const noexcept
+    { return const_reverse_iterator(end()); }
     const_reverse_iterator crbegin() const noexcept { return rbegin(); }
 
     reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
-    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+    const_reverse_iterator rend() const noexcept
+    { return const_reverse_iterator(begin()); }
     const_reverse_iterator crend() const noexcept { return rend(); }
 
     reference operator[](const size_type i) noexcept { return m_data[i]; }

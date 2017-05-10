@@ -22,12 +22,12 @@
 #include <asio/io_service.hpp>
 
 class piece_download_locator;
+class peer_session_settings;
 class bandwidth_controller;
 class disk_read_buffer;
 class piece_download;
 class torrent_info;
 class piece_picker;
-class settings;
 class disk_io;
 
 struct peer_session
@@ -85,7 +85,7 @@ private:
     bandwidth_controller& m_bandwidth_controller;
 
     // These are the tunable parameters that the user provides.
-    const settings& m_settings;
+    const peer_session_settings& m_settings;
 
     // NOTE: if this starts as an incoming connection, we won't have this field until we
     // finished the handshake and attached ourselves to a torrent.
@@ -243,7 +243,7 @@ public:
         tcp::endpoint peer_endpoint,
         disk_io& disk_io,
         bandwidth_controller& bandwidth_controller,
-        const settings& settings,
+        const peer_session_settings& settings,
         torrent_specific_args torrent_args
     );
 
@@ -263,7 +263,7 @@ public:
         tcp::endpoint peer_endpoint,
         disk_io& disk_io,
         bandwidth_controller& bandwidth_controller,
-        const settings& settings,
+        const peer_session_settings& settings,
         std::function<torrent_specific_args(const sha1_hash&)> torrent_attacher
     );
 
@@ -304,7 +304,7 @@ private:
         tcp::endpoint peer_endpoint,
         disk_io& disk_io,
         bandwidth_controller& bandwidth_controller,
-        const settings& settings
+        const peer_session_settings& settings
     );
 
     /** If our interest changes, sends the corresponding send_{un,}interested message. */

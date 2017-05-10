@@ -193,13 +193,13 @@ private:
      * This is called right after worker is woken up to execute a new job, which means
      * job_queue_lock must be held when moved into this function.
      * Executes at least one job for which worker was woken up, and more if there are
-     * jobs available. At the start of the function, worker is moved into the active
+     * any available. At the start of the function, worker is moved into the active
      * workers list, and when it's done, it's moved back to the top of the waiters
      * stack.
      * If during execution worker is signaled to shut down, it stops and returns false,
      * otherwise it returns true (this is only so that run() doesn't have to check
      * worker->is_dead again, which this already does (which would be a superfluous
-     * atomix load)).
+     * atomic load)).
      */
     bool execute_jobs(worker& worker, std::unique_lock<std::mutex> job_queue_lock);
 

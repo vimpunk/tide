@@ -31,7 +31,7 @@ struct torrent_info
     int64_t total_uploaded_piece_bytes = 0;
 
     // The total number of all bytes, excluding the underlying network protocol overhead,
-    // exchaned with all peers in this torrent
+    // exchanged with all peers in this torrent
     // (i.e. total_piece_{up,down}loaded + BitTorrent protocol overhead).
     int64_t total_downloaded_bytes = 0;
     int64_t total_uploaded_bytes = 0;
@@ -54,8 +54,8 @@ struct torrent_info
 
     // The rate cap in bytes/s for this torrent (i.e. all peers in this torrent). No
     // limit is employed if the values are -1 (the default).
-    int upload_rate_limit = -1;
-    int download_rate_limit = -1;
+    int max_upload_rate = -1;
+    int max_download_rate = -1;
 
     // The total number of bad pieces in the entire connection.
     int num_hash_fails = 0;
@@ -73,6 +73,11 @@ struct torrent_info
 
     // The number of piece bytes we're expecting to receive from all peers.
     int num_outstanding_bytes = 0;
+
+    // TODO find a proper place for these
+    uint64_t seed_time;
+    uint64_t download_time;
+    uint64_t total_time;
 
     bool is_seeding = false;
 };

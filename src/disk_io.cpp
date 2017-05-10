@@ -24,18 +24,12 @@ bool disk_io::is_overwhelmed() const noexcept
     return false;
 }
 
-
-void disk_io::change_default_save_path(std::string path)
-{
-}
-
 void disk_io::change_cache_size(const int64_t n)
 {
 }
 
 void disk_io::read_all_torrent_states(
-    std::function<void(const std::error_code&, std::vector<torrent_state>)> handler,
-    const std::string& app_metadata_path)
+    std::function<void(const std::error_code&, std::vector<torrent_state>)> handler)
 {
 }
 

@@ -1,7 +1,6 @@
 #ifndef TORRENT_FILE_HEADER
 #define TORRENT_FILE_HEADER
 
-#include "units.hpp"
 #include "view.hpp"
 #include "path.hpp"
 
@@ -13,12 +12,12 @@
 #  define WIN32_LEAN_AND_MEAN
 # endif // WIN32_LEAN_AND_MEAN
 # include <windows.h>
-#else // ifdef _WIN32
+#else // _WIN32
 # include <fcntl.h>
 # include <unistd.h>
 # include <sys/mman.h>
 # include <sys/stat.h>
-#endif // ifdef _WIN32
+#endif // _WIN32
 
 // TODO
 struct mmap_source {};
@@ -27,6 +26,8 @@ struct mmap_sink {};
 // TODO currently only linux is supported
 // TODO think about the situation where we've given out mmap objects but the file is
 // closed. do we pass the responsibility of disposing of those mmap instances to user?
+// plus files will periodically be flushed and perhaps closed (on windows there might
+// be issues with syncing to disk but look into this)
 struct file
 {
     enum open_mode : uint8_t
@@ -65,30 +66,20 @@ private:
     bool m_is_allocated = false;
 
     // This is set every time we (re)open file.
-    uint8_t m_open_mode = 0;
-    int64_t m_length = 0;
-
-    piece_index_t m_first_overlapped_piece = 0;
-    piece_index_t m_last_overlapped_piece = 0;
-    piece_index_t m_first_full_piece = 0;
-    piece_index_t m_last_full_piece = 0;
+    uint8_t m_open_mode;
+    int64_t m_length;
 
 public:
 
     /**
+     * Default constructed file is invalid.
+     *
      * Sets the attributes of the file but does not open or initialize its storage.
      * This is to allow on demand execution of those functions, so call open() and then
      * allocate_storage() separately, in this order.
      */
-    file(
-        path path,
-        int64_t length,
-        uint8_t open_mode,
-        piece_index_t first_overlapped_piece,
-        piece_index_t last_overlapped_piece,
-        piece_index_t first_full_piece,
-        piece_index_t last_full_piece
-    );
+    file();
+    file(path path, int64_t length, uint8_t open_mode);
     file(const file&) = delete;
     file& operator=(const file&) = delete;
     file(file&& other) = default;
@@ -103,31 +94,13 @@ public:
      * halfway through in which case we may have wastefully spent time to preallocate
      * a file that was never accessed.
      */
-    std::error_code allocate_storage();
+    void allocate_storage(std::error_code& error);
 
     int64_t length() const noexcept;
     path absolute_path() const noexcept;
     bool is_open() const noexcept;
     bool is_read_only() const noexcept;
     bool is_allocated() const noexcept;
-
-    /**
-     * These functions return the indices of the pieces at the edges of the file;
-     * "full piece" means that the piece is fully contained in this file while
-     * "overlapped piece" means that the piece overlaps into another file and this file
-     * only has some portion of it. If the file boundaries are aligned with the piece
-     * length, then the two types of functions are identical.
-     */
-    piece_index_t first_full_piece() const noexcept;
-    piece_index_t last_full_piece() const noexcept;
-    piece_index_t first_overlapped_piece() const noexcept;
-    piece_index_t last_overlapped_piece() const noexcept;
-
-    /** Returns the number of pieces this file fully contains. */
-    int num_full_pieces() const noexcept;
-
-    /** Returns the number of pieces this file contains, even if only partially. */
-    int num_all_pieces() const noexcept;
 
     /**
      * Open, with no argument, opens the file with the current open_mode, while open
@@ -137,8 +110,8 @@ public:
      * Closing a file does NOT sync the file page with the one on disk, so make sure to
      * do that manually.
      */
-    std::error_code open();
-    std::error_code open(uint8_t open_mode);
+    void open(std::error_code& error);
+    void open(uint8_t open_mode, std::error_code& error);
     void close();
 
     /**
@@ -154,53 +127,44 @@ public:
      * uninitialized.
      */
     mmap_source create_ro_mmap(
-        std::error_code& error,
-        const int64_t offset,
-        const int64_t length
+        const int64_t offset, const int64_t length, std::error_code& error
     );
     mmap_sink create_rw_mmap(
-        std::error_code& error,
-        const int64_t offset,
-        const int64_t length
+        const int64_t offset, const int64_t length, std::error_code& error
     );
 
     /**
-     * Similar to the low level syscall pread(2) (and the equivalent on Windows).
-     * It's a scatter operation in that multiple buffers may be provided which are
-     * treated as if they were a single contiguous buffer. The number of bytes that
-     * were successfully read into buffers is returned.
+     * The two functions are similar in their function to the syscalls pread and pwrite.
+     * They are scatter-gather operations in that multiple buffers may be provided which
+     * are treated as a single contiguous buffer.
+     *
+     * The number of bytes transferred to or from disk is guaranteed to be
+     * min(num_bytes_in_buffers, length), as the syscalls the implementation uses do not
+     * usually guarantee the transfer of the requested number of bytes, so these
+     * operations are repeated until succeeding or until an error occurs.
+     *
+     * For writing, if the no_disk_cache flag from open_mode is set, changes are
+     * immediately written to disk, i.e. OS is instructed to flush the file's contents
+     * from its page buffer to disk. This can be done manually with sync_with_disk().
      *
      * An exception is thrown if offset and/or length are invalid. Any other IO errors
-     * are reported via error.
+     * are reported via error. TODO consider only asserting the input values
      */
     int read(
-        std::error_code& error,
         view<view<uint8_t>> buffers,
         const int64_t offset,
-        const int64_t length
+        const int64_t length,
+        std::error_code& error
     );
-
-    /**
-     * Similar to the the low level syscall pwrite(2) (and the equivalent on Windows).
-     * It's a gather operation in that multiple buffers may be provided which are
-     * treated as if they were a single contiguous buffer. The number of bytes that
-     * were successfully written to disk is returned.
-     *
-     * If the no_disk_cache flag from open_mode is set, changes are immediately written
-     * to disk.
-     *
-     * An exception is thrown if offset and/or length are invalid. Any other IO errors
-     * are reported via error.
-     */
     int write(
-        std::error_code& error,
         view<view<uint8_t>> buffers,
         const int64_t offset,
-        const int64_t length
+        const int64_t length,
+        std::error_code& error
     );
 
     /** If we're in write mode, syncs the file buffer in the OS page cache with disk. */
-    std::error_code sync_with_disk();
+    void sync_with_disk(std::error_code& error);
 
 private:
 
@@ -216,13 +180,19 @@ private:
     int write_at(uint8_t* buffer, const int64_t offset, const int64_t length);
     int read_at(uint8_t* buffer, const int64_t offset, const int64_t length);
 
+    /**
+     * Abstracts away scatter-gather io operations, as reading and writing have the
+     * same signature, and most of the work lies in managing the list of buffers and
+     * redoing io operations until the desired length number of bytes has been
+     * transferred.
+     */
     template<typename IOFunction>
     int do_io_operation(
-        std::error_code& error,
         IOFunction io_fn,
         view<view<uint8_t>> buffers,
         const int64_t offset,
-        const int64_t length
+        const int64_t length,
+        std::error_code& error
     );
 };
 
@@ -249,16 +219,6 @@ inline bool file::is_read_only() const noexcept
 inline bool file::is_allocated() const noexcept
 {
     return m_is_allocated;
-}
-
-inline int file::num_full_pieces() const noexcept
-{
-    return last_full_piece() - first_full_piece() + 1;
-}
-
-inline int file::num_all_pieces() const noexcept
-{
-    return last_overlapped_piece() - first_overlapped_piece() + 1;
 }
 
 #endif // TORRENT_FILE_HEADER

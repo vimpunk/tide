@@ -1,6 +1,8 @@
 #ifndef TORRENT_BDECODE_HEADER
 #define TORRENT_BDECODE_HEADER
 
+#include "string_view.hpp"
+
 #include <stdexcept>
 #include <iterator>
 #include <sstream>
@@ -216,6 +218,7 @@ namespace detail
          * encoded string that belongs to this container. Otherwise (container is the
          * root container), it just returns a copy of the encoded string (although in
          * this case it is recommended to just use encoded() to avoid the copy).
+         * TODO consider returning a string_view
          */
         std::string encode() const;
 
@@ -233,18 +236,24 @@ namespace detail
         );
     };
 
-    inline
-    std::string make_string_from_token(const std::string& encoded, const btoken& token)
+    inline string_view make_string_view_from_token(
+        const std::string& encoded,
+        const btoken& token)
     {
         assert(token.offset < encoded.length());
         const int str_length = std::atoi(&encoded[token.offset]);
         const int str_start = token.offset + token.length;
         assert(str_start + str_length <= encoded.length());
-        return std::string(encoded, str_start, str_length);
+        return string_view(encoded.c_str() + str_start, str_length);
     }
 
     inline
-    int64_t make_number_from_token(const std::string& encoded, const btoken& token)
+    std::string make_string_from_token(const std::string& encoded, const btoken& token)
+    {
+        return make_string_view_from_token(encoded, token);
+    }
+
+    inline int64_t make_number_from_token(const std::string& encoded, const btoken& token)
     {
         assert(token.offset < encoded.length());
         return atol(encoded.c_str() + token.offset + 1);
@@ -317,7 +326,7 @@ public:
 /**
  * The following two classes (blist, bmap) are containers, which means that they take
  * ownership of the original (bencoded) source string and btokens list, and only a
- * single instace of those are used by all subsequent nested container instances that
+ * single instance of those are used by all subsequent nested container instances that
  * are extracted from the root container.
  * Therefore copying is relatively cheap with shared_ptr semantics, meaning that the
  * encoded source and btoken list are kept alive until the root or the last nested
@@ -346,6 +355,7 @@ public:
 
     using numbers = list_proxy<int64_t, btype::number>;
     using strings = list_proxy<std::string, btype::string>;
+    using string_views = list_proxy<string_view, btype::string>;
     using blists = list_proxy<blist, btype::list>;
     using bmaps = list_proxy<bmap, btype::map>;
 
@@ -376,6 +386,20 @@ public:
         return strings(*this);
     }
 
+    /**
+     * Returns a lazy iterable range of views of all strings in this list, i.e. no
+     * std::string is ever actually constructed. In almost all cases this should be
+     * used over all_strings(), unless it is known that the extracted strings will
+     * outlive its enclosing container. Even so, in most cases it is merely a quick
+     * lookup that is done, so a string_view should be much faster. Moreover,
+     * string_views will implicitly convert to a std::string, which makes interop
+     * seamless.
+     */
+    string_views all_string_views() const
+    {
+        return string_views(*this);
+    }
+
     /** Returns a lazy iterable range of all blist instances in this list. */
     blists all_blists() const
     {
@@ -404,7 +428,7 @@ private:
      * This is the iterable object that is returned by the getter functions. Its
      * iterator lazily filters the enclosing list for BType objects while iterating.
      *
-     * NOTE: it must not outlive its enclosing blist. // TODO fix this
+     * NOTE: it must not outlive its enclosing blist.
      */
     template<
         typename BType,
@@ -504,6 +528,17 @@ private:
             >::type operator*()
             {
                 return detail::make_string_from_token(
+                    m_list_proxy->m_list.encoded(), *m_pos
+                );
+            }
+
+            template<typename T = BType>
+            typename std::enable_if<
+                std::is_same<T, string_view>::value,
+                string_view
+            >::type operator*()
+            {
+                return detail::make_string_view_from_token(
                     m_list_proxy->m_list.encoded(), *m_pos
                 );
             }
@@ -631,6 +666,32 @@ struct bmap
         result = detail::make_string_from_token(encoded(), *token);
         return true;
     }
+
+    /**
+     * Prefer the lookups of string_views over {try_,}find_string for better
+     * performance. See comment in blist all_string_views.
+     */
+    string_view find_string_view(const std::string& key) const
+    {
+        string_view result;
+        if(try_find_string_view(key, result))
+        {
+            return result;
+        }
+        throw std::invalid_argument(key + " not in bmap");
+    }
+
+    bool try_find_string_view(const std::string& key, string_view& result) const
+    {
+        const auto token = find_token(key);
+        if(!token || (token->type != btype::string))
+        {
+            return false;
+        }
+        result = detail::make_string_view_from_token(encoded(), *token);
+        return true;
+    }
+
 
     blist find_blist(const std::string& key) const
     {

@@ -60,8 +60,8 @@ struct peer_info
 
     // The maximum number of bytes/s we are allowed to send to or receive from peer. No
     // limit is employed if the values are -1 (the default).
-    int upload_rate_limit = -1;
-    int download_rate_limit = -1;
+    int max_upload_rate = -1;
+    int max_download_rate = -1;
 
     // The amount of message bytes in these buffers.
     int send_buffer_size = 0;

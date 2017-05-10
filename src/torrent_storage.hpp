@@ -3,10 +3,12 @@
 
 #include "torrent_state.hpp"
 #include "torrent_info.hpp"
+#include "string_view.hpp"
+#include "block_info.hpp"
+#include "bdecode.hpp"
 #include "units.hpp"
 #include "path.hpp"
 #include "file.hpp"
-#include "bdecode.hpp"
 
 #include <system_error>
 #include <vector>
@@ -17,67 +19,77 @@
 using file_index_t = int;
 
 /**
- * A file_slice is used to represent the part of the file that contains a piece or
- * some fragment of it, denoted in an interval.
- * TODO
- */
-struct file_slice
-{
-    // Files are accessed via file indices in torrent_storage for fast, cheap and
-    // abstracted away file handling.
-    file_index_t file_index;
-    int64_t piece_start;
-    int64_t piece_end;
-};
-
-/**
  * This class that is associated with a torrent, is an abstraction around everything
  * that is necessary to interact with the files we have or will download for the torrent.
  * All operations run synchronously, i.e. in the caller's thread. Therefore all methods
  * should be executed on a separate disk thread, such as in disk_io.
+ *
+ * NOTE: torrent_storage may not outlive its corresponding torrent instance.
  */
 class torrent_storage
 {
-    // torrent_storage takes ownership of the original metainfo bencode dictionary that
-    // was parsed from the .torrent file. This is used to extract information about all
-    // the files that will be in the torrent and to extract piece SHA-1 hashes (and
-    // avoid making copies of them which could be quite expensive).
-    // TODO or maybe let user pass in those values? like a view into the hashes?
-    // we already use a reference which could just as well be invalidated so maybe we
-    // should do that because otherwise torrent_storage has no use for the metainfo map
-    bmap m_metainfo;
+    struct file_entry
+    {
+        file storage;
 
-    std::vector<file> m_files;
+        // If all files were regarded as a single continous byte stream, this file's
+        // first byte would be at offset in that stream. This is used get the portion
+        // in a piece that overlaps into this file.
+        int64_t offset;
+
+        // The range of pieces [first, last] that are covered by this file, even if
+        // only partially.
+        piece_index_t first_piece;
+        piece_index_t last_piece;
+
+        file_entry(path path, int64_t length, uint8_t open_mode)
+            : storage(std::move(path), length, open_mode)
+        {}
+    };
+
+    // Relevant info (such as piece length, wanted files etc) about storage's
+    // corresponding torrent.
+    const torrent_info& m_info;
+
+    // All files listed in the metainfo are stored here, but files are lazily/ allocated
+    // on disk, i.e. when they are first accessed. This way it is easy to mark a file,
+    // which user had originally not wanted to download, as desired during the download.
+    //
+    // NOTE:
+    // Despite lazy allocation preventing creating files that are never accessed, a
+    // downloaded piece may still overlap into an unwanted file. In that case we don't
+    // want to write those extra bytes to disk. Thus, before writing to a file, we must
+    // check in m_info whether user actually wants that file, and discard those bytes
+    // that overlap into the unwanted file.
+    std::vector<file_entry> m_files;
 
     // The expected hashes of eall pieces, each hash's index in the vector implicitly
-    // maps to its piece's index.
-    // TODO perhaps only keep those that are necessary,
-    // for user may not want to download the entire torrent. in that case a std::map
-    // needs to be used with explicit piece indices
-    // TODO also, perhaps these could be string_views into the original metainfo buffer
-    // to avoid that many copies
-    std::vector<sha1_hash> m_piece_hashes;
-
-    // A reference to the corresponding torrent's stats & info. torrent_storage
-    // may not outlive the matching torrent instance.
-    const torrent_info& m_info;
+    // maps to its piece's index. This vector is allocated to be the size of all pieces.
+    // Hash values are never actually copied out of the metainfo located in the torrent
+    // to which whis storage belongs, these are just views into the original string.
+    // (Thus, torrent must keep at least one instance of metainfo alive.)
+    // TODO delete hash entries for pieces that we already have, do decrease memory usage
+    std::vector<string_view> m_piece_hashes;
 
     path m_save_path;
 
     // Torrent's name and the name of the root directory if it has more than one file.
     std::string m_name;
 
-    // The summed lengths of all files in m_files.
+    // The summed lengths of all files that are in this torrent, regardless if we're
+    // downloading them.
+    int64_t m_total_size = 0;
+
+    // The summed lengths of all files that we are downloading.
     int64_t m_size = 0;
 
 public:
 
     torrent_storage(
         const torrent_info& info,
-        const std::vector<file_info>& files,
-        std::vector<sha1_hash> hashes,
+        std::vector<string_view> piece_hashes,
         path save_path,
-        std::string name,
+        std::string name
     );
 
     /**
@@ -99,51 +111,78 @@ public:
     /** Returns the total number of bytes of all files we're downloading. */
     const int64_t size() const noexcept;
 
+    /** Deletes file from disk. */
+    std::error_code erase_file(const file_index_t file);
     std::error_code move(path path);
     std::error_code rename(std::string name);
+
+    std::error_code update_torrent_state(const torrent_state& state);
     std::error_code save_torrent_state(const torrent_state& state);
     bool is_state_up_to_date(const torrent_state& state);
 
     /**
-     * Returns a list of memory mapped objects that fully covers the specified portion
+     * Returns a list of memory mapped objects that fully cover the specified portion
      * of the piece (pieces may span multiple files).
      */
     std::vector<mmap_source> create_ro_mmap(
-        std::error_code& error,
-        const piece_index_t piece,
-        const int64_t offset,
-        const int64_t length
+        const block_info& info, std::error_code& error
     );
     std::vector<mmap_sink> create_rw_mmap(
-        std::error_code& error,
-        const piece_index_t piece,
-        const int64_t offset,
-        const int64_t length
+        const block_info& info, std::error_code& error
     );
 
     /**
      * Blocking scatter-gather IO implemented using low-level syscalls.
-     * TODO comment
+     *
+     * block_info specifies which piece, at which offset in the piece and how much in
+     * the piece we should read from disk/write to buffer. Though the number of bytes
+     * in buffer will be transferred at most.
      */
     void write(
-        std::error_code& error,
-        const piece_index_t piece,
         view<view<uint8_t>> buffers,
-        const int64_t piece_offset,
-        const int64_t piece_length
+        const block_info& info,
+        std::error_code& error
     );
     void read(
-        std::error_code& error,
-        const piece_index_t piece,
         view<view<uint8_t>> buffers,
-        const int64_t piece_offset,
-        const int64_t piece_length
+        const block_info& info,
+        std::error_code& error
     );
 
 private:
 
-    /** Returns a range of files that contain some portion of the piece. */
-    view<file> files_containing_piece(const piece_index_t piece);
+    /**
+     * Maps each file in m_info.files to a file_entry with correct data set up. Does not
+     * allocate files (that's done on first access).
+     */
+    void initialize_file_entries();
+
+    /**
+     * Abstracts away scatter-gather io operations across multiple files, as reading and
+     * writing are largely the same, and most of the effort is finding the files that
+     * contain the block, finding the block's offset in file and how many of block's
+     * bytes a file contains, managing the input buffer etc.
+     *
+     * Unless an error occurs, min(num_bytes_in_buffers, info.length) bytes are
+     * guaranteed to be transferred.
+     *
+     * Also, if any of the files that are being written to/read from have not been
+     * allocated on disk, this is done here before writing to them.
+     *
+     * Unwanted files are not actually touched.
+     */
+    template<typename FileIOFunction>
+    void torrent_storage::do_file_io(
+        FileIOFunction file_io_fn,
+        view<view<uint8_t>> buffers,
+        const block_info& info,
+        std::error_code& error
+    );
+    void before_file_op(file_entry& file, std::error_code& error);
+
+    /** Returns a range of files that contain some portion of the block or piece. */
+    view<file_entry> find_files_containing_block(const block_info& block);
+    view<file_entry> find_files_containing_piece(const piece_index_t piece);
 };
 
 #endif // TORRENT_TORRENT_STORAGE_HEADER

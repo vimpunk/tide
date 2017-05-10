@@ -62,7 +62,7 @@ peer_session::peer_session(
     tcp::endpoint peer_endpoint,
     disk_io& disk_io,
     bandwidth_controller& bandwidth_controller,
-    const settings& settings
+    const peer_session_settings& settings
 )
     : m_socket(std::move(socket))
     , m_disk_io(disk_io)
@@ -86,7 +86,7 @@ peer_session::peer_session(
     tcp::endpoint peer_endpoint,
     disk_io& disk_io,
     bandwidth_controller& bandwidth_controller,
-    const settings& settings,
+    const peer_session_settings& settings,
     torrent_specific_args torrent_args
 )
     : peer_session(
@@ -119,7 +119,7 @@ peer_session::peer_session(
     tcp::endpoint peer_endpoint,
     disk_io& disk_io,
     bandwidth_controller& bandwidth_controller,
-    const settings& settings,
+    const peer_session_settings& settings,
     std::function<torrent_specific_args(const sha1_hash&)> torrent_attacher
 )
     : peer_session(
@@ -275,7 +275,8 @@ void peer_session::on_connected(const std::error_code& error)
 
     m_info.state = peer_info::state_t::in_handshake;
 
-    if(m_settings.encryption_policy == settings::encryption_policy_t::no_encryption)
+    if(m_settings.encryption_policy
+            == peer_session_settings::encryption_policy_t::no_encryption)
     {
         if(m_info.is_outbound)
         {

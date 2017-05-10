@@ -1,6 +1,7 @@
 #include "thread_pool.hpp"
 
-#include <algorithm>
+#include <iostream>
+#define LOG(m) do { std::cerr << m << '\n'; } while(0)
 
 thread_pool::thread_pool() : thread_pool(auto_concurrency()) {}
 
@@ -105,6 +106,7 @@ void thread_pool::join_n(const int n)
 {
     for(auto i = 0; i < n; ++i)
     {
+        //LOG("[X] joining " << m_workers[i]->thread.get_id());
         // if worker is idle, i.e. it's waiting for a job via the job_available condvar,
         // wake it up and tell it that we're shutting down (otherwise worker is active
         // so it will periodically check for the its is_dead condition, so no need
@@ -114,7 +116,7 @@ void thread_pool::join_n(const int n)
         {
             m_workers[i]->job_available.notify_one();
         }
-        // this should never fire because if they do we f-ed up mutual exclusion
+        // this should never fire because if it doth, we f-ed up mutual exclusion
         assert(m_workers[i]->thread.joinable());
         m_workers[i]->thread.join();
     }
@@ -128,6 +130,7 @@ void thread_pool::abort_all()
 void thread_pool::handle_new_job()
 {
     std::unique_lock<std::mutex> workers_lock(m_workers_mutex);
+    //LOG("\t(new job) m_last_idle_worker_pos: " << m_last_idle_worker_pos);
     if(m_last_idle_worker_pos >= 0)
     {
         // if there are any idle workers, notify the one at the top of the waiters' stack
@@ -135,6 +138,7 @@ void thread_pool::handle_new_job()
     }
     else if(m_workers.empty() || (m_workers.size() < m_concurrency))
     {
+        //LOG("[NEW] creating new worker");
         // we don't have any threads or any idle threads but we haven't reached
         // our concurrency limit so spin up a new worker
         // TODO optimize this. if workload has been steadily decreasing in the near
@@ -195,9 +199,10 @@ void thread_pool::run(std::shared_ptr<worker> worker)
 
     while(!worker->is_dead.load(std::memory_order_acquire))
     {
+        //LOG("\t" << std::this_thread::get_id() << " looping");
         time_point idle_start = ts_cached_clock::now();
         std::unique_lock<std::mutex> job_queue_lock(m_job_queue_mutex);
-        worker->job_available.wait_for(job_queue_lock, minutes(1), [this, worker]
+        worker->job_available.wait_for(job_queue_lock, seconds(15), [this, worker]
         {
             // wake up if worker is begin shut down, a new job is available, or if
             // worker has idled for a minute
@@ -207,13 +212,22 @@ void thread_pool::run(std::shared_ptr<worker> worker)
         m_idle_time.fetch_add(
             duration_cast<milliseconds>(ts_cached_clock::now() - idle_start).count()
         );
+
         // thread woke up because thread_pool is stopping worker or thread hasn't
         // worked in the past minute; either way, stop execution
-        if(worker->is_dead.load(std::memory_order_acquire) || m_job_queue.empty())
+        if(worker->is_dead.load(std::memory_order_acquire))
         {
-            job_queue_lock.unlock();
+            //LOG("[D...] " << worker->thread.get_id());
             break;
         }
+        else if(m_job_queue.empty())
+        {
+            //LOG("[STARVE] " << worker->thread.get_id());
+            job_queue_lock.unlock();
+            worker->is_dead.store(true, std::memory_order_release);
+            break;
+        }
+
         // if this returns false it means worker is being shut down
         if(!execute_jobs(*worker, std::move(job_queue_lock)))
         {
@@ -240,6 +254,7 @@ bool thread_pool::execute_jobs(worker& worker, std::unique_lock<std::mutex> job_
 
     for(;;)
     {
+        //LOG("[W] " << std::this_thread::get_id() << " working");
         time_point work_start = ts_cached_clock::now();
         // TODO exception safety
         job();
@@ -281,12 +296,14 @@ void thread_pool::move_to_active(const worker& worker)
     // top of the stack
     int worker_pos = m_last_idle_worker_pos;
     // there must be at least one idle worker
+    //LOG("\tm_last_idle_worker_pos: " << m_last_idle_worker_pos);
     assert(worker_pos >= 0);
     while((worker_pos >= 0) && (m_workers[worker_pos].get() != &worker))
     {
         --worker_pos;
     }
     assert(worker_pos >= 0);
+    //LOG("\tworker_pos : " << worker_pos);
 
     // to preserve the order of the stack (we can't just swap worker with the top as
     // in move_to_idle (the active workers partition is not ordered)), we must
@@ -307,16 +324,11 @@ void thread_pool::move_to_idle(const worker& worker)
 {
     std::unique_lock<std::mutex> l(m_workers_mutex);
 
-    if(m_workers.size() == 1)
-    {
-        ++m_last_idle_worker_pos;
-        return;
-    }
-
     const int first_active_pos = m_last_idle_worker_pos + 1;
     int pos = first_active_pos;
     // there must be at least one active worker
     assert(pos >= 0);
+    //LOG("\tfirst_active_pos : " << first_active_pos);
 
     // since other workers may have become active since this worker had become active,
     // it may be anywhere beyond the last idle worker marker, so we have to find it
@@ -325,6 +337,7 @@ void thread_pool::move_to_idle(const worker& worker)
         ++pos;
     }
     assert(pos < m_workers.size()); // this should never fire
+    //LOG("\tworker_pos : " << pos);
 
     if(pos != first_active_pos)
     {
@@ -351,7 +364,10 @@ void thread_pool::reap_dead_workers()
         std::shared_ptr<worker> worker = m_workers.front();
         if(worker->is_dead.load(std::memory_order_relaxed))
         {
+            //LOG("[RRRR] reaping dead worker " << worker->thread.get_id());
             m_workers.pop_front();
+            // we got one less idle worker, so decrement this
+            --m_last_idle_worker_pos;
             // joining a thread may take some time so release the lock
             l.unlock();
             assert(worker->thread.joinable());
