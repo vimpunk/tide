@@ -384,8 +384,8 @@ private:
     // ----------------------
     // -- message handling --
     // ----------------------
-    // Each message handler extracts the current message from the receive buffer (thus
-    // advancing to the next message).
+    // Each message handler extracts the current message from the receive buffer,thus
+    // advancing to the next message.
 
     /**
      * Parses messages and dispatches their handling. It also corks the socket from

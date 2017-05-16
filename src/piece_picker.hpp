@@ -80,20 +80,17 @@ public:
 
     piece_index_t pick(const bt_bitfield& available_pieces) const;
     std::vector<piece_index_t> pick(
-        const bt_bitfield& available_pieces,
-        const int n
+        const bt_bitfield& available_pieces, const int n
     ) const;
 
     piece_index_t pick_and_reserve(const bt_bitfield& available_pieces);
     std::vector<piece_index_t> pick_and_reserve(
-        const bt_bitfield& available_pieces,
-        const int n
+        const bt_bitfield& available_pieces, const int n
     );
 
     piece_index_t pick_ignore_reserved(const bt_bitfield& available_pieces) const;
     std::vector<piece_index_t> pick_ignore_reserved(
-        const bt_bitfield& available_pieces,
-        const int n
+        const bt_bitfield& available_pieces, const int n
     ) const;
 
     /**
@@ -144,8 +141,7 @@ private:
 
     /** Tests whether we're interested in the piece and whether peer has it. */
     bool should_download_piece(
-        const bt_bitfield& available_pieces,
-        const piece_index_t piece
+        const bt_bitfield& available_pieces, const piece_index_t piece
     ) const;
 };
 

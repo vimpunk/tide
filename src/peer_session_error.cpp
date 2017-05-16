@@ -1,7 +1,5 @@
 #include "peer_session_error.hpp"
 
-#include <iostream>
-
 std::string peer_session_error_category::message(int env) const
 {
     switch(static_cast<peer_session_errc>(env))
@@ -75,7 +73,8 @@ std::string peer_session_error_category::message(int env) const
     }
 }
 
-std::error_condition peer_session_error_category::default_error_condition(int ev) const noexcept
+std::error_condition
+peer_session_error_category::default_error_condition(int ev) const noexcept
 {
     switch(static_cast<peer_session_errc>(ev))
     {

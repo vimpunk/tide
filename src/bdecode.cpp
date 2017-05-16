@@ -266,8 +266,9 @@ private:
 
             if(m_pos >= m_encoded.length())
             {
-            throw std::runtime_error("invalid bmap encoding (no value assigned to key)");
+                throw std::runtime_error("invalid bmap encoding (no value assigned to key)");
             }
+
             // decode value and add the number of tokens that were parsed while decoding
             // value to array offset accumulator
             // this is necessary to determine where the map ends
@@ -302,12 +303,12 @@ std::unique_ptr<belement> decode(std::string s)
 
 namespace detail
 {
-    std::string bcontainer::encode() const
+    string_view bcontainer::encode() const
     {
         // TODO verify this
         if(!head())
         {
-            return "";
+            return string_view();
         }
         if(head() == m_tokens->data())
         {
@@ -326,15 +327,14 @@ namespace detail
         {
             last_element_offset += last_element->length;
         }
-        else if(last_element->type == btype::list
-                && last_element->type == btype::map)
+        else if((last_element->type == btype::list) && (last_element->type == btype::map))
         {
             // if last element is a blist or bmap header token, it means they are
             // empty, so they only have 2 characters: the header tag ('l') and the end
             // tag ('e')
             last_element_offset += 2;
         }
-        return std::string(
+        return string_view(
             encoded().c_str() + head()->offset,
             encoded().c_str() + last_element_offset + 1
         );
@@ -344,8 +344,7 @@ namespace detail
         std::stringstream& ss,
         const bcontainer& map,
         const btoken* head,
-        int nesting_level
-    )
+        int nesting_level)
     {
         ss << '{';
         if(!map.head())
@@ -408,8 +407,7 @@ namespace detail
         std::stringstream& ss,
         const bcontainer& list,
         const btoken* head,
-        int nesting_level
-    )
+        int nesting_level)
     {
         ss << '[';
         if(!list.head())
@@ -468,9 +466,7 @@ namespace detail
 } // namespace detail
 
 const btoken* bmap::find_token(
-    const std::string& key,
-    const btoken* start_pos
-) const noexcept
+    const std::string& key, const btoken* start_pos) const noexcept
 {
     if(!head())
     {
@@ -536,9 +532,7 @@ const btoken* bmap::find_token(
 }
 
 const btoken* bmap::find_token_in_list(
-    const std::string& key,
-    const btoken* token
-) const noexcept
+    const std::string& key, const btoken* token) const noexcept
 {
     const btoken* const list_end = token + token->next_item_array_offset;
     // advance past the opening tag of list

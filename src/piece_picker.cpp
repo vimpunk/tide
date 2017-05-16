@@ -830,8 +830,8 @@ piece_index_t piece_picker::pick(const bt_bitfield& available_pieces) const
     return candidates[detail::random_int(candidates.size() - 1)];
 }
 
-std::vector<piece_index_t>
-piece_picker::pick(const bt_bitfield& available_pieces, const int n) const
+std::vector<piece_index_t> piece_picker::pick(
+    const bt_bitfield& available_pieces, const int n) const
 {
     std::vector<piece_index_t> indices;
     for(const auto& piece : *m_piece_tracker)
@@ -907,8 +907,8 @@ piece_picker::pick_ignore_reserved(const bt_bitfield& available_pieces) const
     return candidates[detail::random_int(candidates.size() - 1)];
 }
 
-std::vector<piece_index_t>
-piece_picker::pick_ignore_reserved(const bt_bitfield& available_pieces, const int n) const
+std::vector<piece_index_t> piece_picker::pick_ignore_reserved(
+    const bt_bitfield& available_pieces, const int n) const
 {
     std::vector<piece_index_t> indices;
     for(const auto& piece : *m_piece_tracker)

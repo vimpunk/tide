@@ -2,6 +2,7 @@
 #define TORRENT_PEER_SESSION_ERROR_HEADER
 
 #include <system_error>
+#include <string>
 
 /**
  * These are the types of errors that may occur in a peer connection, any of which result

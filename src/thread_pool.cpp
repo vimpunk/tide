@@ -196,7 +196,6 @@ void thread_pool::run(std::shared_ptr<worker> worker)
     {
         handle_untimely_worker_demise(worker);
     });
-
     while(!worker->is_dead.load(std::memory_order_acquire))
     {
         //LOG("\t" << std::this_thread::get_id() << " looping");
@@ -209,9 +208,7 @@ void thread_pool::run(std::shared_ptr<worker> worker)
             return worker->is_dead.load(std::memory_order_acquire)
                 || !m_job_queue.empty();
         });
-        m_idle_time.fetch_add(
-            duration_cast<milliseconds>(ts_cached_clock::now() - idle_start).count()
-        );
+        m_idle_time.fetch_add(total_milliseconds(ts_cached_clock::now() - idle_start));
 
         // thread woke up because thread_pool is stopping worker or thread hasn't
         // worked in the past minute; either way, stop execution
@@ -228,14 +225,14 @@ void thread_pool::run(std::shared_ptr<worker> worker)
             break;
         }
 
-        // if this returns false it means worker is being shut down
+        // if this returns false it means worker is being shut down (this is to avoid
+        // loading worker->is_dead again, as execute_jobs already does it)
         if(!execute_jobs(*worker, std::move(job_queue_lock)))
         {
             break;
         }
         reap_dead_workers();
     }
-
     termination_guard.disable();
 }
 
@@ -258,9 +255,7 @@ bool thread_pool::execute_jobs(worker& worker, std::unique_lock<std::mutex> job_
         time_point work_start = ts_cached_clock::now();
         // TODO exception safety
         job();
-        m_work_time.fetch_add(
-            duration_cast<milliseconds>(ts_cached_clock::now() - work_start).count()
-        );
+        m_work_time.fetch_add(total_milliseconds(ts_cached_clock::now() - work_start));
         m_num_executed_jobs.fetch_add(1, std::memory_order_relaxed);
 
         // we're shutting down, stop execution immediately
@@ -387,6 +382,9 @@ void thread_pool::reap_dead_workers()
 void thread_pool::handle_untimely_worker_demise(std::shared_ptr<worker> worker)
 {
     // TODO we must remove this worker from m_workers and adjust the stack logic
+    // we don't know if worker died while waiting or working, so the whole workers list
+    // must be searched
+
 }
 
 int thread_pool::auto_concurrency()

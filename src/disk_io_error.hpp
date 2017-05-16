@@ -2,18 +2,25 @@
 #define TORRENT_DISK_IO_ERROR_HEADER
 
 #include <system_error>
+#include <string>
 
-enum class disk_io_error_t
+enum class disk_io_errc
 {
     unknown = 1,
+    // We tried to read/block from a file that we marked as not downloaded (i.e.
+    // we don't have its data written to disk).
+    tried_unwanted_file_read,
+    tried_unwanted_file_write,
+    tried_unallocated_file_read,
+    tried_unallocated_file_write,
 };
 
-inline bool operator==(const disk_io_error_t e, const int i) noexcept
+inline bool operator==(const disk_io_errc e, const int i) noexcept
 {
     return static_cast<int>(e) == i;
 }
 
-inline bool operator!=(const int i, const disk_io_error_t e) noexcept
+inline bool operator!=(const int i, const disk_io_errc e) noexcept
 {
     return !(e == i);
 }
@@ -25,42 +32,17 @@ struct disk_io_error_category : public std::error_category
         return "disk_io";
     }
 
-    std::string message(int env) const override
-    {
-        switch(static_cast<disk_io_error_t>(env))
-        {
-        default:
-            return "unknown error";
-        }
-    }
-
-    std::error_condition default_error_condition(int ev) const noexcept override
-    {
-        switch(static_cast<disk_io_error_t>(ev))
-        {
-        default:
-            return std::error_condition(ev, *this);
-        }
-    }
+    std::string message(int env) const override;
+    std::error_condition default_error_condition(int ev) const noexcept override;
 };
 
-inline const disk_io_error_category& disk_io_category()
-{
-    static disk_io_error_category instance;
-    return instance;
-}
-
-inline std::error_code make_error_code(disk_io_error_t e)
-{
-    return std::error_code(
-        static_cast<int>(e),
-        disk_io_category()
-    );
-}
+const disk_io_error_category& disk_io_category();
+std::error_code make_error_code(disk_io_errc e);
+std::error_condition make_error_condition(disk_io_errc e);
 
 namespace std
 {
-    template<> struct is_error_code_enum<disk_io_error_t> : public true_type {};
+    template<> struct is_error_code_enum<disk_io_errc> : public true_type {};
 }
 
 // for more info:

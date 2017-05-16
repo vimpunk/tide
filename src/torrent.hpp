@@ -25,15 +25,22 @@ class torrent
 {
     disk_io& m_disk_io;
 
+    // There is one instance of this in engine, which is passed to each peer_session so
+    // they can request bandwidth quota.
     bandwidth_controller& m_bandwidth_controller;
 
+    // These are the global settings that is passed to each peer. Torrent's settings,
+    // however, are in m_info (for settings related to a torrent may be customized for
+    // each torrent but session settings and peer settings are global).
     torrent_settings& m_settings;
-
-    torrent_info m_info;
 
     // These are all the connected peers. The first upload slots number of peers are
     // ordered according to the choking algorithms rating (i.e. upload rate).
-    std::vector<peer_session> m_peer_sessions;
+    std::vector<std::unique_ptr<peer_session>> m_peer_sessions;
+
+    // This is used for internal stats and info bookkeeping, and is passed to submodules
+    // that contribute to stats aggregation.
+    std::shared_ptr<torrent_info> m_info;
 
     // Passed to every peer_session.
     std::shared_ptr<piece_picker> m_piece_picker;
@@ -43,23 +50,18 @@ class torrent
     // released (will no longer need it).
     std::shared_ptr<piece_download_locator> m_piece_download_locator;
 
-    // We aggregate all peer's stats in a torrent wide torrent_info instance.
-    std::shared_ptr<torrent_info> m_torrent_info;
-
-    duration m_seed_time;
-    duration m_leech_time;
-    duration m_active_time;
-    duration m_pause_time;
-
     // This is the original .torrent file of this torrent. It is kept in memory for
     // the piece SHA-1 hashes.
     bmap m_metainfo;
 
-    // A downloaded piece may overlap into an unwanted file, in which case those extra
-    // bytes are discarded. But this also means that we must not announce having those
-    // pieces as we won't be able to serve some of its bytes, so this bitfield is used
-    // to check whether we can announce a piece.
-    std::vector<bool> m_wanted_files;
+    // Since torrent may be accessed by user's thread, we need mutual exclusion.
+    std::mutex m_torrent_mutex;
+
+    // The choke "loop" runs every 10 seconds, reorders the peers according to the choke
+    // algorithms peer score and unchokes the top 4, and chokes the rest. Every 30
+    // seconds a single peer is optimistically unchoked to give it a chance and see
+    // whether it has better perfromance than the current unchoked peers.
+    deadline_timer m_choker_timer;
 
 public:
 

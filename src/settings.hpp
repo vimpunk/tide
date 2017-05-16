@@ -92,6 +92,7 @@ struct disk_io_settings
     path app_metadata_path;
 };
 
+/** These are the (global) default settings, but each torrent may specialize this. */
 struct torrent_settings
 {
     // If set to true the torrent will download pieces in order. This can be useful when

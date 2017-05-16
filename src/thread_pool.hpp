@@ -101,7 +101,7 @@ private:
     int m_last_idle_worker_pos = -1;
 
     // This is the max number of threads that we may have running. It is only accessed
-    // on the caller's thread no mutual exclusion is necessary.
+    // on the caller's thread, no mutual exclusion is necessary.
     int m_concurrency;
 
 public:
@@ -125,8 +125,8 @@ public:
     ~thread_pool();
 
     /**
-     * These are recommended for debugging only as each query function needs to acquire
-     * a mutex to get the latest info.
+     * These are not recommended for frequent use, as each query function needs to
+     * acquire a mutex to get the latest info.
      */
     bool is_idle() const;
     int num_threads() const;
@@ -143,10 +143,10 @@ public:
     void change_concurrency(const int n);
 
     /**
-     * Post a callable job to thread pool for execution at an unspecified time, though
-     * this may be changed with the priority level. If there is an idle thread, task is 
-     * executed immediately, if not, a new thread might be spun up, if concurrency limit
-     * is not reached, otherwise it is queud up for later execution.
+     * Post a callable job to thread pool for execution at an unspecified time. If there
+     * is an idle thread, task is executed immediately, if not, a new thread might be
+     * spun up, if concurrency limit is not reached, otherwise it is queud up for later
+     * execution.
      */
     void post(job_type job);
 
@@ -182,20 +182,24 @@ private:
 
     /**
      * This is the main loop that each worker runs until it's torn down.
-     * Instructs the worker to wait for new jobs and execute them, along with the rest
-     * of the job queue if there are more jobs, after which it goes back to sleep. At
-     * the end of each loop a thread checks if there are any dead workers and releases
-     * them.
+     *
+     * A worker first goes to sleep, waiting for an event, which is either a new job, a
+     * termination signal, or a wait timeout. In the latter case the function returns,
+     * and worker waits for someone else to reap it. In the former case, worker executes
+     * the new job and any other jobs that may have been queued up in m_job_queue. Then,
+     * thread tries to reap other dead workers, after which it repeats the procedure.
      */
     void run(std::shared_ptr<worker> worker);
 
     /**
      * This is called right after worker is woken up to execute a new job, which means
      * job_queue_lock must be held when moved into this function.
+     *
      * Executes at least one job for which worker was woken up, and more if there are
      * any available. At the start of the function, worker is moved into the active
      * workers list, and when it's done, it's moved back to the top of the waiters
      * stack.
+     *
      * If during execution worker is signaled to shut down, it stops and returns false,
      * otherwise it returns true (this is only so that run() doesn't have to check
      * worker->is_dead again, which this already does (which would be a superfluous

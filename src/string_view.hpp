@@ -11,6 +11,7 @@ struct string_view : public const_view<std::string::value_type>
 {
     string_view() = default;
     string_view(pointer str, size_type length) : view(str, length) {}
+    string_view(pointer begin, pointer end) : view(begin, end) {}
     string_view(const std::string& s) : string_view(s.c_str(), s.length()) {}
 
     operator std::string() const

@@ -49,7 +49,7 @@ struct btoken
     // map | list: the number of btokens till the first element that's not in list/map
     int next_item_array_offset = 0;
 
-    // number: the total length of the match of this regex: i-?\d+e
+    // number: the total length of encoded string representing the number (i\d+e)
     // string: the length of the string header, i.e. the length value plus colon, so
     // must be at least 2
     // map: the number of key-value pairs (excluding the 'map' header token)
@@ -214,13 +214,11 @@ namespace detail
         }
 
         /**
-         * If this is a nested container, it creates and returns a substring from the
-         * encoded string that belongs to this container. Otherwise (container is the
-         * root container), it just returns a copy of the encoded string (although in
-         * this case it is recommended to just use encoded() to avoid the copy).
-         * TODO consider returning a string_view
+         * If this is a nested container, it creates and returns a substring (view) from
+         * the encoded string that belongs to this container. Otherwise (container is
+         * the root container), it just returns what encoded() would return.
          */
-        std::string encode() const;
+        string_view encode() const;
 
         friend void format_map(
             std::stringstream& ss,
@@ -237,8 +235,7 @@ namespace detail
     };
 
     inline string_view make_string_view_from_token(
-        const std::string& encoded,
-        const btoken& token)
+        const std::string& encoded, const btoken& token)
     {
         assert(token.offset < encoded.length());
         const int str_length = std::atoi(&encoded[token.offset]);
@@ -786,8 +783,7 @@ private:
      * start_pos must be a map token (i.e. a token with type == btype::map).
      */
     const btoken* find_token(
-        const std::string& key,
-        const btoken* start_pos = nullptr
+        const std::string& key, const btoken* start_pos = nullptr
     ) const noexcept;
 
     /**
@@ -795,8 +791,7 @@ private:
      * for key is continued in them, otherwise nullptr is returned.
      */
     const btoken* find_token_in_list(
-        const std::string& key,
-        const btoken* token
+        const std::string& key, const btoken* token
     ) const noexcept;
 };
 

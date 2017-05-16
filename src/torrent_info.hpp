@@ -2,11 +2,22 @@
 #define TORRENT_TORRENT_INFO_HEADER
 
 #include "file_info.hpp"
+#include "settings.hpp"
 #include "socket.hpp"
 #include "units.hpp"
+#include "time.hpp"
 
 #include <vector>
 
+/**
+ * This class is a means of bookkeeping for torrent, to hold and update all relevant
+ * information. Each torrent has a single instance, and if any party needs some info
+ * about torrent but need otherwise not interact with torrent, it is given a reference
+ * to this info class.
+ *
+ * So while it is mostly used for internal bookkeeping, it's suitable for reporting
+ * expensive statistics about a torrent, though this may be slightly costly.
+ */
 struct torrent_info
 {
     // The unique torrent id which is used within the torrent engine to quickly
@@ -17,32 +28,31 @@ struct torrent_info
     // The 20 byte hash used to identify torrents.
     sha1_hash info_hash;
 
-    // All the files in this torrent.
+    // All the files in this torrent. At this point all file paths have been sanitized
+    // and made system conformant, so it is safe to use them. Paths are relative and
+    // must be appended to save_path if the absolute path is required. This is so that
+    // when torrent is moved, only the save_path has to be changed.
     std::vector<file_info> files;
+
+    // The absolute path denoting where the torrent will be downloaded.
+    path save_path;
+
+    // Torrent's name and the name of the root directory if it has more than one file.
+    std::string name;
 
     // A value between 0 and 1.
     double completion;
-    // The total size of the download, i.e. the sum of all file lengths.
+    // The total size of the download, i.e. the sum of all file lengths that we are
+    // downloading.
     int64_t size;
 
-    // The total number of piece bytes exchanged with all peers in this torrent. Does
-    // not include protocol overhead (both BitTorrent protocol and TCP/IP protocol).
-    int64_t total_downloaded_piece_bytes = 0;
-    int64_t total_uploaded_piece_bytes = 0;
-
-    // The total number of all bytes, excluding the underlying network protocol overhead,
-    // exchanged with all peers in this torrent
-    // (i.e. total_piece_{up,down}loaded + BitTorrent protocol overhead).
-    int64_t total_downloaded_bytes = 0;
-    int64_t total_uploaded_bytes = 0;
-
-    // If we receive a piece that we already have, this is incremented.
-    int64_t total_wasted_bytes = 0;
-
-    int64_t piece_length;
-    int64_t last_piece_length;
+    int piece_length;
+    int last_piece_length;
 
     int num_pieces;
+
+    int num_seeders = 0;
+    int num_leechers = 0;
 
     // Latest payload (piece) upload and download rates in bytes/s.
     int upload_rate = 0;
@@ -74,12 +84,32 @@ struct torrent_info
     // The number of piece bytes we're expecting to receive from all peers.
     int num_outstanding_bytes = 0;
 
-    // TODO find a proper place for these
-    uint64_t seed_time;
-    uint64_t download_time;
-    uint64_t total_time;
+    // The total number of piece bytes exchanged with all peers in this torrent. Does
+    // not include protocol overhead (both BitTorrent protocol and TCP/IP protocol).
+    int64_t total_downloaded_piece_bytes = 0;
+    int64_t total_uploaded_piece_bytes = 0;
+
+    // The total number of all bytes, excluding the underlying network protocol overhead,
+    // exchanged with all peers in this torrent
+    // (i.e. total_piece_{up,down}loaded + BitTorrent protocol overhead).
+    int64_t total_downloaded_bytes = 0;
+    int64_t total_uploaded_bytes = 0;
+
+    // If we receive a piece that we already have, this is incremented.
+    int64_t total_wasted_bytes = 0;
+
+    seconds total_seed_time;
+    seconds total_download_time;
+    time_point download_started_time;
+    time_point download_ended_time;
 
     bool is_seeding = false;
+
+    torrent_settings settings;
 };
 
 #endif // TORRENT_TORRENT_INFO_HEADER
+
+// TODO consider splitting up torrent info into various sections like network stats and
+// static stats (id, hash etc) and so on, and have a torrent_info class that inherits from
+// all of these

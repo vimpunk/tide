@@ -75,8 +75,7 @@ public:
      * can be done another way.
      */
     void parse_metainfo(
-        const path& path,
-        std::function<void(const std::error_code&, bmap)> handler
+        const path& path, std::function<void(const std::error_code&, bmap)> handler
     );
 
     /**
@@ -92,11 +91,10 @@ public:
     enum class delete_options
     {
         // Deletes the downloaded files and the metadata (torrent state) of this torrent
-        // (which is used to continue torrents after the engine stops).
-        all_files,
+        files_and_state,
         // Only delete the metadata/torrent state file that is used to continue torrents
         // after the engine has shut down.
-        only_state
+        state
     };
 
     /**
