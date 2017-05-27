@@ -3,9 +3,11 @@
 
 #include "block_disk_buffer.hpp"
 #include "average_counter.hpp"
+#include "torrent_storage.hpp"
 #include "torrent_state.hpp"
 #include "disk_io_error.hpp"
 #include "disk_buffer.hpp"
+#include "string_view.hpp"
 #include "thread_pool.hpp"
 #include "time.hpp"
 
@@ -19,7 +21,6 @@
 #include <boost/pool/pool.hpp>
 
 class metainfo;
-class torrent_storage;
 struct torrent_info;
 struct disk_io_settings;
 
@@ -85,7 +86,7 @@ class disk_io
     // and copies for other modules are made on demand.
     disk_io_info m_info;
 
-    // Only disk_io can instantiate disk_buffers so that instances can be resued.
+    // Only disk_io can instantiate disk_buffers so that instances can be reused.
     boost::pool<> m_disk_buffer_pool;
 
     struct partial_piece
@@ -127,8 +128,8 @@ class disk_io
     // Each torrent is associated with a torrent_storage instance which encapsulates the
     // implementation of instantiating the storage, saving and loading blocks from disk,
     // renaming/moving/deleting files etc. Higher level logic, like buffering writes is
-    // done in disk_io, a torrent_storage only takes care of the low level functions.
-    std::unordered_map<torrent_id_t, std::unique_ptr<torrent_storage>> m_torrents;
+    // done in disk_io, as torrent_storage only takes care of the low level functions.
+    std::unordered_map<torrent_id_t, torrent_storage> m_torrents;
 
     // TODO record pending disk reads: this is necessary if multiple requests are issued
     // for blocks in the same piece to avoid multiple disk jobs for the same piece
@@ -167,11 +168,9 @@ public:
     );
 
     void allocate_torrent(
-        const torrent_id_t torrent,
-        const torrent_info& info,
-        //const metainfo& metainfo,
-        std::function<void(const std::error_code&)> handler,
-        std::string save_path = ""
+        std::shared_ptr<torrent_info> info,
+        string_view piece_hashes,
+        std::function<void(const std::error_code&)> handler
     );
 
     void move_torrent(
@@ -274,13 +273,6 @@ public:
         const block_info& block_info,
         std::function<void(const std::error_code&, block_source)> handler
     );
-
-    /**
-     * This should be called when we no longer need a previously requested block (we
-     * choked peer or they cancelled the request). This only has an effect if the fetch
-     * operation it's attempting to abort hasn't been started yet.
-     */
-    void abort_block_fetch(const torrent_id_t torrent, const block_info& block_info);
 };
 
 #endif // TORRENT_DISK_IO_HEADER

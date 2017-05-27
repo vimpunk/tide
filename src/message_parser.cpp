@@ -184,7 +184,7 @@ inline bool message_parser::has(const int n) const noexcept
 inline int message_parser::view_message_length() const noexcept
 {
     assert(has(4));
-    return parse_i32(&m_buffer[m_message_begin]);
+    return detail::parse<int>(&m_buffer[m_message_begin]);
 }
 
 inline void message_parser::optimize_receive_space()

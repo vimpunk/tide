@@ -1,5 +1,5 @@
-#ifndef TORRENT_PEER_INFO_HEADER
-#define TORRENT_PEER_INFO_HEADER
+#ifndef TORRENT_PEER_SESSION_INFO_HEADER
+#define TORRENT_PEER_SESSION_INFO_HEADER
 
 #include "bt_bitfield.hpp"
 #include "socket.hpp"
@@ -9,12 +9,18 @@
 #include <vector>
 #include <array>
 
-struct peer_info
+/**
+ * This is used for internal bookkeeping information and statistics about a peer, but
+ * may also be used to report detailed statistics.
+ */
+ // TODO consider making this a nested class in peer_session and use a separate class
+ // intended just for stats reporting as its doubtful every detail is necessary
+struct peer_session_info
 {
     // The unique torrent id to which this peer belongs.
     torrent_id_t torrent_id;
 
-    // The 20 byte BitTorrent peer id.
+    // Peer's 20 byte BitTorrent id.
     peer_id id;
 
     // A string representing the peer's software, if available (left empty if peer
@@ -31,7 +37,7 @@ struct peer_info
     tcp::endpoint peer_endpoint;
 
     // The pieces we're currently downloading from this peer (those that have been
-    // downloaded but not yet been verified count as well).
+    // fully downloaded but not yet been verified count as well).
     std::vector<piece_index_t> piece_downloads;
 
     time_point connection_established_time;
@@ -64,6 +70,7 @@ struct peer_info
     int max_download_rate = -1;
 
     // The amount of message bytes in these buffers.
+    // TODO are these necessary?
     int send_buffer_size = 0;
     int receive_buffer_size = 0;
 
@@ -136,4 +143,4 @@ struct peer_info
     state_t state = state_t::stopped;
 };
 
-#endif // TORRENT_PEER_INFO_HEADER
+#endif // TORRENT_PEER_SESSION_INFO_HEADER

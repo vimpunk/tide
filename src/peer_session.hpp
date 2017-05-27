@@ -2,6 +2,7 @@
 #define TORRENT_PEER_SESSION_HEADER
 
 #include "peer_session_error.hpp"
+#include "peer_session_info.hpp"
 #include "block_disk_buffer.hpp"
 #include "throughput_rate.hpp"
 #include "sliding_average.hpp"
@@ -10,7 +11,6 @@
 #include "send_buffer.hpp"
 #include "disk_buffer.hpp"
 #include "block_info.hpp"
-#include "peer_info.hpp"
 #include "socket.hpp"
 #include "units.hpp"
 #include "time.hpp"
@@ -45,6 +45,7 @@ struct peer_session
         std::shared_ptr<piece_picker> picker;
         std::shared_ptr<piece_download_locator> locator;
         std::shared_ptr<torrent_info> info;
+        std::function<void(piece_index_t, bool)> new_piece_handler;
     };
 
 private:
@@ -133,7 +134,7 @@ private:
 
     // Info and status regarding this peer. One instance persists throughout the session,
     // which is constantly updated but copies for stat aggregation are made on demand.
-    peer_info m_info;
+    peer_session_info m_info;
 
     // The request queue size (the number of blocks we requests from the peer in one
     // go, which saves us from the full round trip time between a request and a block)
@@ -215,7 +216,7 @@ private:
 
     // Started when we send block requests and stopped and restarted every time one of
     // the requests is served. If none is served before the timer expires, peer has
-    // timed out and handle_request_timeout() is called. If all our requests have been
+    // timed out and handle_request_timeout is called. If all our requests have been
     // served in a timely manner, the timeout is not restarted after stopping it.
     deadline_timer m_request_timeout_timer;
 
@@ -224,6 +225,9 @@ private:
     // is not interested, or the other way around, this timer has to be started, and
     // stopped if either side becomes interested.
     deadline_timer m_inactivity_timeout_timer;
+
+    // This is a function in torrent that is invoked every time we received a new piece
+    std::function<void(piece_index_t, bool)> m_new_piece_handler;
 
     // When this is an incoming connection, this peer_session must attach to a torrent
     // using this callback after peer's handshake has been received and a torrent info
@@ -270,35 +274,42 @@ public:
     ~peer_session();
 
     void disconnect(const std::error_code& error);
-    void pause();
-    void quick_stop();
-    void try_resume();
+    //void pause();
+    //void gracious_pause();
+    //void try_resume();
 
     bool is_connecting() const noexcept;
     bool is_disconnecting() const noexcept;
     bool is_finished() const noexcept;
     bool is_on_parole() const noexcept;
-    //bool am_choked() const noexcept;
-    //bool is_peer_choked() const noexcept;
+    bool am_choked() const noexcept;
+    bool is_peer_choked() const noexcept;
 
-    const peer_info& stats() noexcept;
-    void update_stats(peer_info& stats) const noexcept;
+    const peer_session_info& stats() noexcept;
+    void update_stats(peer_session_info& stats) const noexcept;
+    int64_t num_bytes_downloaded_in_last_round() const;
+    int64_t num_bytes_uploaded_in_last_round() const;
+    time_point last_outgoing_unchoke_time() const noexcept;
+    time_point connection_established_time() const noexcept;
 
     /** Sends a choke message and drops serving all pending requests made by peer. */
     void choke_peer();
 
-    /** Sends an unchoke message and immediately creates block requests. */
+    /**
+     * Sends an unchoke message and if we're interested in peer, immediately creates
+     * block requests.
+     */
     void unchoke_peer();
 
     /**
-     * This is called (by torrent) when a piece was successfully downloaded. It may alter
-     * our interest in peer.
+     * This is called (by torrent) when a piece was successfully downloaded. It may
+     * alter our interest in peer.
      */
     void announce_new_piece(const piece_index_t piece);
 
 private:
 
-    /** Initializes fields for both constructors. */
+    /** Initializes fields common to both constructors. */
     peer_session(
         std::unique_ptr<tcp::socket> socket,
         tcp::endpoint peer_endpoint,
@@ -336,8 +347,8 @@ private:
     bool can_send() const noexcept;
 
     /**
-     * This is the handler for send(). Clears num_bytes_sent bytes from m_send_buffer,
-     * handles errors, adjusts send quota and calls send() to continue the cycle.
+     * This is the handler for send. Clears num_bytes_sent bytes from m_send_buffer,
+     * handles errors, adjusts send quota and calls send to continue the cycle.
      */
     void on_sent(const std::error_code& error, size_t num_bytes_sent);
     void update_send_stats(const int num_bytes_sent) noexcept;
@@ -358,14 +369,15 @@ private:
      * If we don't expect piece payloads (in which case receive operations are
      * constrained by how fast we can write to disk, and resumed once disk writes
      * finished, in on_block_saved), we should always have enough space for protocol
-     * chatter (non payload messages), otherwise the async receive cycle would stop.
+     * chatter (non payload messages), otherwise the async receive cycle would stop,
+     * i.e. there'd be noone reregistering the async receive calls.
      */
     void ensure_protocol_exchange();
     int get_num_to_receive() const noexcept;
 
     /**
      * Accounts for the bytes read, subtracts num_bytes_received from the send quota,
-     * checks if the async_read_some() operation read all available bytes and if not,
+     * checks if the async_read_some operation read all available bytes and if not,
      * tries synchronously read the rest. Then it dispatches message handling.
      */
     void on_received(const std::error_code& error, size_t num_bytes_received);
@@ -483,13 +495,13 @@ private:
     // ---------------------
 
     /**
-     * This is used by public sender methods (choke_peer(), announce_new_piece() etc) to
+     * This is used by public sender methods (choke_peer, announce_new_piece etc) to
      * see if we are in a state where we can send messages (not connecting,
      * disconnecting or stopped).
      */
     bool is_ready_to_send() const noexcept;
 
-    // Each of the below methods append their message to m_send_buffer and call send()
+    // Each of the below methods append their message to m_send_buffer and call send
     // at the end, but the payload may be buffered for a while before it is written to
     // socket.
     // The first 5 senders simply send the message and record that they have done so.
@@ -513,14 +525,14 @@ private:
     /**
      * We can make requests if we're below the max number of outstanding requests
      * and we're not choked and we're interested.
-     * TODO restrict requests if disk is overwhelmed with saving blocks
+     * TODO restrict requests if disk is overwhelmed
      */
     bool can_send_requests() const noexcept;
 
     /**
-     * Either one of these is called by send_requests(). Both merely add the request
+     * Either one of these is called by send_requests. Both merely add the request
      * message to the m_sent_request queue but don't send off the message. This is done
-     * by send_requests(), if any requests have been made in either of these functions.
+     * by send_requests, if any requests have been made in either of these functions.
      * New requests are placed in m_sent_requests.
      * The number of blocks that have been placed in the request queue are returned.
      */
@@ -619,17 +631,17 @@ inline bool peer_session::is_ready_to_send() const noexcept
 
 inline bool peer_session::is_connecting() const noexcept
 {
-    return m_info.state == peer_info::state_t::connecting;
+    return m_info.state == peer_session_info::state_t::connecting;
 }
 
 inline bool peer_session::is_disconnecting() const noexcept
 {
-    return m_info.state == peer_info::state_t::disconnecting;
+    return m_info.state == peer_session_info::state_t::disconnecting;
 }
 
 inline bool peer_session::is_finished() const noexcept
 {
-    return m_info.state == peer_info::state_t::stopped;
+    return m_info.state == peer_session_info::state_t::stopped;
 }
 
 inline bool peer_session::is_on_parole() const noexcept

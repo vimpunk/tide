@@ -31,7 +31,7 @@ public:
 
     /** Returns whether the handle is valid, i.e. it refers to a valid torrent. */
     bool is_valid() const noexcept;
-    bool operator() const noexcept;
+    operator bool() const noexcept;
 
     bool is_paused() const noexcept;
     bool is_running() const noexcept;

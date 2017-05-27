@@ -21,6 +21,7 @@ disk_io::~disk_io()
 
 bool disk_io::is_overwhelmed() const noexcept
 {
+    // TODO this should be determined according to some threshold/watermark system
     return false;
 }
 
@@ -40,20 +41,11 @@ void disk_io::read_metainfo(
 }
 
 void disk_io::allocate_torrent(
-    const torrent_id_t torrent,
-    const torrent_info& info,
-    //const metainfo& metainfo,
-    std::function<void(const std::error_code&)> handler,
-    std::string save_path)
+    std::shared_ptr<torrent_info> info,
+    string_view piece_hashes,
+    std::function<void(const std::error_code&)> handler)
 {
-    m_torrents.emplace(
-        torrent,
-        std::make_unique<torrent_entry>(
-            std::move(save_path),
-            info,
-            std::vector<sha1_hash>()
-        )
-    );
+    m_torrents.emplace(torrent, torrent_storage(info, std::vector<sha1_hash>()));
 }
 
 void disk_io::move_torrent(
@@ -150,9 +142,5 @@ void disk_io::fetch_block(
     const torrent_id_t torrent,
     const block_info& block_info,
     std::function<void(const std::error_code&, block_source)> handler)
-{
-}
-
-void disk_io::abort_block_fetch(const torrent_id_t torrent, const block_info& block_info)
 {
 }

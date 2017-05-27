@@ -12,6 +12,7 @@ struct file_info
     // User may choose not to download a file, in which case this must be marked false.
     bool is_wanted = true;
 
+    file_info() = default;
     file_info(class path p, int64_t l)
         : path(std::move(p))
         , length(l)

@@ -129,7 +129,7 @@ public:
     bool is_allocated() const noexcept;
 
     /**
-     * Returns a memory mapping of the portion of the file specified by offset and
+     * Returns a memory mapping of the portion of the file specified by file_offset and
      * length. This is useful to map entire pieces and keep them in cache for repeated
      * reads.
      *
@@ -138,15 +138,15 @@ public:
      * mapping might not make it worthwhile and in that case the read/write functions
      * below are more appropriate.
      *
-     * An exception is thrown if offset and/or length are invalid. Any other IO errors
-     * are reported via error. In both cases the returned mmap object is invalid/
+     * An exception is thrown if file_offset and/or length are invalid. Any other IO
+     * errors are reported via error. In both cases the returned mmap object is invalid/
      * uninitialized.
      */
     mmap_source create_mmap_source(
-        const int64_t offset, const int length, std::error_code& error
+        const int64_t file_offset, const int length, std::error_code& error
     );
     mmap_sink create_mmap_sink(
-        const int64_t offset, const int length, std::error_code& error
+        const int64_t file_offset, const int length, std::error_code& error
     );
 
     /**
@@ -154,12 +154,12 @@ public:
      * 0 if no reading/writing occured (whether due to an error or EOF is not specified,
      * as details can be retrieved from error).
      *
-     * An exception is thrown if offset is invalid.
+     * An exception is thrown if file_offset is invalid.
      */
-    int read(view<uint8_t> buffer, const int64_t offset, std::error_code& error);
-    int read(iovec buffer, const int64_t offset, std::error_code& error);
-    int write(view<uint8_t> buffer, const int64_t offset, std::error_code& error);
-    int write(iovec buffer, const int64_t offset, std::error_code& error);
+    int read(view<uint8_t> buffer, const int64_t file_offset, std::error_code& error);
+    int read(iovec buffer, const int64_t file_offset, std::error_code& error);
+    int write(view<uint8_t> buffer, const int64_t file_offset, std::error_code& error);
+    int write(iovec buffer, const int64_t file_offset, std::error_code& error);
 
     /**
      * These two functions are scatter-gather operations in that multiple buffers may
@@ -179,7 +179,7 @@ public:
      * from its page cache to disk. Otherwise this should be done manually with
      * sync_with_disk.
      *
-     * An exception is thrown if offset is invalid.
+     * An exception is thrown if file_offset is invalid.
      * TODO consider only asserting the input values instead of throwing as this is a
      * low-level class
      * Any other IO errors are reported via error.
@@ -191,10 +191,10 @@ public:
      * buffers view. (It effectively advances the byte pointer/cursor, which can be
      * useful when buffers is meant to be written to/filled with by the contents of
      * several consecutive files, so when these functions return, the buffers view can
-     * just be passed to the next file, starting at the correct offset.)
+     * just be passed to the next file, starting at the correct file_offset.)
      */
-    int read(view<iovec>& buffers, const int64_t offset, std::error_code& error);
-    int write(view<iovec>& buffers, const int64_t offset, std::error_code& error);
+    int read(view<iovec>& buffers, const int64_t file_offset, std::error_code& error);
+    int write(view<iovec>& buffers, const int64_t file_offset, std::error_code& error);
 
     /** If we're in write mode, syncs the file buffer in the OS page cache with disk. */
     void sync_with_disk(std::error_code& error);
@@ -202,13 +202,13 @@ public:
 private:
 
     void check_read_preconditions(
-        const int64_t offset, std::error_code& error
+        const int64_t file_offset, std::error_code& error
     ) const noexcept;
     void check_write_preconditions(
-        const int64_t offset, std::error_code& error
+        const int64_t file_offset, std::error_code& error
     ) const noexcept;
     void verify_handle(std::error_code& error) const;
-    void verify_offset(const int64_t offset) const;
+    void verify_file_offset(const int64_t file_offset) const;
 
     /**
      * Abstracts away scatter-gather IO by repeatedly calling the supplied pread or
@@ -216,7 +216,7 @@ private:
      * on the current system.
      *
      * pio_fn will be called for every buffer processed, and its signature must be:
-     * int pio_fn(void* buffer, int64_t offset, int64_t length);
+     * int pio_fn(void* buffer, int64_t file_offset, int64_t length);
      * where the return value is the number of bytes transferred.
      *
      * Note that unlike preadv/pwritev, this is not atomic, so other processes may be
@@ -224,7 +224,10 @@ private:
      */
     template<typename PIOFunction>
     int repeated_positional_io(
-        PIOFunction pio_fn, view<iovec>& buffers, int64_t offset, std::error_code& error
+        PIOFunction pio_fn,
+        view<iovec>& buffers,
+        int64_t file_offset,
+        std::error_code& error
     );
 
     /**
@@ -236,12 +239,15 @@ private:
      *
      * pvio_fn will be called until it transfers all the bytes requested, usually once.
      * It must have the following signature:
-     * int vpo_fn(view<iovec>& buffers, int64_t offset);
+     * int vpo_fn(view<iovec>& buffers, int64_t file_offset);
      * where the return value is the number of bytes transferred.
      */
     template<typename PVIOFunction>
     int positional_vector_io(
-        PVIOFunction pvio_fn, view<iovec>& buffers, int64_t offset, std::error_code& error
+        PVIOFunction pvio_fn,
+        view<iovec>& buffers,
+        int64_t file_offset,
+        std::error_code& error
     );
 };
 

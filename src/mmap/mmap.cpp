@@ -328,7 +328,7 @@ private:
         );
         if(m_file_handle == -1)
         {
-            throw std::runtime_error("invalid file handle for: " + path);
+            throw std::runtime_error("invalid file handle for: " + std::string(path.c_str()));
         }
 #endif
     }

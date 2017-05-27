@@ -38,6 +38,8 @@ private:
         {}
     };
 
+    // TODO check whether unordered maps are a better fit!
+
     // All peers from whom we've downloaded blocks in this piece are saved so that when
     // a piece ends up corrupt we know who to blame.
     std::map<peer_id, completion_handler> m_participants;
@@ -46,8 +48,16 @@ private:
     // other peers are placed here.
     std::map<block_info, cancel_candidate> m_timed_out_blocks;
 
+    enum class block_status
+    {
+        free,
+        requested,
+        received
+    };
+
     // A block is either free or not. The latter may mean that it has been received or
     // that it's being downloaded, while free blocks are those that we don't have yet.
+    // TODO use block_status instead as we need the distinction between picked and reserved
     std::vector<bool> m_completion;
 
     const piece_index_t m_index;
@@ -65,9 +75,22 @@ private:
     // should move on to another.
     int m_num_blocks_picked = 0;
 
+    completion_handler m_completion_handler;
+
 public:
 
-    piece_download(const piece_index_t index, const int piece_length);
+    /**
+     * The completion handler supplied here will be invoked after all participant's
+     * completion handlers have been invoked.
+     * This can be used to notify a separate entity, once, that the piece was downloaded,
+     * such as torrent, which would perform distinct measures on a complete piece
+     * compared to a download participant.
+     */
+    piece_download(
+        const piece_index_t index,
+        const int piece_length,
+        completion_handler completion_handler
+    );
 
     /** Tests whether there are blocks left to request. */
     bool can_request() const noexcept;
@@ -83,10 +106,10 @@ public:
 
     /**
      * When a part of the piece is received, it must be registered. The completion
-     * handler is invoked in on_piece_hashed(), which should be called when the piece
-     * has been verified. This indirection is necessary because it's always a single
-     * entity that saves the final block, so it will perform the hashing, so it must
-     * propagate the results to other participants of this download.
+     * handler is invoked in notify_all_of_hash_result, which should be called when the
+     * piece has been verified. This indirection is necessary because it's always a
+     * single entity that saves the final block, so it will perform the hashing, so it
+     * must propagate the results to other participants of this download.
      */
     void got_block(
         const peer_id& peer,

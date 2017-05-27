@@ -486,14 +486,14 @@ const btoken* bmap::find_token(
     // it's either the first key or map_end, if map is empty)
     ++token;
 
-    while(token != map_end
+    while(token != map_end)
           // stop looping if the distance till the end of the encoded string from
           // the current token is less than key's length (to avoid SIGSEGV in
           // std::equal())
-          && encoded().length() - token->offset - token->length >= key.length())
+          //&& encoded().length() - token->offset - token->length >= key.length())
     {
-        const auto encoded_key_header = encoded().c_str() + token->offset;
         assert(token->type == btype::string);
+        const auto encoded_key_header = encoded().c_str() + token->offset;
         const auto encoded_key_length = std::atoi(encoded_key_header);
         const auto encoded_key_start = encoded_key_header + token->length;
         // advance to value

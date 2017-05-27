@@ -198,8 +198,7 @@ namespace detail
 
         int size() const noexcept
         {
-            return m_head ? m_head->length
-                          : 0;
+            return m_head ? m_head->length : 0;
         }
 
         bool is_empty() const noexcept
@@ -214,9 +213,10 @@ namespace detail
         }
 
         /**
-         * If this is a nested container, it creates and returns a substring (view) from
-         * the encoded string that belongs to this container. Otherwise (container is
-         * the root container), it just returns what encoded() would return.
+         * Returns a substring (view) of the portion of the source string that is the
+         * current container. If this is the root container, the returned string is
+         * identical to the source string. Note that no actual copies are made, so
+         * calling this function is cheap.
          */
         string_view encode() const;
 

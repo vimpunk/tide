@@ -100,6 +100,7 @@ peer_session::peer_session(
     m_piece_picker = torrent_args.picker;
     m_piece_download_locator = torrent_args.locator;
     m_torrent_info = torrent_args.info;
+    m_new_piece_handler = torrent_args.new_piece_handler;
 
     assert(m_piece_download_locator);
     assert(m_torrent_info);
@@ -140,12 +141,12 @@ peer_session::~peer_session()
     disconnect(peer_session_errc::unknown);
 }
 
-const peer_info& peer_session::stats() noexcept
+const peer_session_info& peer_session::stats() noexcept
 {
-    // we don't keep track of these values as these fields in peer_info are only useful
-    // for stats collection, so it suffices to update them only when requested
-    m_info.send_buffer_size = m_send_buffer.size();
-    m_info.receive_buffer_size = m_message_parser.size();
+    // we don't keep track of these values as these fields in peer_session_info are only
+    // useful for stats collection, so it suffices to update them only when requested
+    //m_info.send_buffer_size = m_send_buffer.size();
+    //m_info.receive_buffer_size = m_message_parser.size();
     m_info.upload_rate = m_upload_rate.bytes_per_second();
     m_info.download_rate = m_download_rate.bytes_per_second();
     m_info.piece_downloads.clear();
@@ -156,7 +157,7 @@ const peer_info& peer_session::stats() noexcept
     return m_info;
 }
 
-void peer_session::update_stats(peer_info& stats) const noexcept
+void peer_session::update_stats(peer_session_info& stats) const noexcept
 {
     /*
     stats.torrent_id;
@@ -223,7 +224,7 @@ inline void peer_session::connect()
             on_connected(error);
         }
     );
-    m_info.state = peer_info::state_t::connecting;
+    m_info.state = peer_session_info::state_t::connecting;
     m_connection_started_time = cached_clock::now();
 
     start_timer(
@@ -273,7 +274,7 @@ void peer_session::on_connected(const std::error_code& error)
         return;
     }
 
-    m_info.state = peer_info::state_t::in_handshake;
+    m_info.state = peer_session_info::state_t::in_handshake;
 
     if(m_settings.encryption_policy
             == peer_session_settings::encryption_policy_t::no_encryption)
@@ -309,7 +310,7 @@ void peer_session::disconnect(const std::error_code& error)
         return;
     }
 
-    m_info.state = peer_info::state_t::disconnecting;
+    m_info.state = peer_session_info::state_t::disconnecting;
 
     log(log_event::disconnecting,
         "preparing to disconnect... reason: %s",
@@ -330,7 +331,7 @@ void peer_session::disconnect(const std::error_code& error)
     abort_our_requests();
 
     m_socket->close(ec);
-    m_info.state = peer_info::state_t::stopped;
+    m_info.state = peer_session_info::state_t::stopped;
 
     log(log_event::disconnecting, "tore down connection");
 
@@ -379,7 +380,7 @@ void peer_session::choke_peer()
     // TODO abort serving requests
     for(const auto& block : m_received_requests)
     {
-        m_disk_io.abort_block_fetch(m_info.torrent_id, block);
+        // TODO
     }
     m_received_requests.clear();
     send_choke();
@@ -734,8 +735,7 @@ inline void peer_session::adjust_receive_buffer(const bool was_choked)
             ));
             log(log_event::incoming,
                 "grew receive buffer from %i to %i",
-                old_buffer_size,
-                m_message_parser.buffer_size()
+                old_buffer_size, m_message_parser.buffer_size()
             );
         }
     }
@@ -748,8 +748,7 @@ inline void peer_session::adjust_receive_buffer(const bool was_choked)
         m_message_parser.shrink_to_fit(100);
         log(log_event::incoming,
             "shrunk receive buffer from %i to %i",
-            old_buffer_size,
-            m_message_parser.buffer_size()
+            old_buffer_size, m_message_parser.buffer_size()
         );
     }
 }
@@ -802,7 +801,7 @@ inline int peer_session::flush_socket()
 
 inline void peer_session::handle_messages()
 {
-    if(m_info.state == peer_info::state_t::in_handshake)
+    if(m_info.state == peer_session_info::state_t::in_handshake)
     {
         if(m_message_parser.has_handshake())
         {
@@ -822,7 +821,7 @@ inline void peer_session::handle_messages()
     }
 
     if(m_message_parser.has_message()
-       && m_info.state == peer_info::state_t::bitfield_exchange)
+       && m_info.state == peer_session_info::state_t::bitfield_exchange)
     {
         if(m_message_parser.type() == message_t::bitfield)
         {
@@ -833,7 +832,7 @@ inline void peer_session::handle_messages()
                 return;
             }
         }
-        m_info.state = peer_info::state_t::connected;
+        m_info.state = peer_session_info::state_t::connected;
     }
 
     while(!is_disconnecting()
@@ -844,7 +843,7 @@ inline void peer_session::handle_messages()
         {
         case message_t::bitfield:
             // bitfield messages may only be sent after the handshake, in the bitfield
-            // exchange state in peer_info::state_t
+            // exchange state in peer_session_info::state_t
             handle_illicit_bitfield();
             break;
         case message_t::keep_alive:
@@ -913,8 +912,8 @@ void peer_session::handle_handshake()
     }
     else
     {
-        torrent_specific_args args = m_torrent_attacher(info_hash);
-        if(args.info == nullptr)
+        torrent_specific_args torrent_args = m_torrent_attacher(info_hash);
+        if(torrent_args.info == nullptr)
         {
             // this means we couldn't find a torrent to which we could be attached,
             // likely due to peer's bad info_hash
@@ -922,9 +921,10 @@ void peer_session::handle_handshake()
             return;
         }
 
-        m_piece_picker = args.picker;
-        m_piece_download_locator = args.locator;
-        m_torrent_info = args.info;
+        m_piece_picker = torrent_args.picker;
+        m_piece_download_locator = torrent_args.locator;
+        m_torrent_info = torrent_args.info;
+        m_new_piece_handler = torrent_args.new_piece_handler;
 
         // initialize peer's bitfield now that we know the number of pieces this
         // torrent has
@@ -987,13 +987,13 @@ void peer_session::handle_handshake()
     */
 
     // move on to the next stage
-    m_info.state = peer_info::state_t::bitfield_exchange;
+    m_info.state = peer_session_info::state_t::bitfield_exchange;
     send_bitfield();
 }
 
 inline void peer_session::handle_bitfield()
 {
-    assert(m_info.state == peer_info::state_t::bitfield_exchange);
+    assert(m_info.state == peer_session_info::state_t::bitfield_exchange);
 
     message msg = m_message_parser.extract();
     const int num_pieces = m_torrent_info->num_pieces;
@@ -1120,7 +1120,7 @@ inline void peer_session::handle_have()
         return;
     }
 
-    const piece_index_t piece = parse_i32(msg.data.begin());
+    const piece_index_t piece = detail::parse<int32_t>(msg.data.begin());
 
     log(log_event::incoming, "HAVE %i", piece);
 
@@ -1172,18 +1172,14 @@ inline void peer_session::handle_request()
 
     log(log_event::incoming,
         "REQUEST (piece: %i, offset: %i, length: %i)",
-        block_info.index,
-        block_info.offset,
-        block_info.length
+        block_info.index, block_info.offset, block_info.length
     );
 
     if(!is_request_valid(block_info))
     {
         log(log_event::invalid_message,
             "invalid request (piece: %i, offset: %i, length: %i)",
-            block_info.index,
-            block_info.offset,
-            block_info.length
+            block_info.index, block_info.offset, block_info.length
         );
         disconnect(peer_session_errc::invalid_request_message);
         return;
@@ -1209,9 +1205,7 @@ inline void peer_session::handle_request()
 
         log(log_event::disk,
             "disk read launched, serving request (piece: %i, offset: %i, length: %i)",
-            block_info.index,
-            block_info.offset,
-            block_info.length
+            block_info.index, block_info.offset, block_info.length
         );
     }
 }
@@ -1239,18 +1233,14 @@ inline void peer_session::handle_cancel()
 
     log(log_event::incoming,
         "CANCEL (piece: %i, offset: %i, length: %i)",
-        block_info.index,
-        block_info.offset,
-        block_info.length
+        block_info.index, block_info.offset, block_info.length
     );
 
     if(!is_request_valid(block_info))
     {
         log(log_event::invalid_message,
             "invalid cancel (piece: %i, offset: %i, length: %i)",
-            block_info.index,
-            block_info.offset,
-            block_info.length
+            block_info.index, block_info.offset, block_info.length
         );
         disconnect(peer_session_errc::invalid_cancel_message);
         return;
@@ -1266,7 +1256,7 @@ inline void peer_session::handle_cancel()
     );
     if(request != m_received_requests.cend())
     {
-        m_disk_io.abort_block_fetch(m_info.torrent_id, block_info);
+        // TODO
         m_received_requests.erase(request);
         log(log_event::disk, "disk abort launched, cancelling request");
     }
@@ -1291,9 +1281,7 @@ void peer_session::handle_block()
 
     log(log_event::incoming,
         "BLOCK (piece: %i, offset: %i, length: %i)",
-        block_info.index,
-        block_info.offset,
-        block_info.length
+        block_info.index, block_info.offset, block_info.length
     );
 
     if(!is_block_info_valid(block_info))
@@ -1592,9 +1580,7 @@ inline void peer_session::save_block(
     );
     log(log_event::disk, 
         "launched disk write, saving block (piece: %i, offset: %i, length: %i)",
-        block_info.index,
-        block_info.offset,
-        block_info.length
+        block_info.index, block_info.offset, block_info.length
     );
 }
 
@@ -1609,14 +1595,10 @@ void peer_session::on_piece_hashed(const piece_index_t piece, const bool is_piec
         }
     );
     assert(piece_download != m_piece_downloads.end());
-    log(log_event::disk,
-        "piece (%i) hashed, passed ? %b",
-        piece,
-        is_piece_good
-    );
 
     if(is_piece_good)
     {
+        log(log_event::disk, "piece (%i) passed hash test", piece);
         if(is_on_parole())
         {
             // release parole piece download
@@ -1625,14 +1607,15 @@ void peer_session::on_piece_hashed(const piece_index_t piece, const bool is_piec
             m_info.is_on_parole = false;
             log(log_event::parole, "peer cleared suspicion, no longer on parole");
         }
-        // notify piece piecker that this piece was downloaded
-        m_piece_picker->got(piece);
     }
     else
     {
         ++m_info.num_hash_fails;
 
-        log(log_event::parole, "peer failed hash test (%i fails)", m_info.num_hash_fails);
+        log(log_event::parole,
+            "piece (%i) failed hash test (%i fails)",
+            piece, m_info.num_hash_fails
+        );
 
         if(is_on_parole() || (*piece_download)->is_exclusive())
         {
@@ -1647,8 +1630,6 @@ void peer_session::on_piece_hashed(const piece_index_t piece, const bool is_piec
             m_info.is_on_parole = true;
             // TODO probably other repercussions
         }
-        // we failed to download piece, free it for others to redownload
-        m_piece_picker->unreserve(piece);
     }
     m_piece_downloads.erase(piece_download);
 }
@@ -1673,6 +1654,7 @@ void peer_session::on_block_saved(
     }
     m_num_disk_io_failures = 0;
     m_info.total_bytes_written_to_disk += block.length;
+    // TODO consider recording disk read/write stats in disk_io/torrent_storage
     m_torrent_info->total_bytes_written_to_disk += block.length;
     m_avg_disk_write_time.add_sample(
         total_milliseconds(cached_clock::now() - start_time)
@@ -1681,11 +1663,8 @@ void peer_session::on_block_saved(
     log(log_event::disk,
         "saved block to disk (piece: %i, offset: %i, length: %i) -- "
         "disk write stats (total: %i; pending: %i)",
-        block.index,
-        block.offset,
-        block.length,
-        m_info.total_bytes_written_to_disk,
-        m_info.num_pending_disk_write_bytes
+        block.index, block.offset, block.length,
+        m_info.total_bytes_written_to_disk, m_info.num_pending_disk_write_bytes
     );
 
     // we can likely receive more now that we finished writing to disk
@@ -1702,9 +1681,7 @@ void peer_session::on_block_read(const std::error_code& error, const block_sourc
     {
         log(log_event::disk,
             "block fetch aborted (piece: %i, offset: %i, length: %i)",
-            block.index,
-            block.offset,
-            block.length
+            block.index, block.offset, block.length
         );
         // we aborted the block fetch, we no longer need to send the block
         return;
@@ -1735,11 +1712,8 @@ void peer_session::on_block_read(const std::error_code& error, const block_sourc
     log(log_event::disk,
         "read block from disk (piece: %i, offset: %i, length: %i) -- "
         "disk read stats (total: %i; pending: %i)",
-        block.index,
-        block.offset,
-        block.length,
-        m_info.total_bytes_read_from_disk,
-        m_info.num_pending_disk_read_bytes
+        block.index, block.offset, block.length,
+        m_info.total_bytes_read_from_disk, m_info.num_pending_disk_read_bytes
     );
 
     send_block(block);
@@ -1763,13 +1737,12 @@ void peer_session::send_handshake()
     static constexpr char protocol_id_length = sizeof(protocol_id) - 1;
     // currently no support for extensions
     const uint8_t extensions[8] = { 0,0,0,0,0,0,0,0 };
-    m_send_buffer.append(
-        payload(protocol_id_length + 49)
-            .i8(protocol_id_length)
-            .range(protocol_id, protocol_id + protocol_id_length)
-            .buffer(extensions)
-            .buffer(m_torrent_info->info_hash)
-            .buffer(m_settings.client_id)
+    m_send_buffer.append(fixed_payload<protocol_id_length + 49>()
+        .i8(protocol_id_length)
+        .range(protocol_id, protocol_id + protocol_id_length)
+        .buffer(extensions)
+        .buffer(m_torrent_info->info_hash)
+        .buffer(m_settings.client_id)
     );
     send();
     log(log_event::outgoing,
@@ -1830,11 +1803,10 @@ void peer_session::send_bitfield()
 
     const auto& my_pieces = m_piece_picker->my_bitfield();
     const int msg_size = 1 + my_pieces.data().size();
-    m_send_buffer.append(
-        payload(4 + msg_size)
-            .i32(msg_size)
-            .i8(message_t::bitfield)
-            .buffer(my_pieces.data())
+    m_send_buffer.append(payload(4 + msg_size)
+        .i32(msg_size)
+        .i8(message_t::bitfield)
+        .buffer(my_pieces.data())
     );
     send();
     log(log_event::outgoing,
@@ -1912,11 +1884,10 @@ void peer_session::send_not_interested()
 // -------------------------------
 inline void peer_session::send_have(const piece_index_t piece)
 {
-    m_send_buffer.append(
-        payload(4 + 5)
-            .i32(5)
-            .i8(message_t::have)
-            .i32(piece)
+    m_send_buffer.append(fixed_payload<4 + 5>()
+        .i32(5)
+        .i8(message_t::have)
+        .i32(piece)
     );
     send();
     log(log_event::outgoing, "HAVE (piece: %i)", piece);
@@ -1930,21 +1901,18 @@ inline void peer_session::send_have(const piece_index_t piece)
 // to serve this amount.
 void peer_session::send_request(const block_info& block)
 {
-    m_send_buffer.append(
-        payload(4 + 13)
-            .i32(13)
-            .i8(message_t::request)
-            .i32(block.index)
-            .i32(block.offset)
-            .i32(block.length)
+    m_send_buffer.append(fixed_payload<4 + 13>()
+        .i32(13)
+        .i8(message_t::request)
+        .i32(block.index)
+        .i32(block.offset)
+        .i32(block.length)
     );
     m_sent_requests.emplace_back(block.index, block.offset, block.length);
     m_last_outgoing_request_time = cached_clock::now();
     log(log_event::outgoing,
         "REQUEST (piece: %i, offset: %i, length: %i)",
-        block.index,
-        block.offset,
-        block.length
+        block.index, block.offset, block.length
     );
 }
 
@@ -1984,9 +1952,7 @@ void peer_session::send_requests()
                 .i32(block.length);
             log(log_event::outgoing,
                 "REQUEST (piece: %i, offset: %i, length: %i)",
-                block.index,
-                block.offset,
-                block.length
+                block.index, block.offset, block.length
             );
             m_info.num_outstanding_bytes += block.length;
             m_torrent_info->num_outstanding_bytes += block.length;
@@ -2027,16 +1993,23 @@ inline int peer_session::make_requests_in_parole_mode()
         {
             return 0;
         }
-        m_parole_piece = std::make_unique<piece_download>(piece, get_piece_length(piece));
+        m_parole_piece = std::make_unique<piece_download>(
+            piece,
+            get_piece_length(piece),
+            [this, piece](const bool is_piece_good)
+            {
+                m_new_piece_handler(piece, is_piece_good);
+            }
+        );
         log(log_event::request, "picked piece (%i) in parole mode", piece);
     }
 
     int num_new_requests = 0;
     if(m_parole_piece->can_request())
     {
-        for(auto& block : m_parole_piece->make_request_queue(num_to_request()))
+        for(auto& request : m_parole_piece->make_request_queue(num_to_request()))
         {
-            m_sent_requests.emplace_back(std::move(block));
+            m_sent_requests.emplace_back(std::move(request));
             ++num_new_requests;
         }
     }
@@ -2090,9 +2063,9 @@ inline int peer_session::continue_downloads()
                 "continuing piece (%i) download",
                 download->piece_index()
             );
-            for(auto& block : download->make_request_queue(num_to_request()))
+            for(auto& request : download->make_request_queue(num_to_request()))
             {
-                m_sent_requests.emplace_back(std::move(block));
+                m_sent_requests.emplace_back(std::move(request));
                 ++num_new_requests;
             }
         }
@@ -2107,9 +2080,9 @@ inline int peer_session::join_download()
     if(download)
     {
         log(log_event::request, "joining piece download (%i)", download->piece_index());
-        for(auto& block : download->make_request_queue(num_to_request()))
+        for(auto& request : download->make_request_queue(num_to_request()))
         {
-            m_sent_requests.emplace_back(std::move(block));
+            m_sent_requests.emplace_back(std::move(request));
             ++num_new_requests;
         }
         // now we participated in this piece download as well
@@ -2126,9 +2099,15 @@ inline int peer_session::start_download()
     if(piece != piece_picker::no_piece)
     {
         log(log_event::request, "picked piece (%i)", piece);
-        auto download = std::make_shared<piece_download>(piece, get_piece_length(piece));
-        std::vector<block_info> queue = download->make_request_queue(num_to_request());
-        for(auto& request : queue)
+        auto download = std::make_shared<piece_download>(
+            piece,
+            get_piece_length(piece),
+            [this, piece](const bool is_piece_good)
+            {
+                m_new_piece_handler(piece, is_piece_good);
+            }
+        );
+        for(auto& request : download->make_request_queue(num_to_request()))
         {
             m_sent_requests.emplace_back(std::move(request));
             ++num_new_requests;
@@ -2145,9 +2124,9 @@ inline int peer_session::num_to_request() const noexcept
     return std::max(m_best_request_queue_size - int(m_sent_requests.size()), 0);
 }
 
-// -------------------------------------------
-// PIECE <len=9+X><id=7><index><offset><block>
-// -------------------------------------------
+// ------------------------------------------
+// BLOCK <len=9+X><id=7><index><offset><data>
+// ------------------------------------------
 void peer_session::send_block(const block_source& block)
 {
     const int msg_size = 1 + 2 * 4 + block.length;
@@ -2171,9 +2150,7 @@ void peer_session::send_block(const block_source& block)
 
     log(log_event::outgoing,
         "BLOCK (piece: %i, offset: %i, length: %i)",
-        block.index,
-        block.offset,
-        block.length
+        block.index, block.offset, block.length
     );
 }
 
@@ -2188,20 +2165,17 @@ void peer_session::send_cancel(const block_info& block)
     {
         return;
     }
-    m_send_buffer.append(
-        payload(4 + 13)
-            .i32(13)
-            .i8(message_t::cancel)
-            .i32(block.index)
-            .i32(block.offset)
-            .i32(block.length)
+    m_send_buffer.append(fixed_payload<4 + 13>()
+        .i32(13)
+        .i8(message_t::cancel)
+        .i32(block.index)
+        .i32(block.offset)
+        .i32(block.length)
     );
     send();
     log(log_event::outgoing,
         "CANCEL (piece: %i, offset: %i, length: %i)",
-        block.index,
-        block.offset,
-        block.length
+        block.index, block.offset, block.length
     );
 }
 
@@ -2210,11 +2184,10 @@ void peer_session::send_cancel(const block_info& block)
 // -------------------------------
 void peer_session::send_port(const int port)
 {
-    m_send_buffer.append(
-        payload(4 + 3)
-            .i32(3)
-            .i8(message_t::port)
-            .i16(port)
+    m_send_buffer.append(fixed_payload<4 + 3>()
+        .i32(3)
+        .i8(message_t::port)
+        .i16(port)
     );
     send();
     log(log_event::outgoing, "PORT (%i)", port);
@@ -2284,9 +2257,7 @@ void peer_session::handle_request_timeout(const std::error_code& error)
         );
         log(log_event::timeout,
             "timing out block (piece: %i, offset: %i, length: %i)",
-            request.index,
-            request.offset,
-            request.length
+            request.index, request.offset, request.length
         );
     }
     // try to send requests again, with updated request queue length
@@ -2589,13 +2560,13 @@ block_info parse_block_info(const Bytes& data)
 
     auto byte_it = data.cbegin();
     const auto end = data.cend();
-    const piece_index_t index = parse_i32(byte_it);
-    const int offset = parse_i32(byte_it += 4);
+    const piece_index_t index = detail::parse<piece_index_t>(byte_it);
+    const int offset = detail::parse<int>(byte_it += 4);
 
     if(data.size() == 3 * 4)
     {
         // it's a request/cancel message with fixed message length
-        return block_info(index, offset, parse_i32(byte_it += 4));
+        return block_info(index, offset, detail::parse<int>(byte_it += 4));
     }
     else
     {

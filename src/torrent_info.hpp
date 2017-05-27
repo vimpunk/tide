@@ -9,6 +9,14 @@
 
 #include <vector>
 
+struct internal_file_info : public file_info
+{
+    // The range of pieces [first, last] that are covered by this file, even if
+    // only partially.
+    piece_index_t first_piece;
+    piece_index_t last_piece;
+};
+
 /**
  * This class is a means of bookkeeping for torrent, to hold and update all relevant
  * information. Each torrent has a single instance, and if any party needs some info
@@ -16,7 +24,7 @@
  * to this info class.
  *
  * So while it is mostly used for internal bookkeeping, it's suitable for reporting
- * expensive statistics about a torrent, though this may be slightly costly.
+ * expansive statistics about a torrent, though this may be slightly costly.
  */
 struct torrent_info
 {
@@ -32,7 +40,7 @@ struct torrent_info
     // and made system conformant, so it is safe to use them. Paths are relative and
     // must be appended to save_path if the absolute path is required. This is so that
     // when torrent is moved, only the save_path has to be changed.
-    std::vector<file_info> files;
+    std::vector<internal_file_info> files;
 
     // The absolute path denoting where the torrent will be downloaded.
     path save_path;
@@ -40,11 +48,11 @@ struct torrent_info
     // Torrent's name and the name of the root directory if it has more than one file.
     std::string name;
 
-    // A value between 0 and 1.
-    double completion;
     // The total size of the download, i.e. the sum of all file lengths that we are
     // downloading.
     int64_t size;
+    // The number of file bytes that have been downloaded and verified.
+    int64_t downloaded_size;
 
     int piece_length;
     int last_piece_length;
@@ -61,11 +69,6 @@ struct torrent_info
     // The highest upload and download rate recorded among all connections.
     int peak_upload_rate = 0;
     int peak_download_rate = 0;
-
-    // The rate cap in bytes/s for this torrent (i.e. all peers in this torrent). No
-    // limit is employed if the values are -1 (the default).
-    int max_upload_rate = -1;
-    int max_download_rate = -1;
 
     // The total number of bad pieces in the entire connection.
     int num_hash_fails = 0;
@@ -106,6 +109,24 @@ struct torrent_info
     bool is_seeding = false;
 
     torrent_settings settings;
+
+    enum state_t
+    {
+        stopped    = 0,
+        // Torrent's disk space is currently being allocated, which means that a
+        // torrent_storage instance and the directory structure is being created.
+        allocating = 1,
+        // If torrent is continued from a previous session, its previous state must
+        // be read in from disk and restored.
+        loading_torrent_state = 2,
+        // Torrent is announcing itself to one or several trackers and is waiting for
+        // a response.
+        announcing = 4,
+        leeching   = 8
+        seeding    = 16,
+    };
+
+    //state_tracker<uint8_t> state;
 };
 
 #endif // TORRENT_TORRENT_INFO_HEADER

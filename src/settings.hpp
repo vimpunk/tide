@@ -6,6 +6,7 @@
 
 #include <array>
 
+// TODO convert time values to chrono::duration types
 struct engine_settings
 {
     // Setting this option will tell engine to give new torrents higher priority, i.e.
@@ -23,16 +24,12 @@ struct engine_settings
     int slow_torrent_download_rate_threshold;
     int slow_torrent_upload_rate_threshold;
 
-    // The number of seconds following the tracker announce after which the tracker is
-    // considered to have timed out and the connection is dropped.
-    int tracker_timeout_s = 60;
-
     // The initial port to which the torrent engine will attempt to bind. If met with
     // failure or no port is specified, it falls back to the OS provided random port.
     int listener_port;
 
     // The total number of active peer connections in all torrents.
-    int max_connections = 200;
+    int max_all_torrent_connections = 200;
 
     // The total number of torrents that are allowed to download.
     int max_downloads = 8;
@@ -51,6 +48,10 @@ struct engine_settings
     int seed_time_limit_s;
     int share_ratio_limit;
     int seed_time_ratio_limit;
+
+    // The number of seconds following the tracker announce after which the tracker is
+    // considered to have timed out and the connection is dropped.
+    int tracker_timeout_s = 60;
 
     // This is the amount of time between the torrent engine's event loop which, among
     // other things, is responsible for meting out bandwidth quota to peers. A lower
@@ -96,12 +97,16 @@ struct disk_io_settings
 struct torrent_settings
 {
     // If set to true the torrent will download pieces in order. This can be useful when
-    // downloading media, but will almost certainly result in slower performance.
+    // downloading serial media, but may result in slower overall performance.
     bool should_download_sequentially = false;
 
-    // This stops the torrent (though does not remove it) when the torrent has been
+    // This stops the torrent (though does not remove it) when all files have been
     // fully downloaded.
     bool should_stop_when_ready = false;
+
+    // Pick UDP trackers over HTTP trackers, even if HTTP trackers have a higher
+    // priority in metainfo's announce-list.
+    bool should_prefer_udp_trackers = false;
 
     // The number of peers to which we upload pieces. This should probably be left at
     // the default value (4) for better performance.
@@ -188,8 +193,8 @@ struct peer_session_settings
  */
 struct settings
     : public engine_settings
-    , public torrent_settings
     , public disk_io_settings
+    , public torrent_settings
     , public peer_session_settings
 {};
 

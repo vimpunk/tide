@@ -1,9 +1,0 @@
-#ifndef TORRENT_TORRENT_STATE_HEADER
-#define TORRENT_TORRENT_STATE_HEADER
-
-struct torrent_state
-{
-
-};
-
-#endif // TORRENT_TORRENT_STATE_HEADER

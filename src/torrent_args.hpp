@@ -2,29 +2,23 @@
 #define TORRENT_TORRENT_ARGS_HEADER
 
 #include "file_info.hpp"
+#include "metainfo.hpp"
 #include "settings.hpp"
 #include "bdecode.hpp"
 #include "path.hpp"
 
+#include <string>
 #include <vector>
 
 /**
- * These are the arguments with which a torrent can be started. All fields must be
- * present, unless otherwise specified, and if the mandatory fields are erroneous, the
- * torrent instantiation will fail.
+ * These are the arguments with which a torrent can be started.
+ * If the mandatory fields are erroneous, the torrent instantiation will fail.
  */
 struct torrent_args
 {
-    // This is the decoded .torrent file, it's necessary to provide this for the
-    // SHA-1 piece hashes and other info. Which files will actually be downloaded is
-    // specified in files.
-    bmap metainfo;
-
-    // A position in this vector corresponds to the files specified in metainfo. This
-    // vector must contain all the files listed in metainfo, but user may choose which
-    // files to download. The files not wanted should be marked with file.is_wanted set
-    // to false.
-    std::vector<file_info> files;
+    // This is required for files, piece SHA-1 hashes and various other parameters,
+    // see metainfo.hpp for more details.
+    struct metainfo metainfo;
 
     // These must be indices into the file list in metainfo (need not have all files,
     // only the ones that have higher priority than normal). It should be ordered by
@@ -36,6 +30,10 @@ struct torrent_args
 
     // This must be specified, and must be an absolute path.
     path save_path;
+
+    // This is optional. If torrent is multi-file, this will be the name of the root
+    // directory.
+    std::string name;
 
     // See settings.hpp.
     torrent_settings settings;

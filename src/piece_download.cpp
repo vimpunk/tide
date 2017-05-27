@@ -58,6 +58,7 @@ void piece_download::notify_all_of_hash_result(const bool is_piece_good)
     {
         entry.second(is_piece_good);
     }
+    m_completion_handler(is_piece_good);
 }
 
 void piece_download::time_out(

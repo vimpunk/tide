@@ -38,6 +38,8 @@ public:
      * blocks. If none is found, a nullptr is returned;
      */
     std::shared_ptr<piece_download> find(const bt_bitfield& available_pieces);
+
+    void erase(const piece_index_t index);
 };
 
 #endif // TORRENT_PIECE_DOWNLOAD_LOCATOR_HEADER

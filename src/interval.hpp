@@ -22,7 +22,7 @@ struct interval
 
 inline bool operator<(const interval& a, const interval& b) noexcept
 {
-    return a.begin == b.begin ? a.end   < b.end
+    return a.begin == b.begin ? a.end < b.end
                               : a.begin < b.begin;
 }
 

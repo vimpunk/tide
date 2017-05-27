@@ -5,12 +5,14 @@
 #include "torrent_info.hpp"
 #include "string_view.hpp"
 #include "block_info.hpp"
+#include "interval.hpp"
 #include "units.hpp"
 #include "iovec.hpp"
 #include "path.hpp"
 #include "file.hpp"
 
 #include <system_error>
+#include <memory>
 #include <vector>
 
 // File index can be used to retrieve files from torrent_storage. This is to avoid
@@ -33,20 +35,21 @@ class torrent_storage
         file storage;
 
         // If all files were regarded as a single continous byte stream, this file's
-        // first byte would be at offset in that stream. This is used get the portion
-        // in a piece that overlaps into this file.
+        // first byte would be at this offset in the stream. This is used find the files
+        // that map to a piece.
         int64_t offset;
 
         // This is a reference to the attribute in the file_info in m_info.files
         // corresponding to this file. We use a reference so that whenever user changes
         // whether they wish to download a file, we can immediately learn about this.
         // (It's not changed from within torrent_storage though.)
+        //
+        // NOTE: Despite lazy allocation preventing creating files that are never
+        // accessed, a downloaded piece may still overlap into an unwanted file. In that
+        // case we don't want to write those extra bytes to disk. Thus, before writing
+        // to a file, we must check in whether user actually wants that file, and
+        // discard those bytes that overlap into the unwanted file.
         const bool& is_wanted;
-
-        // The range of pieces [first, last] that are covered by this file, even if
-        // only partially.
-        piece_index_t first_piece;
-        piece_index_t last_piece;
 
         file_entry(path path, int64_t length, uint8_t open_mode, const bool& is_wanted_)
             : storage(std::move(path), length, open_mode)
@@ -54,35 +57,29 @@ class torrent_storage
         {}
     };
 
-    // Relevant info (such as piece length, wanted files etc) about storage's
-    // corresponding torrent.
-    const torrent_info& m_info;
-
     // All files listed in the metainfo are stored here, but files are lazily/ allocated
-    // on disk, i.e. when they are first accessed. (This way it is easy to mark a file,
-    // which user had originally not wanted to download, as desired during the download.)
-    //
-    // NOTE: Despite lazy allocation preventing creating files that are never accessed,
-    // a downloaded piece may still overlap into an unwanted file. In that case we don't
-    // want to write those extra bytes to disk. Thus, before writing to a file, we must
-    // check in m_info whether user actually wants that file, and discard those bytes
-    // that overlap into the unwanted file.
+    // on disk, i.e. when they are first accessed.
     std::vector<file_entry> m_files;
 
-    // The expected hashes of eall pieces, each hash's index in the vector implicitly
-    // maps to its piece's index. This vector is allocated to be the size of all pieces.
-    // Hash values are never actually copied out of the metainfo located in the torrent
-    // to which whis storage belongs, these are just views into the original string.
-    // (Thus, torrent must keep at least one instance of metainfo alive.)
-    // TODO delete hash entries for pieces that we already have, to decrease memory usage
-    std::vector<string_view> m_piece_hashes;
+    // Relevant info (such as piece length, wanted files etc) about storage's
+    // corresponding torrent. Fields currently used:
+    // save_path, name, piece_length, files
+    // TODO consider putting these in a torrent_storage_args fields so as not to
+    // refer to torrent_info to avoid potential race conditions
+    std::shared_ptr<torrent_info> m_info;
+
+    // The expected hashes of all pieces, represented as a single block of memory for
+    // optimal storage (this is a direct view into the original metainfo's encoded source
+    // buffer). To retrieve a piece's hash:
+    // string_view(m_piece_hashes.data() + piece_index * m_info.piece_length, 20)
+    string_view m_piece_hashes;
 
     // This is an absolute path.
     path m_save_path;
 
 public:
 
-    torrent_storage(const torrent_info& info, std::vector<string_view> piece_hashes);
+    torrent_storage(std::shared_ptr<torrent_info> info, string_view piece_hashes);
 
     /**
      * This is the name of the torrent which, if the torrent has multiple files, is also
@@ -96,15 +93,30 @@ public:
      */
     path save_path() const noexcept;
 
-    /** Returns the number of files we're downloading (as user may not want all files). */
-    int num_files() const noexcept;
-
-    /** Returns the total number of bytes of all files we're downloading. */
+    /**
+     * Returns the total number of bytes of all files we're downloading (that is, if
+     * we're not downloading all files, then this value won't match the summed lengths
+     * of all files in metainfo.
+     */
     int64_t size() const noexcept;
 
+    /**
+     * Returns which pieces map to this file, including those that are only partially
+     * in file.
+     */
+    interval pieces_in_file(const file_index_t file_index) const;
+
+    /** Returns the expected 20 byte SHA-1 hash for this piece. */
+    string_view expected_hash(const piece_index_t piece) const noexcept;
+
     void erase_file(const file_index_t file, std::error_code& error);
+
+    /**
+     * The torrent's current path, stored in torrent's torrent_info, must not be changed
+     * from anywhere but here. If this operation is sucessful, the torrent_info.save_path
+     * is updated to the new path.
+     */
     void move(path path, std::error_code& error);
-    void rename(std::string name, std::error_code& error);
 
     void update_torrent_state(const torrent_state& state, std::error_code& error);
     void save_torrent_state(const torrent_state& state, std::error_code& error);
@@ -149,7 +161,9 @@ public:
      * after this function.
      */
     void read(view<iovec>& buffers, const block_info& info, std::error_code& error);
+    void read(std::vector<iovec> buffers, const block_info& info, std::error_code& error);
     void write(view<iovec>& buffers, const block_info& info, std::error_code& error);
+    void write(std::vector<iovec> buffers, const block_info& info, std::error_code& error);
 
 private:
 

@@ -5,8 +5,10 @@
 #include "mmap/mmap.hpp"
 #include "payload.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
+#include <array>
 #include <deque>
 
 #include <asio/buffer.hpp>
@@ -46,11 +48,25 @@ class send_buffer
         int size() const noexcept override { return bytes.size(); }
     };
 
+    template<size_t N> struct raw_fixed_buffer_holder : public buffer_holder
+    {
+        std::array<uint8_t, N> bytes;
+
+        raw_fixed_buffer_holder(const std::array<uint8_t, N>& b) : bytes(b) {}
+        raw_fixed_buffer_holder(const uint8_t (&b)[N])
+        {
+            std::copy(b, b + N, bytes.data());
+        }
+
+        const uint8_t* data() const noexcept override { return bytes.data(); }
+        int size() const noexcept override { return bytes.size(); }
+    };
+
     struct disk_buffer_holder : public buffer_holder
     {
         mmap_source bytes;
 
-        disk_buffer_holder(mmap_source b) : bytes(b) {}
+        disk_buffer_holder(mmap_source b) : bytes(std::move(b)) {}
         const uint8_t* data() const noexcept override { return bytes.data(); }
         int size() const noexcept override { return bytes.size(); }
     };
@@ -78,14 +94,18 @@ public:
     int size() const noexcept;
 
     void append(payload payload);
-    void append(std::vector<uint8_t> bytes);
-    void append(const block_source& block);
+    void append(const std::vector<uint8_t>& bytes);
+    template<size_t N> void append(const fixed_payload<N>& payload);
+    template<size_t N> void append(const std::array<uint8_t, N>& bytes);
     template<size_t N> void append(const uint8_t (&bytes)[N]);
+    void append(const block_source& block);
 
     /**
      * Returns an asio ConstBufferSequence compliant list of buffers whose total size is
      * at most num_bytes (less if there aren't that many bytes available for sending).
      */
+    // TODO find a way to not have to build a vector every time we send something
+    // maybe somehow return a view?
     std::vector<asio::const_buffer> get_send_buffers(int num_bytes) const;
 
     /**
@@ -111,9 +131,25 @@ inline void send_buffer::append(payload payload)
 }
 
 template<size_t N>
+void send_buffer::append(const fixed_payload<N>& payload)
+{
+    append(payload.data);
+}
+
+template<size_t N>
+void send_buffer::append(const std::array<uint8_t, N>& bytes)
+{
+    static_assert(N > 0, "buffer must not be empty");
+    m_buffers.emplace_back(std::make_unique<raw_fixed_buffer_holder<N>>(bytes));
+    m_size += N;
+}
+
+template<size_t N>
 void send_buffer::append(const uint8_t (&bytes)[N])
 {
-    append(std::vector<uint8_t>(std::begin(bytes), std::end(bytes)));
+    static_assert(N > 0, "buffer must not be empty");
+    m_buffers.emplace_back(std::make_unique<raw_fixed_buffer_holder<N>>(bytes));
+    m_size += N;
 }
 
 #endif // TORRENT_SEND_BUFFER_HEADER
