@@ -1,6 +1,6 @@
 #include "random.hpp"
 
-namespace detail
+namespace util
 {
     std::mt19937& random_engine()
     {

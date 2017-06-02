@@ -27,7 +27,6 @@ public:
     void reset();
 
     sha1_hasher& update(const_view<uint8_t> buffer);
-    sha1_hasher& update(const std::string& buffer);
     template<
         typename Container,
         typename = decltype(std::declval<Container>().data())
@@ -41,7 +40,10 @@ public:
 template<typename Container, typename>
 sha1_hasher& sha1_hasher::update(const Container& buffer)
 {
-    return update(const_view<uint8_t>(buffer));
+    return update(const_view<uint8_t>(
+        reinterpret_cast<const uint8_t*>(buffer.data()),
+        buffer.size()
+    ));
 }
 
 template<size_t N>

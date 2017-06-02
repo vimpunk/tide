@@ -82,11 +82,7 @@ enum class peer_session_errc
 
 struct peer_session_error_category : public std::error_category
 {
-    const char* name() const noexcept override
-    {
-        return "peer_session";
-    }
-
+    const char* name() const noexcept override { return "peer_session"; }
     std::string message(int env) const override;
     std::error_condition default_error_condition(int ev) const noexcept override;
 };

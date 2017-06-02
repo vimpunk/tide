@@ -90,14 +90,14 @@ public:
 
     /**
      * Sets up and starts a torrent with the supplied arguments in args. Once the
-     * internal torrent object is fully instantiated (which does not mean it started
+     * internal torrent object is fully instantiated (which may not mean that it started
      * tracker or peer connections, or that it has been allocated on the disk), the
      * handler is invoked with a torrent handle. Thus, the actual setup runs
      * asynchronously. The user is notified of each state transition in torrent's setup
      * progress via the alert system.
      *
-     * An exception is thrown if args is invalid, before launching the asynchronous
-     * setup operation.
+     * An exception is thrown if args is invalid, which is verified before launching any
+     * asynchronous setup operations.
      *
      * NOTE: the obtained torrent_handle must be saved somewhere as this is the means
      * through which the user may interact with a torrent.

@@ -612,9 +612,7 @@ private:
 
     template<typename Duration, typename Handler>
     static void start_timer(
-        deadline_timer& timer,
-        const Duration& expires_in,
-        Handler handler
+        deadline_timer& timer, const Duration& expires_in, Handler handler
     );
 
     void try_identify_client();

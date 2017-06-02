@@ -142,11 +142,12 @@ public:
      */
     torrent_handle get_handle();
 
+    torrent_info info() const;
+    void info(torrent_info& info) const;
+    void piece_availability(std::vector<int>& piece_map);
+
     bool is_paused() const noexcept;
     bool is_running() const noexcept;
-
-    torrent_info info() const;
-    void piece_availability(std::vector<int>& piece_map);
 
     /**
      * gracious_pause should be preferred over pause because it will wait for all
@@ -219,8 +220,12 @@ private:
      * according to m_unchoke_comparator, which is one of these functions.
      * Returns true if a is favored over b, false otherwise.
      */
-    static bool compare_upload_rate(const peer_session& a, const peer_session& b) noexcept;
-    static bool compare_download_rate(const peer_session& a, const peer_session& b) noexcept;
+    static bool compare_upload_rate(
+        const peer_session& a, const peer_session& b
+    ) noexcept;
+    static bool compare_download_rate(
+        const peer_session& a, const peer_session& b
+    ) noexcept;
 
     void handle_disk_error(const std::error_code& error);
 

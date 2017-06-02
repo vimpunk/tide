@@ -53,13 +53,13 @@ void torrent_storage::move(path path, std::error_code& error)
 #ifdef _WIN32
     if(MoveFile(m_info->save_path, path) == 0)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
         return;
     }
 #else // _WIN32
     if(rename(m_info->save_path.c_str(), path.c_str()) != 0)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
         return;
     }
 #endif // _WIN32 // TODO this is a race condition
@@ -338,13 +338,13 @@ void torrent_storage::create_directory(const path& path, std::error_code& error)
 #ifdef _WIN32
     if(CreateDirectory(path.c_str(), 0) == 0)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
     }
 #else
     int mode = S_IRWXU | S_IRWXG | S_IRWXO;
     if(mkdir(path.c_str(), mode) != 0)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
     }
 #endif
 }

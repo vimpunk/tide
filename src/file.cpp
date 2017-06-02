@@ -56,7 +56,7 @@ void file::allocate(std::error_code& error)
     LARGE_INTEGER size;
     if(GetFileSizeEx(m_file_handle, &size) == FALSE)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
         return;
     }
 
@@ -66,12 +66,12 @@ void file::allocate(std::error_code& error)
         distance.QuadPart = length();
         if(SetFilePointerEx(m_file_handle, distance, &distance, FILE_BEGIN) == FALSE)
         {
-            detail::assign_errno(error);
+            util::assign_errno(error);
             return;
         }
         if(SetEndOfFile(m_file_handle) == FALSE)
         {
-            detail::assign_errno(error);
+            util::assign_errno(error);
             return;
         }
     }
@@ -79,7 +79,7 @@ void file::allocate(std::error_code& error)
     struct stat stat;
     if(fstat(m_file_handle, &stat) != 0)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
         return;
     }
 
@@ -92,7 +92,7 @@ void file::allocate(std::error_code& error)
 
     if(ftruncate(m_file_handle, length()) < 0)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
         return;
     }
 
@@ -127,12 +127,12 @@ void file::erase(std::error_code& error)
     // TODO filepath name might be restricted
     if(DeleteFile(m_absolute_path.c_str()) == 0)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
     }
 #else // _WIN32
     if(unlink(m_absolute_path.c_str()) != 0)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
     }
 #endif // _WIN32
 }
@@ -206,7 +206,7 @@ void file::open(uint8_t open_mode, std::error_code& error)
 
     if(m_file_handle == INVALID_HANDLE_VALUE)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
         return;
     }
 #endif // _WIN32
@@ -253,7 +253,7 @@ int file::read(view<uint8_t> buffer, const int64_t file_offset, std::error_code&
         );
         if(num_read < 0)
         {
-            detail::assign_errno(error);
+            util::assign_errno(error);
         }
     }
     return num_read;
@@ -282,7 +282,7 @@ int file::write(view<uint8_t> buffer, const int64_t file_offset, std::error_code
         );
         if(num_written < 0)
         {
-            detail::assign_errno(error);
+            util::assign_errno(error);
         }
     }
     return num_written;
@@ -422,7 +422,7 @@ int file::repeated_positional_io(
             );
             if(num_transferred < 0)
             {
-                detail::assign_errno(error);
+                util::assign_errno(error);
                 return total_transferred;
             }
 
@@ -460,13 +460,13 @@ int file::positional_vector_io(
         const int num_transferred = pvio_fn(buffers, file_offset);
         if(num_transferred < 0)
         {
-            detail::assign_errno(error);
+            util::assign_errno(error);
             break;
         }
         total_transferred += num_transferred;
         file_offset += num_transferred;
         file_length_left -= num_transferred;
-        detail::trim_buffers_front(buffers, num_transferred);
+        util::trim_buffers_front(buffers, num_transferred);
     }
     return total_transferred;
 }
@@ -482,12 +482,12 @@ void file::sync_with_disk(std::error_code& error)
 #ifdef _WIN32
     if(!FlushFileBuffers(m_file_handle))
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
     }
 #else
     if(fdatasync(m_file_handle) != 0)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
     }
 #endif
 }
@@ -552,7 +552,7 @@ file_status status(const path& path, std::error_code& error)
     struct stat stat;
     if(stat(path.c_str(), &stat) != 0)
     {
-        detail::assign_errno(error);
+        util::assign_errno(error);
         return;
     }
 
@@ -570,7 +570,7 @@ bool exists(const path& path, std::error_code& error)
     return boost::filesystem::exists(path);
 }
 
-namespace detail
+namespace util
 {
     void trim_buffers_front(view<iovec>& buffers, int num_to_trim) noexcept
     {

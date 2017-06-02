@@ -4,21 +4,17 @@
 #include <algorithm>
 #include <iterator> // begin, end
 #include <string>
-#include <cctype> // isspace
+#include <stdexcept>
+#include <cctype> // isspace, isdigit
 
-namespace detail
+namespace util
 {
     inline void ltrim(std::string& s)
     {
         s.erase(
             s.begin(),
             std::find_if(
-                s.begin(),
-                s.end(),
-                [](const auto& c)
-                {
-                    return !std::isspace(c);
-                }
+                s.begin(), s.end(), [](const auto& c) { return !std::isspace(c); }
             )
         );
     }
@@ -27,12 +23,7 @@ namespace detail
     {
         s.erase(
             std::find_if(
-                s.rbegin(),
-                s.rend(),
-                [](const auto& c)
-                {
-                    return !std::isspace(c);
-                }
+                s.rbegin(), s.rend(), [](const auto& c) { return !std::isspace(c); }
             ).base(),
             s.end()
         );
@@ -47,26 +38,14 @@ namespace detail
     inline void to_lower(std::string& s)
     {
         std::transform(
-            s.begin(),
-            s.end(),
-            s.begin(),
-            [](const auto& c)
-            {
-                return std::tolower(c);
-            }
+            s.begin(), s.end(), s.begin(), [](const auto& c) { return std::tolower(c); }
         );
     }
 
     inline void to_upper(std::string& s)
     {
         std::transform(
-            s.begin(),
-            s.end(),
-            s.begin(),
-            [](const auto& c)
-            {
-                return std::toupper(c);
-            }
+            s.begin(), s.end(), s.begin(), [](const auto& c) { return std::toupper(c); }
         );
     }
 
@@ -86,6 +65,69 @@ namespace detail
         return hex_str;
     }
 
-} // namespace detail
+    /**
+     * The announce urls in metainfo are usually specified as follows:
+     * "udp://host.domain:port/announce" -- this extracts "host.domain".
+     *
+     * If url is invalid, an invalid_argument exception is thrown.
+     */
+     // TODO find more accurate name
+     // TODO error handling -> exception
+    inline std::string extract_host(const std::string& url)
+    {
+        int begin = 0;
+        constexpr static char udp_protocol[] = "udp://";
+        constexpr static int udp_protocol_len = sizeof(udp_protocol) - 1;
+        if(url.length() >= udp_protocol_len
+           && std::equal(url.begin(), url.begin() + udp_protocol_len, udp_protocol))
+        {
+            begin = udp_protocol_len;
+        }
+        int end = url.find(':', begin);
+        if(end == std::string::npos)
+        {
+            end = url.length();
+        }
+        return url.substr(begin, end - begin);
+    }
+
+    /** Strips the "protocol://" identifier from the front of the URL. */
+    inline std::string strip_protocol_identifier(const std::string& url)
+    {
+        const int prot_id_pos = url.find("//");
+        if((prot_id_pos != std::string::npos) && (url.length() >= prot_id_pos + 2))
+        {
+            return url.substr(prot_id_pos + 2);
+        }
+        else
+        {
+            return url;
+        }
+    }
+
+    /**
+     * This extracts the port from an url. If absent, an invalid_argument exception is
+     * thrown.
+     */
+    inline uint16_t extract_port(const std::string& url)
+    {
+        const int prot_id_pos = url.find("//");
+        int colon_pos = 0;
+        if(prot_id_pos == std::string::npos)
+        {
+            colon_pos = url.find(':');
+        }
+        else
+        {
+            colon_pos = url.find(':', prot_id_pos);
+        }
+        // a port number has to be after a colon
+        if((colon_pos == std::string::npos) || !std::isdigit(url[colon_pos + 1]))
+        {
+            throw std::invalid_argument("no port in url (" + url + ")");
+        }
+        return std::atoi(url.c_str() + colon_pos + 1);
+    }
+} // namespace util
 
 #endif // TORRENT_STRING_UTILS_HEADER

@@ -27,11 +27,7 @@ inline bool operator!=(const int i, const disk_io_errc e) noexcept
 
 struct disk_io_error_category : public std::error_category
 {
-    const char* name() const noexcept override
-    {
-        return "disk_io";
-    }
-
+    const char* name() const noexcept override { return "disk_io"; }
     std::string message(int env) const override;
     std::error_condition default_error_condition(int ev) const noexcept override;
 };

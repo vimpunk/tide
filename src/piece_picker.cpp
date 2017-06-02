@@ -827,7 +827,7 @@ piece_index_t piece_picker::pick(const bt_bitfield& available_pieces) const
         ++piece_it;
     }
 
-    return candidates[detail::random_int(candidates.size() - 1)];
+    return candidates[util::random_int(candidates.size() - 1)];
 }
 
 std::vector<piece_index_t> piece_picker::pick(
@@ -904,7 +904,7 @@ piece_picker::pick_ignore_reserved(const bt_bitfield& available_pieces) const
         ++piece_it;
     }
 
-    return candidates[detail::random_int(candidates.size() - 1)];
+    return candidates[util::random_int(candidates.size() - 1)];
 }
 
 std::vector<piece_index_t> piece_picker::pick_ignore_reserved(

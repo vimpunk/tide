@@ -890,7 +890,7 @@ void peer_session::handle_handshake()
     }
     catch(const std::runtime_error& error)
     {
-        log(log_event::invalid_message, "couldn't parse handshake");
+        log(log_event::invalid_message, "couldn't parse HANDSHAKE");
         disconnect(peer_session_errc::invalid_handshake);
         return;
     }
@@ -975,7 +975,7 @@ void peer_session::handle_handshake()
         }
         return ret;
     }();
-    std::string info_hash_str = detail::to_hex(info_hash);
+    std::string info_hash_str = util::to_hex(info_hash);
     log(log_event::outgoing,
         "HANDSHAKE (protocol: %s; extensions: %s; info_hash: %s; client_id: %s%s)",
         handshake.protocol_id,
@@ -1033,7 +1033,7 @@ inline void peer_session::handle_choke()
     log(log_event::incoming, "CHOKE");
     if(m_message_parser.extract().data.size() != 0)
     {
-        log(log_event::invalid_message, "wrong choke message length");
+        log(log_event::invalid_message, "wrong CHOKE message length");
         disconnect(peer_session_errc::invalid_choke_message);
         return;
     }
@@ -1051,7 +1051,7 @@ inline void peer_session::handle_unchoke()
     log(log_event::incoming, "UNCHOKE");
     if(m_message_parser.extract().data.size() != 0)
     {
-        log(log_event::invalid_message, "wrong unchoke message length");
+        log(log_event::invalid_message, "wrong UNCHOKE message length");
         disconnect(peer_session_errc::invalid_unchoke_message);
         return;
     }
@@ -1068,7 +1068,7 @@ inline void peer_session::handle_interested()
     log(log_event::incoming, "INTERESTED");
     if(m_message_parser.extract().data.size() != 0)
     {
-        log(log_event::invalid_message, "wrong interested message length");
+        log(log_event::invalid_message, "wrong INTERESTED message length");
         disconnect(peer_session_errc::invalid_interested_message);
         return;
     }
@@ -1086,7 +1086,7 @@ inline void peer_session::handle_not_interested()
     log(log_event::incoming, "NOT INTERESTED");
     if(m_message_parser.extract().data.size() != 0)
     {
-        log(log_event::invalid_message, "wrong not_interested message length");
+        log(log_event::invalid_message, "wrong NOT_INTERESTED message length");
         disconnect(peer_session_errc::invalid_not_interested_message);
         return;
     }
@@ -1120,13 +1120,13 @@ inline void peer_session::handle_have()
         return;
     }
 
-    const piece_index_t piece = detail::parse<int32_t>(msg.data.begin());
+    const piece_index_t piece = endian::parse<int32_t>(msg.data.begin());
 
     log(log_event::incoming, "HAVE %i", piece);
 
     if(!is_piece_index_valid(piece))
     {
-        log(log_event::invalid_message, "invalid piece index in have message");
+        log(log_event::invalid_message, "invalid piece index in HAVE message");
         disconnect(peer_session_errc::invalid_have_message);
         return;
     }
@@ -1169,21 +1169,20 @@ inline void peer_session::handle_request()
     }
 
     const block_info block_info = parse_block_info(msg.data);
-
-    log(log_event::incoming,
-        "REQUEST (piece: %i, offset: %i, length: %i)",
-        block_info.index, block_info.offset, block_info.length
-    );
-
     if(!is_request_valid(block_info))
     {
         log(log_event::invalid_message,
-            "invalid request (piece: %i, offset: %i, length: %i)",
+            "invalid REQUEST (piece: %i, offset: %i, length: %i)",
             block_info.index, block_info.offset, block_info.length
         );
         disconnect(peer_session_errc::invalid_request_message);
         return;
     }
+    log(log_event::incoming,
+        "REQUEST (piece: %i, offset: %i, length: %i)",
+        block_info.index, block_info.offset, block_info.length
+    );
+
 
     if(should_accept_request(block_info))
     {
@@ -1230,21 +1229,19 @@ inline void peer_session::handle_cancel()
     }
 
     const block_info block_info = parse_block_info(msg.data);
-
-    log(log_event::incoming,
-        "CANCEL (piece: %i, offset: %i, length: %i)",
-        block_info.index, block_info.offset, block_info.length
-    );
-
     if(!is_request_valid(block_info))
     {
         log(log_event::invalid_message,
-            "invalid cancel (piece: %i, offset: %i, length: %i)",
+            "invalid CANCEL (piece: %i, offset: %i, length: %i)",
             block_info.index, block_info.offset, block_info.length
         );
         disconnect(peer_session_errc::invalid_cancel_message);
         return;
     }
+    log(log_event::incoming,
+        "CANCEL (piece: %i, offset: %i, length: %i)",
+        block_info.index, block_info.offset, block_info.length
+    );
 
     auto request = std::find_if(
         m_received_requests.begin(),
@@ -1278,18 +1275,19 @@ void peer_session::handle_block()
     }
 
     const block_info block_info = parse_block_info(msg.data);
-
+    if(!is_block_info_valid(block_info))
+    {
+        log(log_event::invalid_message,
+            "invalid BLOCK (piece: %i, offset: %i, length: %i)",
+            block_info.index, block_info.offset, block_info.length
+        );
+        disconnect(peer_session_errc::invalid_block_message);
+        return;
+    }
     log(log_event::incoming,
         "BLOCK (piece: %i, offset: %i, length: %i)",
         block_info.index, block_info.offset, block_info.length
     );
-
-    if(!is_block_info_valid(block_info))
-    {
-        log(log_event::invalid_message, "invalid block");
-        disconnect(peer_session_errc::invalid_block_message);
-        return;
-    }
 
     auto request = std::find_if(
         m_sent_requests.begin(),
@@ -1767,7 +1765,7 @@ void peer_session::send_handshake()
         }
         return ret;
     }();
-    std::string info_hash_str = detail::to_hex(m_torrent_info->info_hash);
+    std::string info_hash_str = util::to_hex(m_torrent_info->info_hash);
     log(log_event::outgoing,
         "HANDSHAKE (protocol: %s; extensions: %s; info_hash: %s; client_id: %s)",
         protocol_id,
@@ -2345,9 +2343,7 @@ void peer_session::handle_keep_alive_timeout(const std::error_code& error)
 
 template<typename... Args>
 void peer_session::log(
-    const log_event event,
-    const std::string& format,
-    Args&&... args) const
+    const log_event event, const std::string& format, Args&&... args) const
 {
     // TODO proper logging
     std::cerr << '[';
@@ -2400,9 +2396,7 @@ void peer_session::log(
 
 template<typename Duration, typename Handler>
 void peer_session::start_timer(
-    deadline_timer& timer,
-    const Duration& expires_in,
-    Handler handler)
+    deadline_timer& timer, const Duration& expires_in, Handler handler)
 {
     std::error_code ec;
     // setting expires from now also cancels pending async waits (which is what we want)
@@ -2560,13 +2554,13 @@ block_info parse_block_info(const Bytes& data)
 
     auto byte_it = data.cbegin();
     const auto end = data.cend();
-    const piece_index_t index = detail::parse<piece_index_t>(byte_it);
-    const int offset = detail::parse<int>(byte_it += 4);
+    const piece_index_t index = endian::parse<piece_index_t>(byte_it);
+    const int offset = endian::parse<int>(byte_it += 4);
 
     if(data.size() == 3 * 4)
     {
         // it's a request/cancel message with fixed message length
-        return block_info(index, offset, detail::parse<int>(byte_it += 4));
+        return block_info(index, offset, endian::parse<int>(byte_it += 4));
     }
     else
     {

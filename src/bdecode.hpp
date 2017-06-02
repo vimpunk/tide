@@ -152,9 +152,7 @@ namespace detail
          */
         const btoken* tail() const noexcept
         {
-            assert(head());
-            // TODO handle nullptr head (i.e. empty collection)
-            return head() + head()->next_item_array_offset;
+            return head() ? head() + head()->next_item_array_offset : nullptr;
         }
 
     public:
@@ -207,7 +205,7 @@ namespace detail
         }
 
         /** Returns a refernce to the raw bencoded string of the entire container. */
-        const std::string& encoded() const noexcept
+        const std::string& source() const noexcept
         {
             return *m_encoded;
         }
@@ -282,42 +280,26 @@ struct belement
  * number.
  */
 
-class bnumber : public belement
+namespace detail
 {
-    int64_t m_data = 0;
-
-public:
-
-    bnumber(int64_t i) : m_data(i) {}
-
-    btype type() const noexcept override
+    template<typename T, btype Type> class bprimitive : public belement
     {
-        return btype::number;
-    }
+        T m_data;
+    public:
+        bprimitive(T t) : m_data(t) {}
+        btype type() const noexcept override { return Type; }
+        operator T() const noexcept { return m_data; }
+    };
+}
 
-    operator int64_t() const noexcept
-    {
-        return m_data;
-    }
+struct bnumber : public detail::bprimitive<int64_t, btype::number>
+{
+    bnumber(int64_t n) : bprimitive(n) {}
 };
 
-class bstring : public belement
+struct bstring : public detail::bprimitive<std::string, btype::string>
 {
-    std::string m_data;
-
-public:
-
-    bstring(std::string s) : m_data(std::move(s)) {}
-
-    btype type() const noexcept override
-    {
-        return btype::string;
-    }
-
-    operator std::string() const noexcept
-    {
-        return m_data;
-    }
+    bstring(std::string s) : bprimitive(std::move(s)) {}
 };
 
 /**
@@ -480,11 +462,12 @@ private:
 
         const_iterator cend() const noexcept
         {
-            assert(m_list.head());
+            if(!m_list.head())
+            {
+                return const_iterator(*this, nullptr);
+            }
             return const_iterator(*this, m_list.tail());
         }
-
-    public:
 
         friend class const_iterator;
 
@@ -514,7 +497,7 @@ private:
             >::type operator*()
             {
                 return detail::make_number_from_token(
-                    m_list_proxy->m_list.encoded(), *m_pos
+                    m_list_proxy->m_list.source(), *m_pos
                 );
             }
 
@@ -525,7 +508,7 @@ private:
             >::type operator*()
             {
                 return detail::make_string_from_token(
-                    m_list_proxy->m_list.encoded(), *m_pos
+                    m_list_proxy->m_list.source(), *m_pos
                 );
             }
 
@@ -536,7 +519,7 @@ private:
             >::type operator*()
             {
                 return detail::make_string_view_from_token(
-                    m_list_proxy->m_list.encoded(), *m_pos
+                    m_list_proxy->m_list.source(), *m_pos
                 );
             }
 
@@ -639,7 +622,7 @@ struct bmap
         {
             return false;
         }
-        result = detail::make_number_from_token(encoded(), *token);
+        result = detail::make_number_from_token(source(), *token);
         return true;
     }
 
@@ -660,7 +643,7 @@ struct bmap
         {
             return false;
         }
-        result = detail::make_string_from_token(encoded(), *token);
+        result = detail::make_string_from_token(source(), *token);
         return true;
     }
 
@@ -685,7 +668,7 @@ struct bmap
         {
             return false;
         }
-        result = detail::make_string_view_from_token(encoded(), *token);
+        result = detail::make_string_view_from_token(source(), *token);
         return true;
     }
 
@@ -747,11 +730,11 @@ struct bmap
         {
         case btype::number:
             return std::make_unique<bnumber>(
-                detail::make_number_from_token(encoded(), *token)
+                detail::make_number_from_token(source(), *token)
             );
         case btype::string:
             return std::make_unique<bstring>(
-                detail::make_string_from_token(encoded(), *token)
+                detail::make_string_from_token(source(), *token)
             );
         case btype::list:
             return std::make_unique<blist>(

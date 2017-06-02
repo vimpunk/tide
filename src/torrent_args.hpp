@@ -32,7 +32,8 @@ struct torrent_args
     path save_path;
 
     // This is optional. If torrent is multi-file, this will be the name of the root
-    // directory.
+    // directory, and if it's not specified the name field in metainfo.source is used,
+    // if it exists.
     std::string name;
 
     // See settings.hpp.

@@ -108,7 +108,7 @@ private:
     {
         const auto pos = data.size();
         data.resize(data.size() + sizeof(Int));
-        detail::write<Int>(x, &data[pos]);
+        endian::write<Int>(x, &data[pos]);
     }
 };
 
@@ -128,69 +128,69 @@ public:
         m_pos = 0;
     }
 
-    payload& i8(const int8_t h)
+    fixed_payload& i8(const int8_t h)
     {
         data[m_pos++] = h;
         return *this;
     }
 
-    payload& u8(const uint8_t h)
+    fixed_payload& u8(const uint8_t h)
     {
         data[m_pos++] = h;
         return *this;
     }
 
-    payload& i16(const int16_t h)
+    fixed_payload& i16(const int16_t h)
     {
         add_integer<int16_t>(h);
         return *this;
     }
 
-    payload& u16(const uint16_t h)
+    fixed_payload& u16(const uint16_t h)
     {
         add_integer<uint16_t>(h);
         return *this;
     }
 
-    payload& i32(const int32_t h)
+    fixed_payload& i32(const int32_t h)
     {
         add_integer<int32_t>(h);
         return *this;
     }
 
-    payload& u32(const uint32_t h)
+    fixed_payload& u32(const uint32_t h)
     {
         add_integer<uint32_t>(h);
         return *this;
     }
 
-    payload& i64(const int64_t h)
+    fixed_payload& i64(const int64_t h)
     {
         add_integer<int64_t>(h);
         return *this;
     }
 
-    payload& u64(const uint64_t h)
+    fixed_payload& u64(const uint64_t h)
     {
         add_integer<uint64_t>(h);
         return *this;
     }
 
     template<typename InputIt>
-    payload& range(InputIt begin, InputIt end)
+    fixed_payload& range(InputIt begin, InputIt end)
     {
         std::copy(begin, end, data.data() + m_pos);
         return *this;
     }
 
     template<typename Buffer>
-    payload& array(const Buffer& b)
+    fixed_payload& buffer(const Buffer& b)
     {
         return range(std::begin(b), std::end(b));
     }
 
     template<typename ConstBufferSequence>
-    payload& buffers(const ConstBufferSequence& buffers)
+    fixed_payload& buffers(const ConstBufferSequence& buffers)
     {
         return range(asio::buffers_begin(buffers), asio::buffers_end(buffers));
     }
@@ -201,7 +201,7 @@ private:
     void add_integer(Int x)
     {
         assert(m_pos + sizeof(Int) <= N);
-        detail::write<Int>(x, &data[m_pos]);
+        endian::write<Int>(x, &data[m_pos]);
         m_pos += sizeof(Int);
     }
 };

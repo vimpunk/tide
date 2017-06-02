@@ -313,13 +313,13 @@ namespace detail
         if(head() == m_tokens->data())
         {
             // this is the root container, just return the whole encoded string
-            return encoded();
+            return source();
         }
         const btoken* last_element = tail() - 1;
         int last_element_offset = last_element->offset;
         if(last_element->type == btype::string)
         {
-            const auto str_header = encoded().c_str() + last_element_offset;
+            const auto str_header = source().c_str() + last_element_offset;
             const auto str_length = std::atoi(str_header);
             last_element_offset += last_element->length + str_length;
         }
@@ -335,8 +335,8 @@ namespace detail
             last_element_offset += 2;
         }
         return string_view(
-            encoded().c_str() + head()->offset,
-            encoded().c_str() + last_element_offset + 1
+            source().c_str() + head()->offset,
+            source().c_str() + last_element_offset + 1
         );
     }
 
@@ -371,15 +371,15 @@ namespace detail
             {
                 ss << "  ";
             }
-            ss << '"' << make_string_from_token(map.encoded(), *token) << "\": ";
+            ss << '"' << make_string_from_token(map.source(), *token) << "\": ";
             token += token->next_item_array_offset;
             switch(token->type)
             {
             case btype::number:
-                ss << make_number_from_token(map.encoded(), *token);
+                ss << make_number_from_token(map.source(), *token);
                 break;
             case btype::string:
-                ss << '"' << make_string_from_token(map.encoded(), *token) << '"';
+                ss << '"' << make_string_from_token(map.source(), *token) << '"';
                 break;
             case btype::list:
                 format_list(ss, map, token, nesting_level + 1);
@@ -437,10 +437,10 @@ namespace detail
             switch(token->type)
             {
             case btype::number:
-                ss << make_number_from_token(list.encoded(), *token);
+                ss << make_number_from_token(list.source(), *token);
                 break;
             case btype::string:
-                ss << '"' << make_string_from_token(list.encoded(), *token) << '"';
+                ss << '"' << make_string_from_token(list.source(), *token) << '"';
                 break;
             case btype::list:
                 format_list(ss, list, token, nesting_level + 1);
@@ -473,8 +473,7 @@ const btoken* bmap::find_token(
         return nullptr;
     }
 
-    const btoken* token = start_pos == nullptr ? head()
-                                               : start_pos;
+    const btoken* token = start_pos == nullptr ? head() : start_pos;
     const btoken* const map_end = token + token->next_item_array_offset;
 
     assert(token);
@@ -490,10 +489,11 @@ const btoken* bmap::find_token(
           // stop looping if the distance till the end of the encoded string from
           // the current token is less than key's length (to avoid SIGSEGV in
           // std::equal())
-          //&& encoded().length() - token->offset - token->length >= key.length())
+          // TODO 
+          //&& source().length() - token->offset - token->length >= key.length())
     {
         assert(token->type == btype::string);
-        const auto encoded_key_header = encoded().c_str() + token->offset;
+        const auto encoded_key_header = source().c_str() + token->offset;
         const auto encoded_key_length = std::atoi(encoded_key_header);
         const auto encoded_key_start = encoded_key_header + token->length;
         // advance to value

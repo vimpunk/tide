@@ -273,7 +273,7 @@ file_status status(const path& path, std::error_code& error);
 
 bool exists(const path& path, std::error_code& error);
 
-namespace detail
+namespace util
 {
     /**
      * Trims the front of buffers by num_to_trim bytes by removing the buffers that were
