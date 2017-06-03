@@ -157,6 +157,10 @@ void udp_tracker::on_host_resolved(
     assert(it != udp::resolver::iterator());
     udp::endpoint ep(*it);
     ep.port(util::extract_port(m_url));
+    log(log_event::connecting,
+        "tracker (%s) resolved to: %s:%i",
+        m_url.c_str(), ep.address().to_string().c_str(), ep.port()
+    );
     std::error_code ec;
     // connect also opens socket
     m_socket.connect(ep, ec);
@@ -201,10 +205,7 @@ void udp_tracker::announce(
     {
         execute_request(
             create_request_entry<announce_request>(std::move(params), std::move(handler)),
-            [this](announce_request& r)
-            {
-                send_announce_request(r);
-            }
+            [this](announce_request& r) { send_announce_request(r); }
         );
     }
 }
@@ -218,10 +219,7 @@ void udp_tracker::scrape(
         execute_request(
             create_request_entry<scrape_request>(
                 std::move(info_hashes), std::move(handler)),
-            [this](scrape_request& r)
-            {
-                send_scrape_request(r);
-            }
+            [this](scrape_request& r) { send_scrape_request(r); }
         );
     }
 }
@@ -299,7 +297,11 @@ void udp_tracker::send_connect_request(Request& request)
         .i64(0x41727101980)
         .i32(action_t::connect)
         .i32(request.transaction_id);
-    assert(m_socket.is_open());
+    for(auto i = 0; i < 16; ++i)
+    {
+        std::cout << std::to_string(request.payload.data[i]);
+    }
+    std::cout << '\n';
     send_message(request, 16);
     receive_message();
 }
@@ -342,8 +344,8 @@ void udp_tracker::resume_stalled_requests()
     if(must_connect())
     {
         m_state = state_t::disconnected;
-        // TODO this is so fugly OMFG!!!!
         request& r = *m_requests.begin()->second;
+        // TODO this is so fugly OMFG!!!!
         if(dynamic_cast<announce_request*>(&r))
             send_connect_request(static_cast<announce_request&>(r));
         else
@@ -363,6 +365,17 @@ void udp_tracker::resume_stalled_requests()
                 send_scrape_request(static_cast<scrape_request&>(r));
         }
     }
+}
+
+inline std::string event_to_string(tracker_request::event_t event)
+{
+    return event == tracker_request::event_t::started
+        ? "started"
+        : event == tracker_request::event_t::completed
+            ? "completed"
+            : event == tracker_request::event_t::stopped
+                ? "stopped"
+                : "none";
 }
 
 /**
@@ -389,21 +402,14 @@ void udp_tracker::send_announce_request(announce_request& request)
         "sending ANNOUNCE (trans_id: %i; info_hash: %s; client_id: %s; down: %lli;"
         " left: %lli; up: %lli; event: %s; num_want: %i; port: %i)",
         request.transaction_id, params.info_hash.data(), params.client_id.data(),
-        params.downloaded, params.left, params.uploaded, 
-        params.event == tracker_request::event_t::started
-            ? "started"
-            : params.event == tracker_request::event_t::completed
-                ? "completed"
-                : params.event == tracker_request::event_t::stopped
-                    ? "stopped"
-                    : "none",
-        params.num_want, params.port
+        params.downloaded, params.left, params.uploaded,
+        event_to_string(params.event).c_str(), params.num_want, params.port
     );
     request.payload.clear();
     request.payload
         .i64(m_connection_id)
         .i32(action_t::announce_1)
-        .i32(request.transaction_id)
+        .i32(static_cast<int>(request.transaction_id))
         .buffer(params.info_hash)
         .buffer(params.client_id)
         .i64(params.downloaded)
@@ -434,10 +440,10 @@ inline void udp_tracker::handle_announce_response(
     // (so that even if an error occurs there remain no lingering request entries)
     // NOTE: after this point referring to request is going to segfault
     auto handler = std::move(request.handler);
-    m_requests.erase(request.transaction_id);
 
     if((num_bytes_received < 20) || ((num_bytes_received - 20) % 6 != 0))
     {
+        m_requests.erase(request.transaction_id);
         handler(make_error_code(tracker_errc::response_too_small), {});
         return;
     }
@@ -460,12 +466,13 @@ inline void udp_tracker::handle_announce_response(
         response.ipv4_peers.emplace_back(std::move(ip), port);
     }
     log(log_event::incoming,
-        "received ANNOUNCE (trans_id: %i; interval: %i; num_leechers: %i; num_seeders: %i;"
-        " num_peers: %i",
+        "received ANNOUNCE (trans_id: %i; interval: %i; num_leechers: %i;"
+        " num_seeders: %i; num_peers: %i)",
         request.transaction_id, response.interval, response.num_leechers,
         response.num_seeders, num_peers
     );
 
+    m_requests.erase(request.transaction_id);
     handler({}, std::move(response));
 }
 
@@ -498,11 +505,17 @@ inline void udp_tracker::handle_scrape_response(
 template<typename Request>
 void udp_tracker::send_message(Request& request, const size_t num_bytes_to_send)
 {
+    assert(m_socket.is_open());
     log(log_event::outgoing,
         "sending %i bytes (trans_id: %i)",
         num_bytes_to_send,
         request.transaction_id
     );
+    for(const auto b : request.payload.data)
+    {
+        std::cout << b;
+    }
+    std::cout << '\n';
     m_socket.async_send(
         asio::buffer(request.payload.data, num_bytes_to_send),
         [this, &request](const std::error_code& error, size_t num_bytes_sent)
@@ -622,7 +635,6 @@ inline void udp_tracker::on_message_received(
     request& request = *it->second;
     if((action != action_t::error) && (action != request.action))
     {
-        // we didn't get an announce
         request.on_error(make_error_code(tracker_errc::wrong_response_type));
         m_requests.erase(request.transaction_id);
         // this request resulted in an error but others may not, so continue

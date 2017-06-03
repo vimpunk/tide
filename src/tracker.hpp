@@ -201,7 +201,7 @@ protected:
 
     // The full announce URL of the form "tracker.host.domain:port/announce". Note that
     // the protocol identifier (e.g. "udp://") included in the .torrent metainfo file
-    // is stripped after determining the tracker's protocol. The port need not be
+    // is stripped after determining the tracker's protocol. The port number need not be
     // included, in which case the default 80 for HTTP and 443 for HTTPS used.
     std::string m_url;
 
@@ -327,8 +327,8 @@ class udp_tracker : public tracker
         // confirmed that it has been sent.
         // The size is fixed at 98 bytes because that's the largest message we'll ever
         // send (announce), and also the most common, so might as well save ourselves
-        // from the allocation churn (though note that if the message is smaller, the
-        // buffer passed to socket should be capped).
+        // the allocation churn (though note that if the message is smaller, the buffer
+        // passed to socket should be capped).
         fixed_payload<98> payload;
 
         announce_request(
@@ -427,7 +427,6 @@ public:
         std::function<void(const std::error_code&, scrape_response)> handler
     ) override;
 
-    /** Return the remote and local UDP endpoints associated with this tracker. */
     udp::endpoint remote_endpoint() const noexcept;
     udp::endpoint local_endpoint() const noexcept;
 

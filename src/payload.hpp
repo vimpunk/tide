@@ -123,7 +123,7 @@ public:
 
     std::array<uint8_t, N> data;
 
-    void clear()
+    void clear() noexcept
     {
         m_pos = 0;
     }
@@ -179,7 +179,10 @@ public:
     template<typename InputIt>
     fixed_payload& range(InputIt begin, InputIt end)
     {
+        const auto d = std::distance(begin, end);
+        assert(m_pos + d <= N);
         std::copy(begin, end, data.data() + m_pos);
+        m_pos += d;
         return *this;
     }
 

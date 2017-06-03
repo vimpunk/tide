@@ -131,10 +131,8 @@ namespace endian
     }
 
     /**
-     * The below functions are meant for parsing from a byte stream, and reconstructing
-     * integers from Network Byte Order to Host Byte Order, and should be used in place
-     * of manually reconstructing the integer and passing it to above host-network
-     * conversion functions.
+     * Parses a bytesequence and reconstructs into an integer of type T, converting from
+     * Network Byte Order to Host Byte Order.
      */
     template<typename T, typename InputIt>
     constexpr T parse(InputIt it) noexcept
@@ -148,14 +146,18 @@ namespace endian
         return h;
     }
 
+    /**
+     * Writes an integer of type T to the bytesequence, converting it from Host Byte
+     * Order to Network Byte Order.
+     */
     template<typename T, typename OutputIt>
     constexpr void write(T h, OutputIt it) noexcept
     {
-        for(int shift = 8 * (sizeof(T) - 1); shift >= 0; shift -= 8)
+        for(int shift = 8 * (int(sizeof(T)) - 1); shift >= 0; shift -= 8)
         {
             *it++ = static_cast<uint8_t>((h >> shift) & 0xff);
         }
     }
-}
+} // namespace endian
 
 #endif // TORRENT_ENDIAN_HEADER
