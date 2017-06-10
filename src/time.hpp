@@ -5,6 +5,8 @@
 
 #include <asio/high_resolution_timer.hpp>
 
+namespace tide {
+
 using clock_type = std::chrono::high_resolution_clock;
 
 using time_point = clock_type::time_point;
@@ -62,5 +64,16 @@ int64_t total_seconds(const Duration& d)
 {
     return duration_cast<seconds>(d).count();
 }
+
+template<typename Duration, typename Handler>
+void start_timer(deadline_timer& timer, const Duration& expires_in, Handler handler)
+{
+    std::error_code ec;
+    // setting expires from now also cancels pending async waits (which is what we want)
+    timer.expires_from_now(expires_in, ec);
+    timer.async_wait(std::move(handler));
+}
+
+} // namespace tide
 
 #endif // TORRENT_TIME_HEADER

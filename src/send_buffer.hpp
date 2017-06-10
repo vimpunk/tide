@@ -2,7 +2,6 @@
 #define TORRENT_SEND_BUFFER_HEADER
 
 #include "block_disk_buffer.hpp"
-#include "mmap/mmap.hpp"
 #include "payload.hpp"
 
 #include <algorithm>
@@ -12,6 +11,8 @@
 #include <deque>
 
 #include <asio/buffer.hpp>
+
+namespace tide {
 
 /**
  * This class is used for accruing messages until it is drained and sent off to socket.
@@ -24,22 +25,26 @@
  * the consume() function is invoked, after which all resources that are confirmed to be
  * sent, are released.
  *
- * The output is a sequence of asio buffers that satisfies the ConstBufferSequence
- * concept.
+ * When requesting the send buffers to be sent, the output is a sequence of asio buffers
+ * that satisfies the ConstBufferSequence concept.
  *
- * Memory allocation for the resources is dynamic, and currently no upper bound is
- * enforced on the buffer size (TODO).
+ * Currently no upper bound is enforced on the buffer size (TODO).
  */
 class send_buffer
 {
     struct buffer_holder
     {
+        buffer_holder() = default;
+        buffer_holder(const buffer_holder&) = default;
+        buffer_holder(buffer_holder&&) = default;
+        buffer_holder& operator=(const buffer_holder&) = default;
+        buffer_holder& operator=(buffer_holder&&) = default;
         virtual ~buffer_holder() = default;
         virtual const uint8_t* data() const noexcept = 0;
         virtual int size() const noexcept = 0;
     };
 
-    struct raw_buffer_holder : public buffer_holder
+    struct raw_buffer_holder final : public buffer_holder
     {
         std::vector<uint8_t> bytes;
 
@@ -48,7 +53,7 @@ class send_buffer
         int size() const noexcept override { return bytes.size(); }
     };
 
-    template<size_t N> struct raw_fixed_buffer_holder : public buffer_holder
+    template<size_t N> struct raw_fixed_buffer_holder final : public buffer_holder
     {
         std::array<uint8_t, N> bytes;
 
@@ -62,11 +67,11 @@ class send_buffer
         int size() const noexcept override { return bytes.size(); }
     };
 
-    struct disk_buffer_holder : public buffer_holder
+    template<typename DiskBuffer> struct disk_buffer_holder final : public buffer_holder
     {
-        mmap_source bytes;
+        DiskBuffer bytes;
 
-        disk_buffer_holder(mmap_source b) : bytes(std::move(b)) {}
+        disk_buffer_holder(DiskBuffer b) : bytes(std::move(b)) {}
         const uint8_t* data() const noexcept override { return bytes.data(); }
         int size() const noexcept override { return bytes.size(); }
     };
@@ -94,7 +99,7 @@ public:
     int size() const noexcept;
 
     void append(payload payload);
-    void append(const std::vector<uint8_t>& bytes);
+    void append(std::vector<uint8_t> bytes);
     template<size_t N> void append(const fixed_payload<N>& payload);
     template<size_t N> void append(const std::array<uint8_t, N>& bytes);
     template<size_t N> void append(const uint8_t (&bytes)[N]);
@@ -151,5 +156,7 @@ void send_buffer::append(const uint8_t (&bytes)[N])
     m_buffers.emplace_back(std::make_unique<raw_fixed_buffer_holder<N>>(bytes));
     m_size += N;
 }
+
+} // namespace tide
 
 #endif // TORRENT_SEND_BUFFER_HEADER

@@ -2,8 +2,11 @@
 #define TORRENT_VIEW_HEADER
 
 #include <type_traits>
+#include <functional>
 #include <iterator>
 #include <array>
+
+namespace tide {
 
 /**
  * A memory view that takes a pointer and a length and provides basic container like
@@ -145,5 +148,85 @@ public:
 
 /** A specialization of the above class which holds an immutable view to its resource. */
 template<typename T> using const_view = view<const T>;
+
+namespace util
+{
+    /** Used to test if two views are the same, even if one is const. */
+    template<typename T, typename U> struct is_same
+    {
+        static constexpr bool value = std::is_same<
+            typename std::decay<T>::type,
+            typename std::decay<U>::type
+        >::value;
+    };
+} // namespace util
+
+template<
+    typename T,
+    typename U,
+    typename = typename std::enable_if<util::is_same<T, U>::value, T>::type
+> constexpr bool operator==(const view<T>& a, const view<U>& b) noexcept
+{
+    return (a.data() == b.data()) && (a.size() == b.size());
+}
+
+template<typename T, typename U>
+constexpr bool operator!=(const view<T>& a, const view<U>& b) noexcept
+{
+    return !(a == b);
+}
+
+template<
+    typename T,
+    typename U,
+    typename = typename std::enable_if<util::is_same<T, U>::value, T>::type
+> constexpr bool operator<(const view<T>& a, const view<U>& b) noexcept
+{
+    if(a.data() == b.data())
+    {
+        return a.size() < b.size();
+    }
+    return a.data() < b.data();
+}
+
+template<
+    typename T,
+    typename U,
+    typename = typename std::enable_if<util::is_same<T, U>::value, T>::type
+> constexpr bool operator>(const view<T>& a, const view<U>& b) noexcept
+{
+    if(a.data() == b.data())
+    {
+        return a.size() > b.size();
+    }
+    return a.data() > b.data();
+}
+
+template<typename T, typename U>
+constexpr bool operator<=(const view<T>& a, const view<U>& b) noexcept
+{
+    return !(a > b);
+}
+
+template<typename T, typename U>
+constexpr bool operator>=(const view<T>& a, const view<U>& b) noexcept
+{
+    return !(a < b);
+}
+
+} // namespace tide
+
+namespace std
+{
+    template<typename T> struct hash<tide::view<T>>
+    {
+        size_t operator()(const tide::view<T>& v) const noexcept
+        {
+            return std::hash<typename tide::view<T>::const_pointer>()(v.data()) * 31
+                 + std::hash<typename tide::view<T>::size_type>()(v.size()) ^ 51
+                 + 101;
+        }
+    };
+} // namespace std
 
 #endif // TORRENT_VIEW_HEADER

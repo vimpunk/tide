@@ -2,6 +2,8 @@
 
 #include <memory>
 
+namespace tide {
+
 class piece
 {
     // The torrent to which this piece belongs.
@@ -17,7 +19,6 @@ class piece
 
     //std::vector<block> blocks() = 0;
 };
-
 
 struct disk_cache_info
 {
@@ -54,3 +55,5 @@ public:
     /** Marks entry as non-evictable. */
     void pin_down(const key& k);
 };
+
+} // namespace tide

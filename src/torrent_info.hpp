@@ -2,6 +2,7 @@
 #define TORRENT_TORRENT_INFO_HEADER
 
 #include "file_info.hpp"
+#include "flag_set.hpp"
 #include "settings.hpp"
 #include "socket.hpp"
 #include "units.hpp"
@@ -9,13 +10,7 @@
 
 #include <vector>
 
-struct internal_file_info : public file_info
-{
-    // The range of pieces [first, last] that are covered by this file, even if
-    // only partially.
-    piece_index_t first_piece;
-    piece_index_t last_piece;
-};
+namespace tide {
 
 /**
  * This class is a means of bookkeeping for torrent, to hold and update all relevant
@@ -40,7 +35,7 @@ struct torrent_info
     // and made system conformant, so it is safe to use them. Paths are relative and
     // must be appended to save_path if the absolute path is required. This is so that
     // when torrent is moved, only the save_path has to be changed.
-    std::vector<internal_file_info> files;
+    std::vector<file_info> files;
 
     // The absolute path denoting where the torrent will be downloaded.
     path save_path;
@@ -51,16 +46,24 @@ struct torrent_info
     // The total size of the download, i.e. the sum of all file lengths that we are
     // downloading.
     int64_t size;
-    // The number of file bytes that have been downloaded and verified.
-    int64_t downloaded_size;
 
     int piece_length;
     int last_piece_length;
 
+    // The total number of pieces in this torrent, the number of pieces that user needs
+    // (which is the same as num_pieces torrent is downloading all files), and the
+    // number of downloaded and verified pieces.
     int num_pieces;
+    int num_wanted_pieces;
+    int num_downloaded_pieces = 0;
 
     int num_seeders = 0;
     int num_leechers = 0;
+    int num_unchoked_peers = 0;
+
+    // Counting the number of times the choking algorithm has been invoked. This is done
+    // so that every 3rd time we can run optimistic_unchoke.
+    int num_choke_cycles = 0;
 
     // Latest payload (piece) upload and download rates in bytes/s.
     int upload_rate = 0;
@@ -89,6 +92,8 @@ struct torrent_info
 
     // The total number of piece bytes exchanged with all peers in this torrent. Does
     // not include protocol overhead (both BitTorrent protocol and TCP/IP protocol).
+    // Note that it also includes pieces that later turned out to be invalid and had to
+    // be wasted. For the valid downloaded bytes, see downloaded_size.
     int64_t total_downloaded_piece_bytes = 0;
     int64_t total_uploaded_piece_bytes = 0;
 
@@ -98,39 +103,49 @@ struct torrent_info
     int64_t total_downloaded_bytes = 0;
     int64_t total_uploaded_bytes = 0;
 
+    // The number of file bytes that have been downloaded and either passed the hash
+    // test or didn't.
+    int64_t total_verified_piece_bytes;
+    int64_t total_failed_piece_bytes;
+
     // If we receive a piece that we already have, this is incremented.
     int64_t total_wasted_bytes = 0;
 
     seconds total_seed_time;
-    seconds total_download_time;
+    seconds total_leech_time;
     time_point download_started_time;
-    time_point download_ended_time;
-
-    bool is_seeding = false;
+    time_point download_finished_time;
+    time_point last_announce_time;
+    time_point last_choke_time;
 
     torrent_settings settings;
 
-    enum state_t
+    enum class state_t : uint8_t
     {
-        stopped    = 0,
-        // Torrent's disk space is currently being allocated, which means that a
-        // torrent_storage instance and the directory structure is being created.
-        allocating = 1,
-        // If torrent is continued from a previous session, its previous state must
-        // be read in from disk and restored.
-        loading_torrent_state = 2,
+        stopped,
+        // Torrent's disk space is being allocated, which means that a torrent_storage
+        // instance and the directory structure is being created.
+        allocating,
+        // If torrent is continued from a previous session, its directory structure and
+        // files download before must be verified.
+        verifying_files,
         // Torrent is announcing itself to one or several trackers and is waiting for
         // a response.
-        announcing = 4,
-        leeching   = 8
-        seeding    = 16,
+        announcing,
+        seeding,
+        max
     };
 
-    //state_tracker<uint8_t> state;
+    flag_set<state_t, state_t::max> state;
 };
 
-#endif // TORRENT_TORRENT_INFO_HEADER
+inline int get_piece_length(const torrent_info& info, const piece_index_t piece) noexcept
+{
+    return piece == info.num_pieces -1
+        ? info.last_piece_length
+        : info.piece_length;
+}
 
-// TODO consider splitting up torrent info into various sections like network stats and
-// static stats (id, hash etc) and so on, and have a torrent_info class that inherits from
-// all of these
+} // namespace tide
+
+#endif // TORRENT_TORRENT_INFO_HEADER

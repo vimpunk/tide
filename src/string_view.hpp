@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <string>
 
+namespace tide {
+
 // TODO
 struct string_view : public const_view<std::string::value_type>
 {
@@ -22,9 +24,7 @@ struct string_view : public const_view<std::string::value_type>
 
 inline bool operator==(const string_view& v, const std::string& s) noexcept
 {
-    // TODO check if std::equal checks for iterator lengths as well
-    return v.length() == s.length()
-        && std::equal(v.cbegin(), v.cend(), s.cbegin(), s.cend());
+    return std::equal(v.cbegin(), v.cend(), s.cbegin(), s.cend());
 }
 
 inline bool operator==(const std::string& s, const string_view& v) noexcept
@@ -41,5 +41,7 @@ inline bool operator!=(const std::string& s, const string_view& v) noexcept
 {
     return !(v == s);
 }
+
+} // namespace tide
 
 #endif // TORRENT_STRING_VIEW_HEADER

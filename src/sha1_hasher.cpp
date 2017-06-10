@@ -1,5 +1,7 @@
 #include "sha1_hasher.hpp"
 
+namespace tide {
+
 sha1_hasher::sha1_hasher()
 {
     reset();
@@ -22,3 +24,5 @@ sha1_hash sha1_hasher::finish()
     SHA1_Final(digest.data(), &m_context);
     return digest;
 }
+
+} // namespace tide

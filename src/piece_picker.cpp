@@ -1,11 +1,13 @@
 #include "piece_picker.hpp"
 #include "random.hpp"
 
-#include <iostream>
+#include <sstream>
 #include <cassert>
 #include <cmath>
 #include <list>
 #include <set>
+
+namespace tide {
 
 /**
  * Wrapper for keeping track of the number of pieces in a torrent swarm.
@@ -170,9 +172,10 @@ private:
         group::piece_iterator piece;
 
         piece_entry() = default;
-
-        piece_entry(groups::iterator g, group::piece_iterator p) : group(g) , piece(p) {}
-
+        piece_entry(groups::iterator g, group::piece_iterator p)
+            : group(g)
+            , piece(p)
+        {}
         piece_entry(groups::iterator g, const piece_index_t piece, const int frequency)
             : group(g)
             , piece(g->emplace(piece, frequency))
@@ -241,14 +244,14 @@ public:
         }
     }
 
-    std::vector<int> get_piece_availability() const
+    std::vector<int> piece_availability() const
     {
         std::vector<int> frequency_map(m_piece_map.size());
-        get_piece_availability(frequency_map);
+        piece_availability(frequency_map);
         return frequency_map;
     }
 
-    void get_piece_availability(std::vector<int>& frequency_map) const
+    void piece_availability(std::vector<int>& frequency_map) const
     {
         const int end = std::min(m_piece_map.size(), frequency_map.size());
         for(piece_index_t piece = 0; piece < end; ++piece)
@@ -288,10 +291,8 @@ public:
         auto priority_group = m_groups.emplace(
             m_groups.cbegin(), group::type_t::top_priority
         );
-
         adjust_interval(interval);
         make_priority(interval, priority_group);
-
         if(priority_group->is_empty())
         {
             m_groups.erase(priority_group);
@@ -301,10 +302,8 @@ public:
     void make_priority(interval interval)
     {
         auto priority_group = m_groups.emplace(m_default_group, group::type_t::priority);
-
         adjust_interval(interval);
         make_priority(interval, priority_group);
-
         if(priority_group->is_empty())
         {
             m_groups.erase(priority_group);
@@ -393,29 +392,30 @@ public:
         return *m_piece_map[index].piece;
     }
 
-    void debug() const
+    std::string debug_str() const
     {
+        std::ostringstream ss;
         int n = 0;
         for(const auto& group : m_groups)
         {
-            std::cout << "group#" << ++n << " ("
-                      << (group.type() == group::type_t::normal
-                            ? "default"
-                            : (group.type() == group::type_t::priority
-                                ? "priority"
-                                : "top priority"))
-                      << "): [";
+            ss << "group#" << ++n << " ("
+              << (group.type() == group::type_t::normal
+                    ? "default"
+                    : (group.type() == group::type_t::priority
+                        ? "priority"
+                        : "top priority"))
+              << "): [";
             for(const auto& piece : group)
             {
-                std::cout << " {" << piece.index << ":" << piece.frequency << '}';
+                ss << " {" << piece.index << ":" << piece.frequency << '}';
             }
-            std::cout << " ]\n";
+            ss << " ]\n";
         }
     }
 
 private:
 
-    inline void make_priority(const interval& interval, groups::iterator priority_group)
+    void make_priority(const interval& interval, groups::iterator priority_group)
     {
         for(auto piece = interval.begin; piece < interval.end; ++piece)
         {
@@ -621,6 +621,8 @@ public:
             return !(*this == b);
         }
 
+    private:
+
         bool is_at_end() const noexcept
         {
             return m_group == m_groups_end;
@@ -710,6 +712,8 @@ public:
             return !(*this == b);
         }
 
+    private:
+
         bool is_at_end() const noexcept
         {
             return m_group == m_groups_end;
@@ -741,14 +745,14 @@ piece_picker::piece_picker(bt_bitfield available_pieces)
 // it can't see the implementation of piece_tracker.)
 piece_picker::~piece_picker() = default;
 
-std::vector<int> piece_picker::get_piece_availability() const
+std::vector<int> piece_picker::piece_availability() const
 {
-    return m_piece_tracker->get_piece_availability();
+    return m_piece_tracker->piece_availability();
 }
 
-void piece_picker::get_piece_availability(std::vector<int>& frequency_map) const
+void piece_picker::piece_availability(std::vector<int>& frequency_map) const
 {
-    m_piece_tracker->get_piece_availability(frequency_map);
+    m_piece_tracker->piece_availability(frequency_map);
 }
 
 int piece_picker::frequency(const piece_index_t piece) const noexcept
@@ -805,18 +809,20 @@ piece_index_t piece_picker::pick(const bt_bitfield& available_pieces) const
 
     while(piece_it != pieces_end)
     {
-        if(should_pick(available_pieces, *piece_it)) { break; }
+        if(should_pick(available_pieces, *piece_it))
+        {
+            break;
+        }
         ++piece_it;
     }
 
     if(piece_it == pieces_end)
     {
-        return no_piece;
+        return invalid_piece;
     }
 
     const int lowest_frequency = piece_it->frequency;
     std::vector<piece_index_t> candidates = { (piece_it++)->index };
-
     // check if peer has more pieces with the same frequency
     while((piece_it != pieces_end) && (piece_it->frequency == lowest_frequency))
     {
@@ -826,7 +832,6 @@ piece_index_t piece_picker::pick(const bt_bitfield& available_pieces) const
         }
         ++piece_it;
     }
-
     return candidates[util::random_int(candidates.size() - 1)];
 }
 
@@ -851,7 +856,7 @@ std::vector<piece_index_t> piece_picker::pick(
 piece_index_t piece_picker::pick_and_reserve(const bt_bitfield& available_pieces)
 {
     const auto selected = pick(available_pieces);
-    if(selected != no_piece) { m_piece_tracker->reserve(selected); }
+    if(selected != invalid_piece) { m_piece_tracker->reserve(selected); }
     return selected;
 }
 
@@ -874,26 +879,28 @@ piece_picker::pick_and_reserve(const bt_bitfield& available_pieces, const int n)
     return indices;
 }
 
-piece_index_t
-piece_picker::pick_ignore_reserved(const bt_bitfield& available_pieces) const
+piece_index_t piece_picker::pick_ignore_reserved(
+    const bt_bitfield& available_pieces) const
 {
     auto piece_it = m_piece_tracker->cbegin();
     const auto pieces_end = m_piece_tracker->cend();
 
     while(piece_it != pieces_end)
     {
-        if(should_download_piece(available_pieces, piece_it->index)) { break; }
+        if(should_download_piece(available_pieces, piece_it->index))
+        {
+            break;
+        }
         ++piece_it;
     }
 
     if(piece_it == pieces_end)
     {
-        return no_piece;
+        return invalid_piece;
     }
 
     const int lowest_frequency = piece_it->frequency;
     std::vector<piece_index_t> candidates = { (piece_it++)->index };
-
     // check whether peer has more pieces with the same frequency
     while((piece_it != pieces_end) && (piece_it->frequency == lowest_frequency))
     {
@@ -903,7 +910,6 @@ piece_picker::pick_ignore_reserved(const bt_bitfield& available_pieces) const
         }
         ++piece_it;
     }
-
     return candidates[util::random_int(candidates.size() - 1)];
 }
 
@@ -982,19 +988,22 @@ bool piece_picker::am_interested_in(const bt_bitfield& available_pieces) const
     return (available_pieces | m_my_bitfield) != m_my_bitfield;
 }
 
-void piece_picker::debug() const
+std::string piece_picker::debug_str() const
 {
-    m_piece_tracker->debug();
+    return m_piece_tracker->debug_str();
 }
 
 template<typename Piece>
-bool piece_picker::should_pick(const bt_bitfield& available_pieces, const Piece& piece) const
+bool piece_picker::should_pick(
+    const bt_bitfield& available_pieces, const Piece& piece) const
 {
     return !piece.is_reserved && should_download_piece(available_pieces, piece.index);
 }
 
-inline bool piece_picker::should_download_piece(const bt_bitfield& available_pieces,
-                                                const piece_index_t piece) const
+inline bool piece_picker::should_download_piece(
+    const bt_bitfield& available_pieces, const piece_index_t piece) const
 {
     return !m_my_bitfield[piece] && available_pieces[piece];
 }
+
+} // namespace tide

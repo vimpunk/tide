@@ -1,6 +1,7 @@
 #ifndef TORRENT_TRACKER_HEADER
 #define TORRENT_TRACKER_HEADER
 
+#include "string_view.hpp"
 #include "peer_entry.hpp"
 #include "settings.hpp"
 #include "payload.hpp"
@@ -11,6 +12,7 @@
 #include <unordered_map>
 #include <system_error>
 #include <functional>
+#include <algorithm>
 #include <utility>
 #include <string>
 #include <memory>
@@ -20,6 +22,9 @@
 
 #include <asio/io_service.hpp>
 
+namespace tide {
+
+// TODO consider renaming the protocol specific names in request to more sensible ones
 struct tracker_request
 {
     enum class event_t
@@ -135,14 +140,17 @@ struct tracker_response
     std::string tracker_id;
 
     // The number of seconds the client should wait before recontacting tracker.
-    int32_t interval;
+    seconds interval;
 
     // If present, the client must not reannounce itself before the end of this interval.
-    int32_t min_interval;
+    seconds min_interval;
 
     int32_t num_seeders;
     int32_t num_leechers;
 
+    // This is only used when tracker includes the peer ids of a peer. However, virtually
+    // all trackers use compact mode nowadays to save bandwidth, so consider phasing this
+    // out.
     std::vector<peer_entry> peers;
     std::vector<tcp::endpoint> ipv4_peers;
     // TODO support ipv6
@@ -184,11 +192,14 @@ const tracker_error_category& tracker_category();
 std::error_code make_error_code(tracker_errc e);
 std::error_condition make_error_condition(tracker_errc e);
 
+} // namespace tide
+
 namespace std
 {
-    template<> struct is_error_code_enum<tracker_errc> : public true_type {};
+    template<> struct is_error_code_enum<tide::tracker_errc> : public true_type {};
 }
 
+namespace tide {
 
 /**
  * This is an interface for the two possible trackers: UDP and HTTP/S.
@@ -216,12 +227,31 @@ protected:
     // The total number of times we tried to contact tracker but failed.
     int m_num_attempts = 0;
 
+    time_point m_last_announce_time;
+    time_point m_last_scrape_time;
+
+    // When we receive a tracker response, we set interval and announce_interval, which
+    // user can later query to know whether they are eligible to contact tracker.
+    seconds m_interval;
+    seconds m_min_interval;
+
+    // These fields are used to mark a tracker as "faulty", so that user can query a
+    // tracker and move onto the next.
+    bool m_is_reachable = true;
+    bool m_had_protocol_error = false;
+
+    // Each tracker should be sent an event=started message, so even if the torrent has
+    // sent such a message to another tracker, but has since transitioned to this
+    // tracker, the started event will be automatically set.
+    bool m_was_start_sent = false;
+
     // When we abort all tracker connections this is set to false. TODO
     bool m_is_aborted = false;
 
 public:
 
     tracker(std::string url, asio::io_service& ios, const settings& settings);
+    // TODO should we send an exit message when destructing?
     virtual ~tracker() = default;
 
     /**
@@ -250,6 +280,31 @@ public:
      * for pending announcements.
      */
     virtual void abort() = 0;
+
+    const std::string& url() const noexcept { return m_url; }
+
+    /**
+     * The number of seconds user should wait between intervals, and the absolute
+     * minimum number of seconds of the same. This may be violated if torrent is
+     * shutting down and we have to let tracker know or if user wants to force announce,
+     * but our engine will never announce more frequently otherwise.
+     */
+    seconds announce_interval() const noexcept { return m_interval; }
+    seconds min_announce_interval() const noexcept { return m_interval; }
+    time_point last_announce_time() const noexcept { return m_last_announce_time; }
+    time_point last_scrape_time() const noexcept { return m_last_scrape_time; }
+
+    /** Checks whether announce_interval time has elapsed since last announce. */
+    bool can_announce() const noexcept;
+
+    /**
+     * These are used to query if tracker is currently reachable or if it had exhibited
+     * any protocol errors in its response in the past. The former is set to false after
+     * we timed out and set to true again if we could reach tracker.
+     */
+    bool is_reachable() const noexcept { return m_is_reachable; }
+    bool had_protocol_error() const noexcept { return m_had_protocol_error; }
+    bool was_start_event_sent() const noexcept { return m_was_start_sent; }
 
 protected:
 
@@ -527,5 +582,31 @@ private:
     /** Creates a random transaction id. */
     static int create_transaction_id();
 };
+
+namespace util
+{
+    inline bool is_udp_tracker(string_view url) noexcept
+    {
+        static constexpr char udp[] = "udp://";
+        static constexpr int udp_len = sizeof(udp) - 1;
+        return url.length() >= 3
+            && std::equal(url.begin(), url.begin() + udp_len, udp);
+    }
+
+    inline bool is_http_tracker(string_view url) noexcept
+    {
+        static constexpr char http[] = "http://";
+        static constexpr int http_len = sizeof(http) - 1;
+        return url.length() >= 3
+            && std::equal(url.begin(), url.begin() + http_len, http);
+    }
+}
+
+inline bool tracker::can_announce() const noexcept
+{
+    return cached_clock::now() - last_announce_time() >= announce_interval();
+}
+
+} // namespace tide
 
 #endif // TORRENT_TRACKER_HEADER

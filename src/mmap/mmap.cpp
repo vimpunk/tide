@@ -14,6 +14,8 @@
 #include <iostream>
 #include <cassert>
 
+namespace tide {
+
 inline size_t get_page_size()
 {
 #if defined(_WIN32)
@@ -480,3 +482,5 @@ void mmap_sink::flush()
         m_impl->flush();
     }
 }
+
+} // namespace tide

@@ -3,6 +3,8 @@
 #include <bitset>
 #include <cmath>
 
+namespace tide {
+
 void send_buffer::append(std::vector<uint8_t> bytes)
 {
     assert(!bytes.empty() && "tried to add empty payload to send_buffer");
@@ -13,10 +15,12 @@ void send_buffer::append(std::vector<uint8_t> bytes)
 void send_buffer::append(const block_source& block)
 {
     assert(block.length > 0 && "tried to add empty block to send_buffer");
-    for(const mmap_source& chunk : block.chunks)
+    for(const auto& chunk : block.chunks)
     {
         m_size += chunk.length();
-        m_buffers.emplace_back(std::make_unique<disk_buffer_holder>(chunk));
+        m_buffers.emplace_back(
+            std::make_unique<disk_buffer_holder<block_source::chunk_type>>(chunk)
+        );
     }
 }
 
@@ -80,3 +84,5 @@ void send_buffer::consume(int num_sent_bytes)
         num_sent_bytes -= buffer_size;
     }
 }
+
+} // namespace tide

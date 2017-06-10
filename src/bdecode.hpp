@@ -13,6 +13,8 @@
 #include <memory>
 #include <vector>
 
+namespace tide {
+
 /** All the possible bencoded types. */
 enum class btype
 {
@@ -286,6 +288,7 @@ namespace detail
     {
         T m_data;
     public:
+        bprimitive() = default;
         bprimitive(T t) : m_data(t) {}
         btype type() const noexcept override { return Type; }
         operator T() const noexcept { return m_data; }
@@ -294,11 +297,13 @@ namespace detail
 
 struct bnumber : public detail::bprimitive<int64_t, btype::number>
 {
+    bnumber() = default;
     bnumber(int64_t n) : bprimitive(n) {}
 };
 
 struct bstring : public detail::bprimitive<std::string, btype::string>
 {
+    bstring() = default;
     bstring(std::string s) : bprimitive(std::move(s)) {}
 };
 
@@ -322,7 +327,7 @@ struct bstring : public detail::bprimitive<std::string, btype::string>
  * to traverse the token list to determine the elements in the source string.
  */
 
-struct bmap;
+class bmap;
 
 class blist
     : public detail::bcontainer
@@ -586,10 +591,9 @@ private:
     };
 };
 
-struct bmap
-    : public detail::bcontainer
-    , public belement
+class bmap : public detail::bcontainer, public belement
 {
+public:
     bmap() = default;
 
     bmap(std::vector<btoken>&& tokens, std::string&& encoded)
@@ -807,5 +811,7 @@ blist decode_blist(std::string s);
  * the container takes ownership of the input string.
  */
 std::unique_ptr<belement> decode(std::string s);
+
+} // namespace tide
 
 #endif // TORRENT_BDECODE_HEADER

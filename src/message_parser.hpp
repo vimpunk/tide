@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <vector>
 
+namespace tide {
+
 /**
  * All currently supported BitTorrent message types. This is denoted by the 5th byte in
  * a torrent message (the byte values are shown next to each type).
@@ -27,8 +29,10 @@ enum message_t : uint8_t
     request        = 6,
     block          = 7,
     cancel         = 8,
+    // -- DHT extension messages --
     port           = 9,
-    // keep alive has no identifier (it's just 4 zero bytes), only for convenience
+    // keep alive has no identifier (it's just 4 zero bytes), this is used only by
+    // message_parser::type to tell caller that the current message is a keep_alive
     keep_alive     = 255
 };
 
@@ -165,6 +169,12 @@ public:
     message_t type() const;
 
     /**
+     * This returns a view starting at the current message till one past the last valid
+     * message byte in receive buffer, so it may be empty.
+     */
+    const_view<uint8_t> peek_raw() const noexcept;
+
+    /**
      * Returns the number of bytes left till the completion of the current message if
      * the message is incomplete (we only received a chunk of it), or 0 if it is. -1 is
      * returned if we don't even have the 4 four bytes to determine the message length.
@@ -244,5 +254,7 @@ inline int message_parser::buffer_size() const noexcept
 {
     return m_buffer.size();
 }
+
+} // namespace tide
 
 #endif // TORRENT_SEND_BUFFER_HEADER

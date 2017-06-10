@@ -10,6 +10,8 @@
 #include <limits>
 #include <cmath>
 
+namespace tide {
+
 /**
  * This is a BitTorrent specific bitfield. The least significant bit is on the leftmost
  * side of the bitfield since it is used to represent piece availability, which is more
@@ -48,7 +50,7 @@ public:
         : m_blocks(num_blocks_for(num_bits), initial_val ? ~block_type(0) : 0)
         , m_num_bits(num_bits)
     {
-        zero_unused_bits();
+        clear_unused_bits();
     }
 
     /**
@@ -56,8 +58,6 @@ public:
      * sequence must be equal to the blocks needed to store num_bits. If this condition
      * is not met, an invalid_argument exception is thrown. This way it is easy to verify
      * whether peer has sent us a valid bitfield.
-     * NOTE: exceses bits are not tested, use is_bitfield_data_valid(). This is to
-     * provide different levels of enforcement.
      */
     template<
         typename Bytes,
@@ -66,13 +66,13 @@ public:
         : m_blocks(bytes.begin(), bytes.end())
         , m_num_bits(num_bits)
     {
-        if(num_blocks_for(num_bits) != int(m_blocks.size()))
+        if(!is_bitfield_data_valid(bytes, num_bits))
         {
             throw std::invalid_argument(
                 "byte sequence does not match the requested number of bits in bitfield"
             );
         }
-        zero_unused_bits();
+        clear_unused_bits();
     }
 
     friend void swap(bt_bitfield& a , bt_bitfield& b);
@@ -124,7 +124,7 @@ public:
     bt_bitfield& set() noexcept
     {
         std::fill(m_blocks.begin(), m_blocks.end(), ~block_type(0));
-        zero_unused_bits();
+        clear_unused_bits();
         return *this;
     }
 
@@ -152,7 +152,7 @@ public:
         {
             block = ~block;
         }
-        zero_unused_bits();
+        clear_unused_bits();
         return *this;
     }
 
@@ -256,8 +256,6 @@ public:
         return s;
     }
 
-    // Bitwise operations
-
     bt_bitfield operator-() const
     {
         bt_bitfield b(*this);
@@ -305,6 +303,7 @@ public:
         return *this;
     }
 
+    // TODO
     bt_bitfield operator<<(size_type n) const;
     bt_bitfield operator>>(size_type n) const;
     bt_bitfield& operator<<=(size_type n);
@@ -383,7 +382,7 @@ private:
         return pos % bits_per_block();
     }
 
-    void zero_unused_bits() noexcept
+    void clear_unused_bits() noexcept
     {
         const auto num_excess = num_excess_bits();
         if(num_excess > 0)
@@ -607,5 +606,7 @@ inline void swap(bt_bitfield& a , bt_bitfield& b)
     swap(a.m_blocks, b.m_blocks);
     swap(a.m_num_bits, b.m_num_bits);
 }
+
+} // namespace tide
 
 #endif // TORRENT_BITFIELD_HEADER

@@ -2,15 +2,15 @@
 #define TORRENT_PEER_SESSION_HEADER
 
 #include "peer_session_error.hpp"
-#include "peer_session_info.hpp"
 #include "block_disk_buffer.hpp"
 #include "throughput_rate.hpp"
 #include "sliding_average.hpp"
 #include "message_parser.hpp"
-#include "state_tracker.hpp"
+#include "bt_bitfield.hpp"
 #include "send_buffer.hpp"
 #include "disk_buffer.hpp"
 #include "block_info.hpp"
+#include "flag_set.hpp"
 #include "socket.hpp"
 #include "units.hpp"
 #include "time.hpp"
@@ -21,7 +21,8 @@
 
 #include <asio/io_service.hpp>
 
-class piece_download_locator;
+namespace tide {
+
 class peer_session_settings;
 class bandwidth_controller;
 class disk_read_buffer;
@@ -30,46 +31,69 @@ class torrent_info;
 class piece_picker;
 class disk_io;
 
-struct peer_session
+class peer_session
 {
+public:
+
     /**
      * These are the fields that we get from torrent either through the constructor when
      * this is an outbound connection, or when we attach to a torrent after the peer
      * handshake when this is an inbound connection. To test whether we succesfully
      * attached to a torrent, torrent_info must not be nullptr (the others may be, as
-     * optimizations may be employed, such as the omission of a piece_download_locator
-     * when seeding, but torrent_info must be present).
+     * optimizations may be employed, such as the omission of shared_downloads when
+     * seeding, but torrent_info must be present).
      */
     struct torrent_specific_args
     {
         std::shared_ptr<piece_picker> picker;
-        std::shared_ptr<piece_download_locator> locator;
+        std::shared_ptr<std::vector<std::shared_ptr<piece_download>>> shared_downloads;
         std::shared_ptr<torrent_info> info;
-        std::function<void(piece_index_t, bool)> new_piece_handler;
+        std::function<void(piece_download&, bool)> piece_completion_handler;
+    };
+
+    /** At any given time, peer_session is in one of the below states. */
+    enum class state_t
+    {
+        stopped,
+        connecting,
+        in_handshake,
+        // This state is optional, it is used to verify that the bitfield exchange
+        // occurrs after the handshake and not later. It is set once the handshake
+        // is done and changed to connected as soon as we receive the bitfield or
+        // the the first message that is not a bitfield. Any subsequent bitfield
+        // messages are rejected and the connection is dropped.
+        bitfield_exchange,
+        // This is the state in which the session is when it is ready to send and
+        // receive regular messages, i.e. when the up/download actually begins.
+        connected,
+        // After this is done, the state is set back to stopped.
+        disconnecting
     };
 
 private:
 
-    // NOTE: values have to be powers of two so that the bits they occupy don't overlap
-    enum states : uint8_t
+    enum class op_t : uint8_t
     {
-        idling       = 0,
         // Whether we're currently reading to or writing from socket. Both operations
         // last until their handles are invoked. This is used to block access to the
-        // socket to accumulate work to be done into batches to amortize costs.
-        receiving    = 1,
-        sending      = 2,
-        reading_disk = 4,
-        writing_disk = 8,
-        // To keep up with the transport layer's slow start algorithm (which unlike its
-        // name increases window size rather quickly), a peer_session starts out in
-        // slow start as well, wherein m_best_request_queue_size is increased by every
-        // time one of our requests got served.
-        slow_start   = 16
+        // socket to accumulate work to be done into batches in order to amortize
+        // costs of executing these operations (context switching).
+        send,
+        receive,
+        disk_read,
+        disk_write,
+        // To keep up with the transport layer's slow start algorithm (which unlike
+        // its name increases window size quite quickly), a peer_session starts out
+        // in slow start as well, wherein m_info.best_request_queue_size is increased
+        // by every time one of our requests got served.
+        slow_start,
+        max
     };
 
-    state_tracker<uint8_t> m_work_state;
+    flag_set<op_t, op_t::max> m_op_state;
 
+    // For now socket is tcp only but this will be a generic stream socket (hence the 
+    // pointer), which then may be tcp, udp, ssl<tcp>, socks5 etc
     std::unique_ptr<tcp::socket> m_socket;
 
     // We try to fill up the send buffer as much as possible before draining it to
@@ -83,6 +107,8 @@ private:
     // The disk thread used for async piece fetches and writes.
     disk_io& m_disk_io;
 
+    // We may be rate limited so we must always request upload and download bandwidth
+    // quota before proceeding to do either of those functions.
     bandwidth_controller& m_bandwidth_controller;
 
     // These are the tunable parameters that the user provides.
@@ -97,14 +123,14 @@ private:
     //
     // NOTE: if this starts as an incoming connection, we won't have this field until we
     // finished the handshake and attached ourselves to a torrent. It's also null if
-    // we're seeding (no point in having a download locator when we're not downloading).
-    std::shared_ptr<piece_download_locator> m_piece_download_locator;
+    // we're seeding (no point in having it when we're not downloading).
+    std::shared_ptr<std::vector<std::shared_ptr<piece_download>>> m_shared_piece_downloads;
 
     // We aggregate all peer's stats in a torrent wide torrent_info instance.
     //
     // NOTE: if this starts as an incoming connection, we won't have this field until we
     // finished the handshake and attached ourselves to a torrent.
-    // It must not be null. If it is, disconnect immediately.
+    // It must never be null. If it is, disconnect immediately.
     std::shared_ptr<torrent_info> m_torrent_info;
 
     // Our pending requests that we sent to peer. This is emptied if we are choked, as
@@ -122,8 +148,6 @@ private:
     // These are the active piece downloads in which this peer_session is participating.
     std::vector<std::shared_ptr<piece_download>> m_piece_downloads;
 
-    block_info m_receiving_block;
-
     // If peer is on parole, it may only download a single piece in which no other peer
     // may participate. This is because normally multiple blocks are downloaded from
     // multiple peers and if one turns out to be bad (and more peers helped to complete
@@ -132,78 +156,192 @@ private:
     // The result of this download determines the guilt of this peer.
     std::unique_ptr<piece_download> m_parole_piece;
 
+    /**
+     * This is used for internal bookkeeping information and statistics about a peer.
+     * For external stats reporting see stats or detailed_stats.
+     */
+    struct info
+    {
+        // Peer's 20 byte BitTorrent id.
+        peer_id id;
+
+        // A string representing the peer's software, if available (left empty if peer
+        // could not be identified).
+        std::string client;
+
+        // These are the extensions peer supports.
+        std::array<uint8_t, 8> extensions;
+
+        // All pieces peer has.
+        bt_bitfield available_pieces;
+
+        tcp::endpoint local_endpoint;
+        tcp::endpoint remote_endpoint;
+
+        // The timepoints at which events necessary for business logic occur are
+        // recorded. All of these values are only estimates, as they are updated from a 
+        // central cached timepoint updated around every 100ms.
+
+        time_point connection_started_time;
+        time_point connection_established_time;
+
+        time_point last_send_time;
+        time_point last_receive_time;
+
+        time_point last_outgoing_choke_time;
+        time_point last_incoming_choke_time;
+
+        time_point last_outgoing_unchoke_time;
+        time_point last_incoming_unchoke_time;
+
+        time_point last_outgoing_interest_time;
+        time_point last_incoming_interest_time;
+
+        time_point last_outgoing_uninterest_time;
+        time_point last_incoming_uninterest_time;
+
+        time_point last_outgoing_request_time;
+        time_point last_incoming_request_time;
+
+        time_point last_outgoing_block_time;
+        time_point last_incoming_block_time;
+
+        // TODO if more flags are added, consider using flag_set (the reason it's not
+        // used now and neither are bitfields is because the initial values here are
+        // important and might be error prone otherwise)
+        bool am_choked = true;
+        bool am_interested = false;
+        bool is_peer_choked = true;
+        bool is_peer_interested = false;
+
+        // Peer is on parole if it participated in a download that resulted in a
+        // corrupt piece. Unless the peer was the sole contributor to this piece;
+        // the culprit cannot be determined, so each participant goes on parole;
+        // which means that in the next download
+        bool is_peer_on_parole = false;
+
+        // If a peer does not manage to serve our request within the timeout limit;
+        // it is marked and fewer requests are made subsequently.
+        bool has_peer_timed_out = false;
+
+        // If it's an outgoing connection, we initiated it, otherwise peer did.
+        bool is_outbound;
+
+        // Peer is seeding (whether we're a seeder is already recorded in
+        // torrent_info).
+        bool is_peer_seed;
+
+        //bool is_rc4_encrypted;
+
+        // The total number of piece bytes exchanged with this peer. Does not include
+        // protocol overhead (both BitTorrent protocol and TCP/IP protocol).
+        // Note that it also includes pieces that later turned out to be invalid and had
+        // to be wasted. For the valid downloaded bytes, see total_verified_piece_bytes.
+        int64_t total_downloaded_piece_bytes = 0;
+        int64_t total_uploaded_piece_bytes = 0;
+
+        // The total number of all bytes, excluding the underlying network protocol 
+        // overhead, exchaned with this peer (i.e. total_piece_{up,down}loaded +
+        // BitTorrent protocol overhead).
+        int64_t total_downloaded_bytes = 0;
+        int64_t total_uploaded_bytes = 0;
+
+        // This field is only updated once the piece has been fully downloaded and its
+        // verified. It should not be used as gauge download speed.
+        int64_t total_verified_piece_bytes = 0;
+
+        // If we receive a piece that we already have, this is incremented.
+        int64_t total_wasted_bytes = 0;
+
+        // The number of bytes this peer is allowed to send and receive until it is
+        // allotted more or requests more if it runs out.
+        int send_quota = 0;
+        int receive_quota = 0;
+
+        // The maximum number of bytes/s we are allowed to send to or receive from peer.
+        // No limit is employed if the values are -1 (this is the default).
+        int max_upload_rate = -1;
+        int max_download_rate = -1;
+
+        // The number of bad pieces in which this peer has participated.
+        int num_hash_fails = 0;
+
+        // If peer sends requests while it's choked this counter is increased. After 300
+        // such requests, peer is disconnected.
+        int num_illicit_requests = 0;
+
+        // Record the number of unwanted blocks we receive from peer. After a few we
+        // disconnect so as to avoid being flooded.
+        int num_unwanted_blocks = 0;
+
+        // After a certain number of subsequent disk read/write failures peer is
+        // disconnected because it implies that there is a problem that could not be
+        // fixed.
+        int num_disk_io_failures = 0;
+
+        // The request queue size (the number of blocks we requests from the peer in one
+        // go, which saves us from the full round trip time between a request and a
+        // block) is recalculated every time we receive a block in order to fully utilize 
+        // the link, which is done by keeping approximately the bandwidth delay product 
+        // number of bytes outstanding at any given time (and some more to account for
+        // disk latency). Though during the start of the connection it is subject to slow 
+        // start mode.
+        int best_request_queue_size = 2;
+
+        // If the number of unserved and currently served requests to peer exceeds this
+        // number, further requests will be dropped. This is the same value found in
+        // m_settings, unless peer' client is BitComet, in which case this is capped at
+        // 50 (any further requests have been observed to be dropped by BC).
+        int max_outgoing_request_queue_size;
+
+        // The number of requests to which we haven't gotten any response.
+        int num_timed_out_requests = 0;
+
+        // The number of requests that peers hasn't served yet.
+        //int download_queue_size = 0;
+        // The number of requests from peer that haven't been answered yet.
+        //int upload_queue_size = 0;
+
+        int total_bytes_written_to_disk = 0;
+        int total_bytes_read_from_disk = 0;
+
+        // The number of bytes that written or are waiting to be written to and read
+        // from disk.
+        int num_pending_disk_write_bytes = 0;
+        int num_pending_disk_read_bytes = 0;
+
+        // The number of piece bytes we're expecting to receive from peer.
+        int num_outstanding_bytes = 0;
+
+        state_t state = state_t::stopped;
+
+        // The block currently being received is put here. This is used to determine
+        // whether we can cancel a request, because if we're already receiving a block,
+        // we can't send cancel it.
+        // TODO this feels hacky
+        block_info receiving_block;
+    };
+
     // Info and status regarding this peer. One instance persists throughout the session,
     // which is constantly updated but copies for stat aggregation are made on demand.
-    peer_session_info m_info;
-
-    // The request queue size (the number of blocks we requests from the peer in one
-    // go, which saves us from the full round trip time between a request and a block)
-    // is recalculated every time we receive a block in order to fully utilize the link,
-    // which is done by keeping approximately the bandwidth delay product number of
-    // bytes outstanding at any given time (and some more to account for disk latency).
-    // Though during the start of the connection it is subject to slow start mode.
-    int m_best_request_queue_size = 2;
-
-    // If peer sends requests while it's choked this counter is increased. After 300
-    // such requests, peer is disconnected.
-    int m_num_illicit_requests = 0;
-
-    // Record the number of unwanted blocks we receive from peer. After a few we
-    // disconnect so as to avoid being flooded.
-    int m_num_unwanted_blocks = 0;
-
-    // After a certain number of subsequent disk read/write failures peer is disconnected
-    // because it implies that there is a problem that could not be fixed.
-    int m_num_disk_io_failures = 0;
-
-    // If the number of unserved and currently served requests from peer exceeds this
-    // number, further requests will be dropped. This is the same value found in
-    // m_settings, unless peer' client is BitComet, in which case this is capped at 50
-    // (any futher requests would be dropped by BC).
-    int m_max_outgoing_request_queue_size;
+    info m_info;
 
     // These values are weighed running averages, the last 20 seconds having the largest
-    // weight. These are strictly the throughput rates of piece byte transfers.
+    // weight. These are strictly the throughput rates of piece byte transfers and are
+    // used to compare a peer's performance agains another to determine which to unchoke.
     throughput_rate<20> m_upload_rate;
     throughput_rate<20> m_download_rate;
 
-    // This is the average network round-trip-time between issuing a request and
-    // receiving a block (note that it doesn't have to be the same block since peers
-    // are not required to serve our requests in order, so this is more of a general
-    // approximation).
+    // This is the average network round-trip-time (in milliseconds) between issuing a
+    // request and receiving a block (note that it doesn't have to be the same block
+    // since peers are not required to serve our requests in order, so this is more of
+    // a general approximation).
     sliding_average<20> m_avg_request_rtt;
 
-    // We measure the average time it takes to do disk jobs as this affects the value
-    // that is picked for m_best_request_queue_size (counting disk latency is part of a
-    // requests's full round trip time).
+    // We measure the average time it takes (in milliseconds) to do disk jobs as this
+    // affects the value that is picked for m_info.best_request_queue_size (counting
+    // disk latency is part of a requests's full round trip time).
     sliding_average<20> m_avg_disk_write_time;
-
-    time_point m_connection_started_time;
-    time_point m_connection_established_time;
-
-    // We record each time the send buffer is drained and the receive buffer is filled.
-    // All of these values are only estimates, as they are updated from a central cached
-    // timepoint updated around every 100ms.
-    time_point m_last_send_time;
-    time_point m_last_receive_time;
-
-    time_point m_last_outgoing_choke_time;
-    time_point m_last_incoming_choke_time;
-
-    time_point m_last_outgoing_unchoke_time;
-    time_point m_last_incoming_unchoke_time;
-
-    time_point m_last_outgoing_interest_time;
-    time_point m_last_incoming_interest_time;
-
-    time_point m_last_outgoing_uninterest_time;
-    time_point m_last_incoming_uninterest_time;
-
-    time_point m_last_outgoing_request_time;
-    time_point m_last_incoming_request_time;
-
-    time_point m_last_outgoing_block_time;
-    time_point m_last_incoming_block_time;
 
     // This is only used when connecting to the peer. If we couldn't connect by the time
     // this timer expires, the connection is aborted.
@@ -226,8 +364,32 @@ private:
     // stopped if either side becomes interested.
     deadline_timer m_inactivity_timeout_timer;
 
-    // This is a function in torrent that is invoked every time we received a new piece
-    std::function<void(piece_index_t, bool)> m_new_piece_handler;
+    // This handler is given to us by torrent and is given to disk_io every time we
+    // save a block. Once a piece is completed and it has been hashed and compared to 
+    // the expected hash, the piece_download instance and the hash test result (true
+    // meaning the piece passed) is passed to this handler for torrent to process the
+    // new piece and let other peers know that we got a new piece (via 
+    // announce_new_piece). It is crucial that no method in peer_session is passed
+    // to disk_io as the piece completion handler, as a peer_session may be destructed
+    // before the piece is completed, so torrent must be the one that invokes
+    // piece_download::post_hash_result.
+    //
+    //    [torrent]<---3:piece completion---[disk_io]
+    //        |                                 A
+    // 4:post hash result                       |
+    // to participants                          |
+    //        |                                 |
+    //        V                                 |
+    // [piece_download]<--.               2:save block
+    //        |           |                     |
+    //        |    1:register blocks            |
+    //        |    & participation              |
+    //        |           |                     |
+    // 5:invoke handler   |                     |
+    //        |           |                     |
+    //        `---->[peer_session]--------------'
+    //
+    std::function<void(piece_download&, bool)> m_piece_completion_handler;
 
     // When this is an incoming connection, this peer_session must attach to a torrent
     // using this callback after peer's handshake has been received and a torrent info
@@ -252,7 +414,7 @@ public:
     );
 
     /**
-     * Instantiate an inbound connection, that is, it is now known to which torrent this
+     * Instantiate an inbound connection, that is, it is not known to which torrent this
      * peer belongs until the handshake is completed.
      *
      * The socket must be initialized, but not opened.
@@ -260,7 +422,9 @@ public:
      * The torrent_attacher handler is called after we receive peer's handshake. This is
      * used to locate the torrent to which this connection belongs. After this, we have
      * the torrent's info hash so we can send our handshake as well. If this succeeds,
-     * the peer is fully connected.
+     * the peer is fully connected, but if torrent_attacher doesn't return a valid
+     * torrent_specific_args instance (its fields are nullptr), we know peer didn't send
+     * the correct hash so the connection is closed and this peer_session may be removed.
      */
     peer_session(
         std::unique_ptr<tcp::socket> socket,
@@ -278,27 +442,82 @@ public:
     //void gracious_pause();
     //void try_resume();
 
+    /**
+     * This is a light-weight representation of the most essential information about
+     * a peer_session. This should be used where update of a peer's status is required
+     * at constant, short intervals.
+     */
+    struct stats
+    {
+        // The unique torrent id to which this peer belongs.
+        torrent_id_t torrent_id;
+
+        // Peer's 20 byte BitTorrent id.
+        peer_id id;
+
+        // A string representing the peer's software, if available (left empty if peer
+        // could not be identified).
+        std::string client;
+
+        // This is the average network round-trip-time between issuing a request and
+        // receiving a block, but it doesn't have to be the same block since peers are
+        // not required to serve our requests in order, so this is more of a general
+        // approximation. Also note that the timer used has a resolution of only ~100ms.
+        milliseconds avg_request_rtt;
+
+        // Latest payload (piece) upload and download rates in bytes/s.
+        int upload_rate = 0;
+        int download_rate = 0;
+
+        // The highest upload and download rate recorded in this connection.
+        int peak_upload_rate = 0;
+        int peak_download_rate = 0;
+
+        // The amount of actual message bytes in buffers and capacity.
+        int used_send_buffer_size = 0;
+        int total_send_buffer_size = 0;
+        int used_receive_buffer_size = 0;
+        int total_receive_buffer_size = 0;
+    };
+
+    /**
+     * This practically includes every statistics collected about a peer, which means
+     * it's expensive to request regularly, so it is advised to only request it when
+     * user wants more info about a peer.
+     TODO we inherit id and client twice
+     */
+    struct detailed_stats : public info, public stats
+    {
+        // The pieces we're currently downloading from this peer (those that have been
+        // fully downloaded but not yet been verified count as well).
+        std::vector<piece_index_t> piece_downloads;
+    };
+
     bool is_connecting() const noexcept;
     bool is_disconnecting() const noexcept;
     bool is_finished() const noexcept;
-    bool is_on_parole() const noexcept;
     bool am_choked() const noexcept;
+    bool am_interested() const noexcept;
     bool is_peer_choked() const noexcept;
+    bool is_peer_interested() const noexcept;
+    bool is_peer_on_parole() const noexcept;
+    bool is_peer_seed() const noexcept;
+    bool is_outbound() const noexcept;
 
-    const peer_session_info& stats() noexcept;
-    void update_stats(peer_session_info& stats) const noexcept;
-    int64_t num_bytes_downloaded_in_last_round() const;
-    int64_t num_bytes_uploaded_in_last_round() const;
+    state_t state() const noexcept;
+    stats get_stats() const noexcept;
+    void get_stats(stats& s) const noexcept;
+    detailed_stats get_detailed_stats() const noexcept;
+    void get_detailed_stats(detailed_stats& s) const noexcept;
     time_point last_outgoing_unchoke_time() const noexcept;
     time_point connection_established_time() const noexcept;
+    const tcp::endpoint& local_endpoint() const noexcept;
+    const tcp::endpoint& remote_endpoint() const noexcept;
+    int64_t download_rate() const noexcept;
+    int64_t upload_rate() const noexcept;
 
     /** Sends a choke message and drops serving all pending requests made by peer. */
     void choke_peer();
-
-    /**
-     * Sends an unchoke message and if we're interested in peer, immediately creates
-     * block requests.
-     */
     void unchoke_peer();
 
     /**
@@ -320,6 +539,7 @@ private:
 
     /** If our interest changes, sends the corresponding send_{un,}interested message. */
     void update_interest();
+    bool am_seeder() const noexcept;
 
     /**
      * This must be called when we know that we're not going to receive previously
@@ -389,7 +609,8 @@ private:
     /**
      * If the receive buffer is completely filled up in a receive operation, it may mean
      * that there are more bytes left in socket. This function attempts to synchronously
-     * read them. The number of bytes read is returned.
+     * read them, if receive buffer capacity has not been reached. The number of bytes 
+     * read is returned.
      */
     int flush_socket();
 
@@ -427,7 +648,7 @@ private:
 
     /**
      * Called after every block we receive, optimizes the number of blocks to request to
-     * saturate the TCP link as best as possible.
+     * saturate the TCP downlink as best as possible.
      */
     void adjust_best_request_queue_size() noexcept;
 
@@ -476,6 +697,12 @@ private:
         disk_buffer block_data,
         piece_download& piece_download
     );
+    void on_block_saved(
+        const std::error_code& error,
+        const block_info& block,
+        const time_point start_time
+    );
+    void on_block_read(const std::error_code& error, const block_source& block);
 
     /**
      * This is invoked by piece_download when the piece has been fully downloaded and
@@ -483,12 +710,14 @@ private:
      * the piece_download corresponding to piece is removed from m_piece_downloads.
      */
     void on_piece_hashed(const piece_index_t piece, const bool is_piece_good);
-    void on_block_saved(
-        const std::error_code& error,
-        const block_info& block,
-        const time_point start_time
-    );
-    void on_block_read(const std::error_code& error, const block_source& block);
+
+    /**
+     * Once a piece has been downloaded and hashed, torrent processes it and calls the
+     * handler corresponding to the hash result of each peer_session that participated
+     * in the download.
+     */
+    void handle_valid_piece(const piece_download& download);
+    void handle_corrupt_piece(const piece_download& download);
 
     // ---------------------
     // -- message sending --
@@ -501,13 +730,14 @@ private:
      */
     bool is_ready_to_send() const noexcept;
 
-    // Each of the below methods append their message to m_send_buffer and call send
-    // at the end, but the payload may be buffered for a while before it is written to
-    // socket.
-    // The first 5 senders simply send the message and record that they have done so.
-    // Testing whether it is prudent to do so (e.g. don't send an interested message
-    // if we're already interested) is done by other methods that use them.
-
+    /**
+     * Each of the below methods appends its message to m_send_buffer and calls send
+     * at the end, but the payload may be buffered for a while before it is written to
+     * socket.
+     * The first five senders simply send the message and record that they have done so.
+     * Testing whether it is prudent to do so (e.g. don't send an interested message
+     * if we're already interested) is done by other methods that use them.
+     */
     void send_handshake();
     void send_bitfield();
     void send_keep_alive();
@@ -553,9 +783,10 @@ private:
      * The number of blocks that have been placed in the request queue are returned.
      */
     int join_download();
+    std::shared_ptr<piece_download> find_shared_download();
 
     /**
-     * Starts a new download and registers it in m_piece_download_locator so that other
+     * Starts a new download and registers it in m_shared_piece_downloads so that other
      * peers may join.
      * New requests are placed in m_sent_requests.
      * The number of blocks that have been placed in the request queue are returned.
@@ -608,17 +839,11 @@ private:
     template<typename... Args>
     void log(const log_event event, const std::string& format, Args&&... args) const;
 
-    int get_piece_length(const piece_index_t piece) const noexcept;
-
-    template<typename Duration, typename Handler>
-    static void start_timer(
-        deadline_timer& timer, const Duration& expires_in, Handler handler
-    );
-
+    /** Tries to detect client's software from its peer_id in its handshake. */
     void try_identify_client();
+    std::vector<std::shared_ptr<piece_download>>::iterator
+    find_piece_download(const piece_index_t piece) noexcept;
 
-    // Credit to libtorrent:
-    // http://blog.libtorrent.org/2012/12/principles-of-high-performance-programs/
     class send_cork;
 };
 
@@ -629,22 +854,90 @@ inline bool peer_session::is_ready_to_send() const noexcept
 
 inline bool peer_session::is_connecting() const noexcept
 {
-    return m_info.state == peer_session_info::state_t::connecting;
+    return m_info.state == state_t::connecting
+        || m_info.state == state_t::in_handshake;
 }
 
 inline bool peer_session::is_disconnecting() const noexcept
 {
-    return m_info.state == peer_session_info::state_t::disconnecting;
+    return m_info.state == state_t::disconnecting;
 }
 
 inline bool peer_session::is_finished() const noexcept
 {
-    return m_info.state == peer_session_info::state_t::stopped;
+    return m_info.state == state_t::stopped;
 }
 
-inline bool peer_session::is_on_parole() const noexcept
+inline bool peer_session::am_choked() const noexcept
 {
-    return m_info.is_on_parole;
+    return m_info.am_choked;
 }
+
+inline bool peer_session::is_peer_choked() const noexcept
+{
+    return m_info.is_peer_choked;
+}
+
+inline bool peer_session::am_interested() const noexcept
+{
+    return m_info.am_interested;
+}
+
+inline bool peer_session::is_peer_interested() const noexcept
+{
+    return m_info.is_peer_interested;
+}
+
+inline bool peer_session::is_peer_on_parole() const noexcept
+{
+    return m_info.is_peer_on_parole;
+}
+
+inline bool peer_session::is_peer_seed() const noexcept
+{
+    return m_info.is_peer_seed;
+}
+
+inline bool peer_session::is_outbound() const noexcept
+{
+    return m_info.is_outbound;
+}
+
+inline peer_session::state_t peer_session::state() const noexcept
+{
+    return m_info.state;
+}
+
+inline time_point peer_session::last_outgoing_unchoke_time() const noexcept
+{
+    return m_info.last_outgoing_unchoke_time;
+}
+
+inline time_point peer_session::connection_established_time() const noexcept
+{
+    return m_info.connection_established_time;
+}
+
+inline const tcp::endpoint& peer_session::local_endpoint() const noexcept
+{
+    return m_info.local_endpoint;
+}
+
+inline const tcp::endpoint& peer_session::remote_endpoint() const noexcept
+{
+    return m_info.remote_endpoint;
+}
+
+inline int64_t peer_session::download_rate() const noexcept
+{
+    return m_download_rate.bytes_per_second();
+}
+
+inline int64_t peer_session::upload_rate() const noexcept
+{
+    return m_upload_rate.bytes_per_second();
+}
+
+} // namespace tide
 
 #endif // TORRENT_PEER_SESSION_HEADER

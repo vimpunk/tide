@@ -19,6 +19,10 @@
 
 #include <asio/io_service.hpp>
 
+namespace tide {
+
+class endpoint_filter;
+
 /**
  * This class represents a torrent application. It is the highest level wrapper around,
  * and glue for all components in a torrent. It is also the public interface through
@@ -34,11 +38,21 @@ class engine
 
     bandwidth_controller m_bandwidth_controller;
 
+    // Rules may be applied for filtering specific IP addresses and ports.
+    endpoint_filter m_endpoint_filter;
+
     // All active and inactive torrents are stored here.
     std::unordered_map<torrent_id_t, torrent> m_torrents;
 
     // Torrents may have a priority ordering. TODO perhaps use a vector
     std::deque<torrent_id_t> m_torrent_priority;
+
+    // Every single tracker used by all torrents is stored here. This is because many
+    // torrents share the same tracker, so when a torrent is created, we first check
+    // if its trackers already exist, and if so, we can pass the existing instance to
+    // torrent. A tracker is removed from here when all torrents that use it have been
+    // removed (checked using shared_ptr's reference count).
+    std::vector<std::shared_ptr<tracker>> m_trackers;
 
     // This contains all the user configurable options, a const reference to which is
     // passed down to pretty much all components of the engine.
@@ -73,28 +87,39 @@ public:
     disk_io_info get_disk_io_stats() const;
     engine_info get_engine_stats() const;
     settings get_settings() const;
-    void change_settings(const settings& s);
+    void apply_settings(const settings& s);
+
+    //std::vector<alert> get_recent_alerts();
+
+    /**
+     * Returns a torrent_handle to every torrent managed by engine (and variations).
+     * This is useful if user doesn't keep track of torrents, but this is not
+     * recommended to avoid the allocation overhead of the returned vector.
+     */
+    std::vector<torrent_handle> torrents();
+    std::vector<torrent_handle> downloading_torrents();
+    std::vector<torrent_handle> uploading_torrents();
+    std::vector<torrent_handle> paused_torrents();
 
     /**
      * This is an asynchronous function that reads in the .torrent file located at path
-     * and parses it into a legible metainfo object, which is then passed to the handler.
-     * This is the same metainfo that must be passed to add_torrent's torrent_args.
+     * and parses it into a legible metainfo object, which is then passed to user via
+     * the alert system. This is the same metainfo that must be passed to add_torrent's
+     * torrent_args.
      *
-     * The advantage of using this function over manually reading it in and parsing it
+     * The advantage of using this function over manually reading and parsing .torrent
      * is making use of engine's existing multithreaded disk IO infrastructure, but it
-     * can of course be done another way.
+     * may of course be done another way.
      */
-    void parse_metainfo(
-        const path& path, std::function<void(const std::error_code&, metainfo)> handler
-    );
+    void parse_metainfo(const path& path);
 
     /**
      * Sets up and starts a torrent with the supplied arguments in args. Once the
      * internal torrent object is fully instantiated (which may not mean that it started
-     * tracker or peer connections, or that it has been allocated on the disk), the
-     * handler is invoked with a torrent handle. Thus, the actual setup runs
-     * asynchronously. The user is notified of each state transition in torrent's setup
-     * progress via the alert system.
+     * tracker or peer connections, or that it has been allocated on the disk), a
+     * torrent_handle is obtained and posted to user via the alert system (TODO).
+     * Thus, the actual setup runs asynchronously. The user is notified of each state
+     * transition in torrent's setup progress via the alert system.
      *
      * An exception is thrown if args is invalid, which is verified before launching any
      * asynchronous setup operations.
@@ -102,8 +127,7 @@ public:
      * NOTE: the obtained torrent_handle must be saved somewhere as this is the means
      * through which the user may interact with a torrent.
      */
-    void add_torrent(torrent_args args, std::function<void(torrent_handle)> handler);
-    torrent_handle add_torrent(torrent_args args);
+    void add_torrent(torrent_args args);
 
     enum class remove_options
     {
@@ -134,6 +158,29 @@ private:
 
     void verify_torrent_args(torrent_args& args) const;
     torrent_id_t get_torrent_id() noexcept;
+
+    /**
+     * If any of torrent's trackers are already present in m_trackers, those are
+     * returned, and any that is not is created, added to m_trackers and returned.
+     * The trackers in announce-list come first, in the order they were specified, then,
+     * if the traditional tracker is not in the announce-list (which is a common
+     * scenario), it is added last, as these are rarely used if an announce-list is
+     * present.
+     */
+    std::vector<std::shared_ptr<tracker>> get_trackers(const metainfo& metainfo);
+    bool has_tracker(string_view url) const noexcept;
+
+    /**
+     * Events (notifications, stats, data) are accumulated in an event queue in engine,
+     * which user may periodically request. This indirection is necessary because most
+     * user interactions result in asynchronous operations that run on a different
+     * thread, so regular callbacks or return values cannot be used. Instead, completed
+     * async operations place their alert in the alert queue and user periodically
+     * drains this queue.
+     */
+    template<typename Alert, typename... Args> void post_alert(Args&&... args);
 };
+
+} // namespace tide
 
 #endif // TORRENT_ENGINE_HEADER

@@ -4,6 +4,8 @@
 #include <system_error>
 #include <string>
 
+namespace tide {
+
 enum class disk_io_errc
 {
     unknown = 1,
@@ -36,9 +38,11 @@ const disk_io_error_category& disk_io_category();
 std::error_code make_error_code(disk_io_errc e);
 std::error_condition make_error_condition(disk_io_errc e);
 
+} // namespace tide
+
 namespace std
 {
-    template<> struct is_error_code_enum<disk_io_errc> : public true_type {};
+    template<> struct is_error_code_enum<tide::disk_io_errc> : public true_type {};
 }
 
 // for more info:

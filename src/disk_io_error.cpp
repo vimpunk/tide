@@ -1,5 +1,7 @@
 #include "disk_io_error.hpp"
 
+namespace tide {
+
 std::string disk_io_error_category::message(int env) const
 {
     switch(static_cast<disk_io_errc>(env))
@@ -34,3 +36,5 @@ std::error_condition make_error_condition(disk_io_errc e)
 {
     return std::error_condition(static_cast<int>(e), disk_io_category());
 }
+
+} // namespace tide

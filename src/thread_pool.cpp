@@ -3,6 +3,8 @@
 #include <iostream>
 #define LOG(m) do { std::cerr << m << '\n'; } while(0)
 
+namespace tide {
+
 thread_pool::thread_pool() : thread_pool(auto_concurrency()) {}
 
 thread_pool::thread_pool(int concurrency)
@@ -44,31 +46,33 @@ int thread_pool::num_idle_threads() const
     return m_last_idle_worker_pos + 1;
 }
 
-thread_pool::info thread_pool::get_info() const
+thread_pool::stats thread_pool::get_stats() const
 {
-    info i;
-    i.num_idle_threads = num_idle_threads();
-    i.num_active_threads = num_active_threads();
-    i.num_executed_jobs = m_num_executed_jobs.load(std::memory_order_relaxed);
+    stats s;
+    {
+        std::lock_guard<std::mutex> l(m_workers_mutex);
+        s.num_idle_threads = m_last_idle_worker_pos + 1;
+        s.num_active_threads = m_workers.size() - s.num_idle_threads;
+    }
     {
         std::lock_guard<std::mutex> l(m_job_queue_mutex);
-        i.num_pending_jobs = m_job_queue.size();
+        s.num_pending_jobs = m_job_queue.size();
     }
-    i.ms_spent_working = m_work_time.load(std::memory_order_relaxed);
-    i.ms_spent_idling = m_idle_time.load(std::memory_order_relaxed);
-    return i;
+    s.num_executed_jobs = m_num_executed_jobs.load(std::memory_order_relaxed);
+    s.time_spent_working = milliseconds(m_work_time.load(std::memory_order_relaxed));
+    s.time_spent_idling = milliseconds(m_idle_time.load(std::memory_order_relaxed));
+    return s;
 }
 
-void thread_pool::change_concurrency(const int n)
+void thread_pool::set_concurrency(const int n)
 {
     if(n < m_concurrency)
     {
-        std::lock_guard<std::mutex> l(m_workers_mutex);
+        std::unique_lock<std::mutex> l(m_workers_mutex);
         const int num_to_join = m_workers.size() - n;
         if(num_to_join > 0)
         {
-            join_n(num_to_join);
-            m_workers.erase(m_workers.begin(), m_workers.begin() + num_to_join);
+            join_n(num_to_join, std::move(l));
         }
     }
     else
@@ -83,27 +87,22 @@ void thread_pool::clear_pending_jobs()
     m_job_queue.clear();
 }
 
-void thread_pool::post(job_type job)
-{
-    {
-        std::lock_guard<std::mutex> l(m_job_queue_mutex);
-        m_job_queue.emplace_back(std::move(job));
-    }
-    handle_new_job();
-}
-
 void thread_pool::join_all()
 {
-    std::lock_guard<std::mutex> l(m_workers_mutex);
     join_n(m_workers.size());
-    m_workers.clear();
+    // we need not acqurie the mutex here as there are no longer other threads executing
     m_last_idle_worker_pos = -1;
-    // we need not acqurie the mutex here as there are no longer threads to exclude
     m_job_queue.clear();
 }
 
 void thread_pool::join_n(const int n)
 {
+    join_n(n, std::move(std::unique_lock<std::mutex>(m_workers_mutex)));
+}
+
+void thread_pool::join_n(const int n, std::unique_lock<std::mutex> workers_lock)
+{
+    assert(workers_lock.owns_lock());
     for(auto i = 0; i < n; ++i)
     {
         //LOG("[X] joining " << m_workers[i]->thread.get_id());
@@ -115,22 +114,36 @@ void thread_pool::join_n(const int n)
         if(i <= m_last_idle_worker_pos)
         {
             m_workers[i]->job_available.notify_one();
+            // we got one less idle worker (it's crucial to maintain the logic as we
+            // might not be joining all threads, thus the remaining threads must always
+            // see the workers stack consistently)
+            --m_last_idle_worker_pos;
         }
-        // this should never fire because if it doth, we f-ed up mutual exclusion
         assert(m_workers[i]->thread.joinable());
         m_workers[i]->thread.join();
     }
+    m_workers.erase(m_workers.begin(), m_workers.begin() + n);
 }
 
 void thread_pool::abort_all()
 {
     // TODO
+    join_all();
+}
+
+void thread_pool::post(job_type job)
+{
+    {
+        std::lock_guard<std::mutex> l(m_job_queue_mutex);
+        m_job_queue.emplace_back(std::move(job));
+    }
+    handle_new_job();
 }
 
 void thread_pool::handle_new_job()
 {
     std::unique_lock<std::mutex> workers_lock(m_workers_mutex);
-    //LOG("\t(new job) m_last_idle_worker_pos: " << m_last_idle_worker_pos);
+    //LOG("[NEW JOB] m_last_idle_worker_pos: " << m_last_idle_worker_pos);
     if(m_last_idle_worker_pos >= 0)
     {
         // if there are any idle workers, notify the one at the top of the waiters' stack
@@ -144,9 +157,10 @@ void thread_pool::handle_new_job()
         // TODO optimize this. if workload has been steadily decreasing in the near
         // past, we don't want to spin up a new thread, otherwise we do, e.g.:
         // if(m_load_avg.is_trend_upward()) or if(some threashold reached)
-        std::shared_ptr<worker> w = std::make_shared<worker>();
-        w->is_dead.store(false, std::memory_order_relaxed);
-        m_workers.emplace_front(w);
+        //std::unique_ptr<worker> w(std::make_unique<worker>());
+        //w->is_dead.store(false, std::memory_order_relaxed);
+        m_workers.emplace_front(std::make_unique<worker>());
+        worker& worker = *m_workers.front();
         // we just added an idle worker, move marker to the right by one
         ++m_last_idle_worker_pos;
         // we don't want to spin up a new thread while holding the mutex
@@ -156,14 +170,11 @@ void thread_pool::handle_new_job()
         // invocation of the copy of the provided function, i.e. it inter-thread
         // happens-before calling the function, which means we'll have a valid thread
         // object in worker->thread by the time run(worker) would need to use it
-        w->thread = std::thread([this, w]
-        {
-            run(w);
-        });
+        worker.thread = std::thread([this, &worker] { run(worker); });
 
         // we know where the new worker is, we don't need to access it through m_workers
-        // and m_last_idle_worker_pos TODO verify whether this is correct
-        w->job_available.notify_one();
+        // and m_last_idle_worker_pos
+        worker.job_available.notify_one();
     }
 }
 
@@ -190,44 +201,50 @@ public:
     }
 };
 
-void thread_pool::run(std::shared_ptr<worker> worker)
+void thread_pool::run(worker& worker)
 {
-    scope_guard termination_guard([this, worker]
-    {
-        handle_untimely_worker_demise(worker);
-    });
-    while(!worker->is_dead.load(std::memory_order_acquire))
+    scope_guard termination_guard(
+        [this, &worker] { handle_untimely_worker_demise(worker); }
+    );
+    while(!worker.is_dead.load(std::memory_order_acquire))
     {
         //LOG("\t" << std::this_thread::get_id() << " looping");
         time_point idle_start = ts_cached_clock::now();
         std::unique_lock<std::mutex> job_queue_lock(m_job_queue_mutex);
-        worker->job_available.wait_for(job_queue_lock, seconds(15), [this, worker]
-        {
-            // wake up if worker is begin shut down, a new job is available, or if
-            // worker has idled for a minute
-            return worker->is_dead.load(std::memory_order_acquire)
-                || !m_job_queue.empty();
-        });
-        m_idle_time.fetch_add(total_milliseconds(ts_cached_clock::now() - idle_start));
+        worker.job_available.wait_for(
+            job_queue_lock,
+            seconds(15),
+            [this, &worker]
+            {
+                // wake up if worker is begin shut down, a new job is available, or if
+                // worker has idled for a minute
+                return worker.is_dead.load(std::memory_order_acquire)
+                    || !m_job_queue.empty();
+            }
+        );
+        m_idle_time.fetch_add(
+            total_milliseconds(ts_cached_clock::now() - idle_start),
+            std::memory_order_relaxed
+        );
 
         // thread woke up because thread_pool is stopping worker or thread hasn't
         // worked in the past minute; either way, stop execution
-        if(worker->is_dead.load(std::memory_order_acquire))
+        if(worker.is_dead.load(std::memory_order_acquire))
         {
-            //LOG("[D...] " << worker->thread.get_id());
+            //LOG("[D...] " << worker.thread.get_id());
             break;
         }
         else if(m_job_queue.empty())
         {
-            //LOG("[STARVE] " << worker->thread.get_id());
+            //LOG("[STARVE] " << worker.thread.get_id());
             job_queue_lock.unlock();
-            worker->is_dead.store(true, std::memory_order_release);
+            worker.is_dead.store(true, std::memory_order_release);
             break;
         }
 
         // if this returns false it means worker is being shut down (this is to avoid
-        // loading worker->is_dead again, as execute_jobs already does it)
-        if(!execute_jobs(*worker, std::move(job_queue_lock)))
+        // loading worker.is_dead again, as execute_jobs already does it)
+        if(!execute_jobs(worker, std::move(job_queue_lock)))
         {
             break;
         }
@@ -255,12 +272,19 @@ bool thread_pool::execute_jobs(worker& worker, std::unique_lock<std::mutex> job_
         time_point work_start = ts_cached_clock::now();
         // TODO exception safety
         job();
-        m_work_time.fetch_add(total_milliseconds(ts_cached_clock::now() - work_start));
+        m_work_time.fetch_add(
+            total_milliseconds(ts_cached_clock::now() - work_start),
+            std::memory_order_relaxed
+        );
         m_num_executed_jobs.fetch_add(1, std::memory_order_relaxed);
 
         // we're shutting down, stop execution immediately
         if(worker.is_dead.load(std::memory_order_acquire))
         {
+            // we don't move this worker back to idle as this worker is being joined,
+            // meaning m_workers_mutex is acquired by the joiner, so we would deadlock;
+            // therefore the responsibility of keeping the logical stack intact is left
+            // to the join_n
             return false;
         }
 
@@ -290,24 +314,25 @@ void thread_pool::move_to_active(const worker& worker)
     // itself on top of the stack, so we must find this worker and bubble it up to the
     // top of the stack
     int worker_pos = m_last_idle_worker_pos;
+    //LOG("\t(mta) m_last_idle_worker_pos: " << m_last_idle_worker_pos);
     // there must be at least one idle worker
-    //LOG("\tm_last_idle_worker_pos: " << m_last_idle_worker_pos);
     assert(worker_pos >= 0);
     while((worker_pos >= 0) && (m_workers[worker_pos].get() != &worker))
     {
         --worker_pos;
     }
     assert(worker_pos >= 0);
-    //LOG("\tworker_pos : " << worker_pos);
+    //LOG("\t(mta) worker_pos : " << worker_pos);
 
     // to preserve the order of the stack (we can't just swap worker with the top as
     // in move_to_idle (the active workers partition is not ordered)), we must
     // bubble worker to the top
-    int pos = worker_pos + 1;
-    while(pos <= m_last_idle_worker_pos)
+    // (this may look expensive but we mostly pick workers from the top of the idle
+    // workers stack (or near it), so this should usually be a few iterations at most)
+    // TODO profile it anyway
+    for(auto i = worker_pos + 1; i <= m_last_idle_worker_pos; ++i, ++worker_pos)
     {
-        m_workers[worker_pos].swap(m_workers[pos]);
-        ++worker_pos, ++pos;
+        m_workers[worker_pos].swap(m_workers[i]);
     }
 
     // now that worker was moved to the top of the waiters' stack, decrement the last
@@ -323,7 +348,7 @@ void thread_pool::move_to_idle(const worker& worker)
     int pos = first_active_pos;
     // there must be at least one active worker
     assert(pos >= 0);
-    //LOG("\tfirst_active_pos : " << first_active_pos);
+    //LOG("\t(mti) first_active_pos : " << first_active_pos);
 
     // since other workers may have become active since this worker had become active,
     // it may be anywhere beyond the last idle worker marker, so we have to find it
@@ -332,7 +357,7 @@ void thread_pool::move_to_idle(const worker& worker)
         ++pos;
     }
     assert(pos < m_workers.size()); // this should never fire
-    //LOG("\tworker_pos : " << pos);
+    //LOG("\t(mti) worker_pos : " << pos);
 
     if(pos != first_active_pos)
     {
@@ -356,9 +381,9 @@ void thread_pool::reap_dead_workers()
     while(!m_workers.empty())
     {
         // dead threads are always on the bottom of the waiters' stack
-        std::shared_ptr<worker> worker = m_workers.front();
-        if(worker->is_dead.load(std::memory_order_relaxed))
+        if(m_workers.front()->is_dead.load(std::memory_order_acquire))
         {
+            auto worker = std::move(m_workers.front());
             //LOG("[RRRR] reaping dead worker " << worker->thread.get_id());
             m_workers.pop_front();
             // we got one less idle worker, so decrement this
@@ -367,8 +392,14 @@ void thread_pool::reap_dead_workers()
             l.unlock();
             assert(worker->thread.joinable());
             worker->thread.join();
-            // lock for the next round
-            l.lock();
+            // try to lock for the next round -- if we couldn't acuire the lock it
+            // either means that some other thread is cleaning up in which case let
+            // it continue, or we're being joined, where m_workers_mutex is acquired
+            // and held throughout the operation, so we must not acquire the mutex then
+            if(!l.try_lock())
+            {
+                return;
+            }
         }
         else
         {
@@ -379,12 +410,24 @@ void thread_pool::reap_dead_workers()
     }
 }
 
-void thread_pool::handle_untimely_worker_demise(std::shared_ptr<worker> worker)
+void thread_pool::handle_untimely_worker_demise(worker& worker)
 {
-    // TODO we must remove this worker from m_workers and adjust the stack logic
-    // we don't know if worker died while waiting or working, so the whole workers list
-    // must be searched
-
+    std::unique_lock<std::mutex> l(m_workers_mutex);
+    // worker may have been executing or it may have been idle, so we need to search
+    // the entire workers stack and move it to the front
+    int worker_pos = 0;
+    while((worker_pos != m_workers.size()) && (m_workers[worker_pos].get() != &worker))
+    {
+        ++worker_pos;
+    }
+    assert(worker_pos != m_workers.size());
+    // now bubble worker down to the very bottom of the stack for removal
+    for(int i = worker_pos - 1; i >= 0; --i, --worker_pos)
+    {
+        m_workers[i].swap(m_workers[worker_pos]);
+    }
+    l.unlock();
+    worker.is_dead.store(true, std::memory_order_release);
 }
 
 int thread_pool::auto_concurrency()
@@ -393,3 +436,5 @@ int thread_pool::auto_concurrency()
     // 2 * num_cores * cpu_utilization_percentage * (1 + wait_time / compute_time)
     return 2 * std::thread::hardware_concurrency();
 }
+
+} // namespace tide

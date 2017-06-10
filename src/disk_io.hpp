@@ -1,6 +1,7 @@
 #ifndef TORRENT_DISK_IO_HEADER
 #define TORRENT_DISK_IO_HEADER
 
+#include "torrent_storage_handle.hpp"
 #include "block_disk_buffer.hpp"
 #include "average_counter.hpp"
 #include "torrent_storage.hpp"
@@ -10,6 +11,8 @@
 #include "string_view.hpp"
 #include "thread_pool.hpp"
 #include "time.hpp"
+#include "path.hpp"
+#include "sha1_hasher.hpp"
 
 #include <system_error>
 #include <unordered_map>
@@ -20,43 +23,11 @@
 #include <asio/io_service.hpp>
 #include <boost/pool/pool.hpp>
 
+namespace tide {
+
 class metainfo;
 struct torrent_info;
 struct disk_io_settings;
-
-struct disk_io_info
-{
-    int num_blocks_written = 0;
-    int num_blocks_read = 0;
-
-    int num_write_cache_hits = 0;
-    int num_read_cache_hits = 0;
-
-    // Includes both the read and write caches. In bytes.
-    int cache_capacity = 0;
-    int write_cache_size = 0;
-    int read_cache_size = 0;
-
-    // The average number of milliseconds a job is queued up (is waiting to be executed).
-    int avg_wait_time_ms = 0;
-    // The average number of milliseconds it takes to write to and read from disk.
-    // TODO use chrono duration types for these
-    int avg_write_time_ms = 0;
-    int avg_read_time_ms = 0;
-    int avg_hash_time_ms = 0;
-
-    int total_job_time_ms = 0;
-    int total_write_time_ms = 0;
-    int total_read_time_ms = 0;
-    int total_hash_time_ms = 0;
-
-    int write_queue_size = 0;
-    int read_queue_size = 0;
-    int peak_write_queue_size = 0;
-    int peak_read_queue_size = 0;
-
-    int num_threads = 0;
-};
 
 /**
  * All operations run asynchronously.
@@ -64,6 +35,43 @@ struct disk_io_info
  */
 class disk_io
 {
+public:
+
+    struct info
+    {
+        int num_blocks_written = 0;
+        int num_blocks_read = 0;
+
+        int num_write_cache_hits = 0;
+        int num_read_cache_hits = 0;
+
+        // Includes both the read and write caches. In bytes.
+        int cache_capacity = 0;
+        int write_cache_size = 0;
+        int read_cache_size = 0;
+
+        int write_queue_size = 0;
+        int read_queue_size = 0;
+        int peak_write_queue_size = 0;
+        int peak_read_queue_size = 0;
+
+        int num_threads = 0;
+
+        // The average number of milliseconds a job is queued up (is waiting to be 
+        // executed).
+        milliseconds avg_wait_time;
+        milliseconds avg_write_time;
+        milliseconds avg_read_time;
+        milliseconds avg_hash_time;
+
+        milliseconds total_job_time;
+        milliseconds total_write_time;
+        milliseconds total_read_time;
+        milliseconds total_hash_time;
+    };
+
+private:
+
     struct disk_job
     {
         enum class priority_t { high, normal, low };
@@ -77,14 +85,16 @@ class disk_io
     // io_service is thread-safe.
     asio::io_service& m_network_ios;
 
-    // All async jobs are posted to and executed on this thread pool.
+    // All disk jobs are posted to and executed by this thread pool. Note that anything
+    // posted to this that accesses fields in disk_io will need to partake in mutual
+    // exclusion.
     thread_pool m_thread_pool;
 
     const disk_io_settings& m_settings;
 
     // Statistics are gathered here. One copy persists throughout the entire application
     // and copies for other modules are made on demand.
-    disk_io_info m_info;
+    info m_info;
 
     // Only disk_io can instantiate disk_buffers so that instances can be reused.
     boost::pool<> m_disk_buffer_pool;
@@ -99,8 +109,8 @@ class disk_io
 
         // This is always the first byte of the first unhashed block (or one past the
         // last hashed block's last byte). This is used to check if we can hash blocks
-        // since they may only be passed to m_hasher.update() in order.
-        int hash_offset = 0;
+        // since they must passed to m_hasher.update() in order.
+        int first_unhashed_offset = 0;
 
         torrent_id_t torrent;
         piece_index_t piece_index;
@@ -163,26 +173,26 @@ public:
     );
 
     void read_metainfo(
-        const std::string& metainfo_path,
+        const path& path,
         std::function<void(const std::error_code&, metainfo)> handler
     );
 
     void allocate_torrent(
         std::shared_ptr<torrent_info> info,
         string_view piece_hashes,
-        std::function<void(const std::error_code&)> handler
+        std::function<void(const std::error_code&, torrent_storage_handle)> handler
     );
 
     void move_torrent(
         const torrent_id_t torrent,
-        std::function<void(const std::error_code&)> handler,
-        std::string new_path
+        std::string new_path,
+        std::function<void(const std::error_code&)> handler
     );
 
     void rename_torrent(
         const torrent_id_t torrent,
-        std::function<void(const std::error_code&)> handler,
-        std::string name
+        std::string name,
+        std::function<void(const std::error_code&)> handler
     );
 
     /** Completely removes the torrent (files + metadata). */
@@ -274,5 +284,7 @@ public:
         std::function<void(const std::error_code&, block_source)> handler
     );
 };
+
+} // namespace tide
 
 #endif // TORRENT_DISK_IO_HEADER

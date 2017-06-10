@@ -8,6 +8,8 @@
 #include <vector>
 #include <memory>
 
+namespace tide {
+
 class piece_picker
 {
     bt_bitfield m_my_bitfield;
@@ -19,7 +21,7 @@ class piece_picker
 
 public:
 
-    static constexpr int no_piece = -1;
+    static constexpr int invalid_piece = -1;
 
     explicit piece_picker(int num_pieces);
     explicit piece_picker(bt_bitfield available_pieces);
@@ -30,8 +32,8 @@ public:
      * pieces it has, the ones we have and the availability in the swarm.
      */
     bool am_interested_in(const bt_bitfield& available_pieces) const;
-    bool have_no_pieces() const noexcept;
-    bool have_all_pieces() const noexcept;
+    bool has_no_pieces() const noexcept;
+    bool has_all_pieces() const noexcept;
 
     /** Returns the total number of pieces in this torrent (== my_bitfield().size()). */
     int num_pieces() const noexcept;
@@ -40,14 +42,14 @@ public:
     const bt_bitfield& my_available_pieces() const noexcept;
 
     /** Index corresponds to piece index, and the value at index is the frequency. */
-    std::vector<int> get_piece_availability() const;
+    std::vector<int> piece_availability() const;
 
     /**
      * The piece availability is written into the input vector.
      * This method should be prefered over the above if piece availability is regularly
      * requested to avoid allocations when creating new vectors.
      */
-    void get_piece_availability(std::vector<int>& frequency_map) const;
+    void piece_availability(std::vector<int>& frequency_map) const;
 
     /** Returns the piece's frequency. */
     int frequency(const piece_index_t piece) const noexcept;
@@ -72,11 +74,11 @@ public:
     // PIECE SELECTION LOGIC
     // ---------------------
     // Return value if no pieces could be picked:
-    // - in single piece selection: no_piece(-1);
+    // - in single piece selection: invalid_piece(-1);
     // - in n piece selection     : an empty vector.
     // A peer's piece is desirable if we don't have it, and it is not reserved.
     //
-    // For production code, pick_and_reserve should be used, the others are for testing.
+    // pick_and_reserve should be used, the others are for testing.
 
     piece_index_t pick(const bt_bitfield& available_pieces) const;
     std::vector<piece_index_t> pick(
@@ -131,7 +133,7 @@ public:
     void clear_priority(const piece_index_t begin, const piece_index_t end);
     void clear_priority(interval interval);
 
-    void debug() const;
+    std::string debug_str() const;
 
 private:
 
@@ -173,14 +175,16 @@ inline const bt_bitfield& piece_picker::my_bitfield() const noexcept
     return m_my_bitfield;
 }
 
-inline bool piece_picker::have_no_pieces() const noexcept
+inline bool piece_picker::has_no_pieces() const noexcept
 {
     m_num_pieces_left == num_pieces();
 }
 
-inline bool piece_picker::have_all_pieces() const noexcept
+inline bool piece_picker::has_all_pieces() const noexcept
 {
     return m_num_pieces_left == 0;
 }
+
+} // namespace tide
 
 #endif // TORRENT_PIECE_PICKER_HEADER

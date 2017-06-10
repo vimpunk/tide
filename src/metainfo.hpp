@@ -7,6 +7,8 @@
 
 #include <vector>
 
+namespace tide {
+
 struct metainfo
 {
     // This must not be destroyed, for all the below collections point into its source
@@ -18,9 +20,11 @@ struct metainfo
     string_view piece_hashes;
 
     // http://bittorrent.org/beps/bep_0012.html
-    // If this is not empty, only this list will be used.
-    // TODO consider using std::string's so user can more easily add their own trackers
-    // when instantiating a torrent
+    // If this is not empty, only this list will be used. Note that tiers, as described
+    // in the protocol extension, are not actually implemented, as trackers in announce
+    // list are simply placed in here in the correct order they are tiered. This is to
+    // save some dynamic allocation that would be inherent with the extra vectors that
+    // comprise the tiers.
     std::vector<string_view> announce_list;
 
     // A position in this vector corresponds to the file(s) specified in metainfo. This
@@ -52,5 +56,7 @@ struct metainfo
  * An exception is thrown if any of the required fields are not in source.
  */
 metainfo parse_and_sanitize_metainfo(bmap source);
+
+} // namespace tide
 
 #endif //TORRENT_METAINFO_HEADER 

@@ -1,13 +1,20 @@
 #ifndef TORRENT_INTERVAL_HEADER
 #define TORRENT_INTERVAL_HEADER
 
-/** Represents a left inclusive interval. */
+namespace tide {
+
 struct interval
 {
     int begin;
     int end;
 
+    interval() = default;
     interval(int begin_, int end_) : begin(begin_), end(end_) {}
+
+    bool is_empty() const noexcept
+    {
+        return length() == 0;
+    }
 
     int length() const noexcept
     {
@@ -36,13 +43,15 @@ inline bool operator!=(const interval& a, const interval& b) noexcept
     return !(a == b);
 }
 
+} // namespace tide
+
 #include <functional>
 
 namespace std
 {
-    template<> struct hash<interval>
+    template<> struct hash<tide::interval>
     {
-        size_t operator()(const interval& i) const noexcept
+        size_t operator()(const tide::interval& i) const noexcept
         {
             return std::hash<int>()(i.begin) * (101 ^ std::hash<int>()(i.end)) * 31 + 51;
         }

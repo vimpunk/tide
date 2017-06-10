@@ -1,6 +1,8 @@
 #include "path_sanitizer.hpp"
 #include "metainfo.hpp"
 
+namespace tide {
+
 metainfo parse_and_sanitize_metainfo(bmap source)
 {
     metainfo m;
@@ -48,3 +50,5 @@ metainfo parse_and_sanitize_metainfo(bmap source)
 
     return m;
 }
+
+} // namespace tide

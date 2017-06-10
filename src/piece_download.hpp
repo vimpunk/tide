@@ -8,13 +8,18 @@
 #include <vector>
 #include <map>
 
+namespace tide {
+
 /**
- * This is a currently ongoing piece download. It tracks piece completion, the peers who
+ * This represents an ongoing piece download. It tracks piece completion, the peers who
  * participate in the download, handles block timeout logic, and acts as a mediator for
- * distributing the result of a finished piece's hash test.
+ * distributing the result of a finished piece's hash test, so that entities that need
+ * otherwise not interact with one another can continue to do so.
  */
-struct piece_download
+class piece_download
 {
+public:
+
     using completion_handler = std::function<void(bool)>;
     using cancel_handler = std::function<void(const block_info&)>;
 
@@ -41,7 +46,7 @@ private:
     // TODO check whether unordered maps are a better fit!
 
     // All peers from whom we've downloaded blocks in this piece are saved so that when
-    // a piece ends up corrupt we know who to blame.
+    // a piece is finished downloading each participant can be let know.
     std::map<peer_id, completion_handler> m_participants;
 
     // All pending blocks that have timed out and were made free to be downloaded from
@@ -75,22 +80,9 @@ private:
     // should move on to another.
     int m_num_blocks_picked = 0;
 
-    completion_handler m_completion_handler;
-
 public:
 
-    /**
-     * The completion handler supplied here will be invoked after all participant's
-     * completion handlers have been invoked.
-     * This can be used to notify a separate entity, once, that the piece was downloaded,
-     * such as torrent, which would perform distinct measures on a complete piece
-     * compared to a download participant.
-     */
-    piece_download(
-        const piece_index_t index,
-        const int piece_length,
-        completion_handler completion_handler
-    );
+    piece_download(const piece_index_t index, const int piece_length);
 
     /** Tests whether there are blocks left to request. */
     bool can_request() const noexcept;
@@ -102,11 +94,11 @@ public:
     piece_index_t piece_index() const noexcept;
 
     /** Checks if we already downloaded block. */
-    bool got_block(const block_info& block) const noexcept;
+    bool has_block(const block_info& block) const noexcept;
 
     /**
      * When a part of the piece is received, it must be registered. The completion
-     * handler is invoked in notify_all_of_hash_result, which should be called when the
+     * handler is invoked in post_hash_result, which should be called when the
      * piece has been verified. This indirection is necessary because it's always a
      * single entity that saves the final block, so it will perform the hashing, so it
      * must propagate the results to other participants of this download.
@@ -122,7 +114,7 @@ public:
      * each participating peer's completion_handler to notify them of the piece's hash
      * test.
      */
-    void notify_all_of_hash_result(const bool is_piece_good);
+    void post_hash_result(const bool is_piece_good);
 
     /**
      * Timeouts are handled differently depending on the completion of the piece. E.g.
@@ -130,7 +122,8 @@ public:
      * peer to send its block would defer completion, so the requested block is freed so
      * that it may be downloaded from another peer sooner. If on the other hand there
      * are more blocks left, it doesn't make sense to handoff the request, so wait for
-     * the timed out peer's block and let other's request different blocks in the piece.
+     * the timed out peer's block and let others request different blocks in the piece.
+     *
      * So depending on the above, the block may remain as reserved or be changed to free
      * for others to request. If the block is freed, the peer's cancel handler is saved,
      * which is stored so that when block is downloaded from someone other than the
@@ -148,6 +141,13 @@ public:
      * This makes sure that the block is immediately freed for others to download.
      */
     void abort_download(const block_info& block);
+    
+    /**
+     * A peer may be disconnected before the download finishes, so it must be removed
+     * on destruction so as not to call its handler, which after destructing would point
+     * to invalid memory.
+     */
+    void remove_peer(const peer_id& peer);
 
     /** Returns n or less blocks to request. */
     std::vector<block_info> make_request_queue(const int n);
@@ -184,5 +184,7 @@ inline piece_index_t piece_download::piece_index() const noexcept
 {
     return m_index;
 }
+
+} // namespace tide
 
 #endif // TORRENT_PIECE_DOWNLOAD_HEADER

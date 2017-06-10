@@ -15,11 +15,20 @@
 #include <memory>
 #include <vector>
 
-// File index can be used to retrieve files from torrent_storage. This is to avoid
-// referring to the files directly, which allows more flexibility for future changes
-// and safety as well.
-using file_index_t = int;
+namespace tide {
 
+/**
+ * Denotes where in the file the requested block is (offset) and how much of block
+ * is in file (length).
+ */
+struct file_slice
+{
+    int64_t offset = 0;
+    int64_t length = 0;
+};
+
+// TODO stats collection: avg read-write times
+// idea: alternate between preadv and repeated pread calls depending on average time
 /**
  * This class that is associated with a torrent, is an abstraction around everything
  * that is necessary to interact with the files we have or will download for the torrent.
@@ -37,24 +46,20 @@ class torrent_storage
         // If all files were regarded as a single continous byte stream, this file's
         // first byte would be at this offset in the stream. This is used find the files
         // that map to a piece.
+        // TODO perhaps rename to stream_offset to better illustrate this
         int64_t offset;
 
-        // This is a reference to the attribute in the file_info in m_info.files
-        // corresponding to this file. We use a reference so that whenever user changes
-        // whether they wish to download a file, we can immediately learn about this.
-        // (It's not changed from within torrent_storage though.)
-        //
-        // NOTE: Despite lazy allocation preventing creating files that are never
-        // accessed, a downloaded piece may still overlap into an unwanted file. In that
-        // case we don't want to write those extra bytes to disk. Thus, before writing
-        // to a file, we must check in whether user actually wants that file, and
-        // discard those bytes that overlap into the unwanted file.
-        const bool& is_wanted;
+        // The range of pieces [first, last] that are covered by this file, even if
+        // only partially.
+        piece_index_t first_piece;
+        piece_index_t last_piece;
 
-        file_entry(path path, int64_t length, uint8_t open_mode, const bool& is_wanted_)
-            : storage(std::move(path), length, open_mode)
-            , is_wanted(is_wanted_)
-        {}
+        // Despite lazy allocation preventing creating files that are never accessed, a 
+        // downloaded piece may still overlap into an unwanted file. In that case we
+        // don't want to write those extra bytes to disk. Thus, before writing to a
+        // file, we must check whether user actually wants that file, and discard those 
+        // bytes that overlap into the unwanted file.
+        bool is_wanted;
     };
 
     // All files listed in the metainfo are stored here, but files are lazily/ allocated
@@ -63,7 +68,7 @@ class torrent_storage
 
     // Relevant info (such as piece length, wanted files etc) about storage's
     // corresponding torrent. Fields currently used:
-    // save_path, name, piece_length, files
+    // files
     // TODO consider putting these in a torrent_storage_args fields so as not to
     // refer to torrent_info to avoid potential race conditions
     std::shared_ptr<torrent_info> m_info;
@@ -71,11 +76,25 @@ class torrent_storage
     // The expected hashes of all pieces, represented as a single block of memory for
     // optimal storage (this is a direct view into the original metainfo's encoded source
     // buffer). To retrieve a piece's hash:
-    // string_view(m_piece_hashes.data() + piece_index * m_info.piece_length, 20)
+    // string_view(m_piece_hashes.data() + piece_index * m_info->piece_length, 20)
+    // NOTE: the metainfo into which this points must be kept alive.
     string_view m_piece_hashes;
 
     // This is an absolute path.
     path m_save_path;
+
+    // The name of the root directory if this is a multi-file torrent.
+    std::string m_name;
+
+    const int m_piece_length;
+    // This is the total number of pieces in torrent, and  may not be the same as the
+    // number of pieces we actually want to download.
+    // TODO this may not be needed
+    const int m_num_pieces;
+
+    // This is the number of bytes we download, which may not be the same as the sum of
+    // each file's length, as we may not download all files.
+    int64_t m_size_to_download = 0;
 
 public:
 
@@ -85,29 +104,53 @@ public:
      * This is the name of the torrent which, if the torrent has multiple files, is also
      * the root directory's name.
      */
-    const std::string& name() const noexcept;
+    const std::string& name() const noexcept { return m_name; }
 
     /**
      * These return the root path of the torrent, which is the file itself for single
      * file torrents.
      */
-    path save_path() const noexcept;
+    const path& save_path() const noexcept { return m_save_path; }
 
     /**
-     * Returns the total number of bytes of all files we're downloading (that is, if
-     * we're not downloading all files, then this value won't match the summed lengths
-     * of all files in metainfo.
+     * Returns the total number of bytes of all files we'll have once all the wanted
+     * files are downloaded (that is, if we're not downloading all files, then this
+     * value won't match the summed lengths of all files in metainfo.
      */
-    int64_t size() const noexcept;
+    int64_t size_to_download() const noexcept { return m_size_to_download; }
 
     /**
-     * Returns which pieces map to this file, including those that are only partially
-     * in file.
+     * Returns an interval of piece indices of the pieces that are, even if partially,
+     * in file. The range is left inclusive, i.e. the valid pieces are in the range 
+     * [interval.begin, interval.end).
      */
-    interval pieces_in_file(const file_index_t file_index) const;
+    interval pieces_in_file(const file_index_t file_index) const noexcept;
+
+    /**
+     * The opposite of pieces_in_file: returns the range of files (in the form of file
+     * indices into torrent_info::files) that cover part of piece. The range is left
+     * inclusive, i.e. the valid files are in the range [interval.begin, interval.end).
+     */
+    interval files_containing_piece(const piece_index_t piece) const noexcept;
+
+    /**
+     * Returns where in file block resides. The return value is invalid if both
+     * fields in file_slice are 0. This can happen if the block is not in file.
+     */
+    file_slice get_file_slice(
+        const file_index_t file, const block_info& block
+    ) const noexcept;
 
     /** Returns the expected 20 byte SHA-1 hash for this piece. */
     string_view expected_hash(const piece_index_t piece) const noexcept;
+
+    /**
+     * User can change which files they wish to download during the download. These
+     * merely mark the internal file_entry as wanted or not, but if the file is already
+     * downloaded, it is not deleted (for that use erase_file). 
+     */
+    void want_file(const file_index_t file) noexcept;
+    void dont_want_file(const file_index_t file) noexcept;
 
     void erase_file(const file_index_t file, std::error_code& error);
 
@@ -134,13 +177,13 @@ public:
      * are not, error is set and no mappings are returned.
      * In the case of read-write mode, files are opened and allocated if they haven't
      * already been.
-     */
     std::vector<mmap_source> create_mmap_source(
         const block_info& info, std::error_code& error
     );
     std::vector<mmap_sink> create_mmap_sink(
         const block_info& info, std::error_code& error
     );
+     */
 
     /**
      * Blocking scatter-gather IO implemented using syscalls.
@@ -167,11 +210,13 @@ public:
 
 private:
 
+    void verify_file_index(const file_index_t index);
+
     /**
-     * Maps each file in m_info.files to a file_entry with correct data set up. Does not
-     * create files in the download directory (that's done on first access).
+     * Maps each file in torrent_info::files to a file_entry with correct data set up. 
+     * Does not allocate files in the download directory (that's done on first access).
      */
-    void initialize_file_entries();
+    void initialize_file_entries(const_view<file_info> files);
 
     /**
      * In case of multi file mode and if there are files nested in directories, the
@@ -202,7 +247,7 @@ private:
      * to keep track of where in the file we want to do the io operation, so this
      * function serves as an abstraction around the common parts.
      *
-     * IOFunction is called for every file that is processed (since blocks may span
+     * io_fn is called for every file that is processed (since blocks may span
      * several files), and must have the following signature:
      *
      * int io_fn(
@@ -217,36 +262,20 @@ private:
     );
 
     /**
-     * Denotes where in the file the requested block is (offset) and how much of block
-     * is in file (length).
-     */
-    struct file_slice
-    {
-        int64_t offset;
-        int64_t length;
-    };
-
-    /**
      * Returns the position where in file offset, which refers to the offset in
      * all files combined, is and how much of length is contained in file.
      */
     file_slice get_file_slice(
-        file_entry& file, int64_t offset, int64_t length
+        const file_entry& file, int64_t offset, int64_t length
     ) const noexcept;
 
     /** Returns a range of files that contain some portion of the block or piece. */
-    view<file_entry> find_files_containing_block(const block_info& block);
-    view<file_entry> find_files_containing_piece(const piece_index_t piece);
+    view<file_entry> files_containing_block(const block_info& block);
+    //view<file_entry> files_containing_piece(const piece_index_t piece);
+
+    bool is_valid_file_index(const file_index_t index) const noexcept;
 };
 
-inline const std::string& torrent_storage::name() const noexcept
-{
-    return m_info.name;
-}
-
-inline int64_t torrent_storage::size() const noexcept
-{
-    return m_info.size;
-}
+} // namespace tide
 
 #endif // TORRENT_TORRENT_STORAGE_HEADER

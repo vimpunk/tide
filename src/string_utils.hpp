@@ -7,7 +7,9 @@
 #include <stdexcept>
 #include <cctype> // isspace, isdigit
 
-namespace util
+#include "string_view.hpp"
+
+namespace tide { namespace util
 {
     inline void ltrim(std::string& s)
     {
@@ -47,6 +49,19 @@ namespace util
         std::transform(
             s.begin(), s.end(), s.begin(), [](const auto& c) { return std::toupper(c); }
         );
+    }
+
+    inline bool starts_with(string_view s, string_view prefix) noexcept
+    {
+        return s.length() >= prefix.length()
+            && std::equal(s.begin(), s.begin() + prefix.length(), prefix.begin());
+    }
+
+    inline bool ends_with(string_view s, string_view suffix) noexcept
+    {
+        return s.length() >= suffix.length()
+            // TODO verify this
+            && std::equal(s.rbegin(), s.rbegin() + suffix.length(), suffix.rbegin());
     }
 
     template<typename Bytes>
@@ -129,5 +144,6 @@ namespace util
         return std::atoi(url.c_str() + colon_pos + 1);
     }
 } // namespace util
+} // namespace tide
 
 #endif // TORRENT_STRING_UTILS_HEADER

@@ -6,32 +6,98 @@
 
 #include <boost/filesystem/operations.hpp>
 
+namespace tide {
+
 torrent_storage::torrent_storage(
-    std::shared_ptr<torrent_info> info,
-    string_view piece_hashes
+    std::shared_ptr<torrent_info> info, string_view piece_hashes
 )
     : m_info(info)
     , m_piece_hashes(piece_hashes)
+    , m_save_path(info->save_path)
+    , m_name(info->name)
+    , m_piece_length(info->piece_length)
+    , m_num_pieces(info->num_pieces)
 {
-    initialize_file_entries();
+    initialize_file_entries(info->files);
     create_directory_tree();
+}
+
+inline bool torrent_storage::is_valid_file_index(const file_index_t index) const noexcept
+{
+    return (index > 0) && (index < m_files.size()); 
+}
+
+interval torrent_storage::pieces_in_file(const file_index_t file) const noexcept
+{
+    if(!is_valid_file_index(file))
+    {
+        return {};
+    }
+    return interval(m_files[file].first_piece, m_files[file].last_piece + 1);
+}
+
+interval torrent_storage::files_containing_piece(const piece_index_t piece) const noexcept
+{
+    interval result;
+    for(auto i = 0; i < m_files.size(); ++i)
+    {
+        if(m_files[i].first_piece == piece)
+        {
+            result.begin = i;
+        }
+        if(m_files[i].last_piece == piece)
+        {
+            // TODO should we return a left inclusive or a left right inclusive ival?
+            result.end = i + 1;
+            break;
+        }
+    }
+    return result;
+}
+
+file_slice torrent_storage::get_file_slice(
+    const file_index_t file, const block_info& block) const noexcept
+{
+    if(!is_valid_file_index(file))
+    {
+        return {};
+    }
+    // first check if block is actually in this file
+    const int64_t piece_offset = block.index * m_piece_length;
+    const file_entry& entry = m_files[file];
+    if((piece_offset < entry.offset) || (piece_offset >= entry.offset + block.length))
+    {
+        // block is not in file
+        return {};
+    }
+    return get_file_slice(entry, piece_offset, block.length);
 }
 
 string_view torrent_storage::expected_hash(const piece_index_t piece) const noexcept
 {
-    if((piece > 0) && (piece < m_info->num_pieces))
+    if((piece > 0) && (piece < m_num_pieces))
     {
-        return { m_piece_hashes.data() + piece * m_info->piece_length, 20 };
+        return { m_piece_hashes.data() + piece * m_piece_length, 20 };
     }
-    // even though this is a public function, this really shouldn't happen
-    assert(false);
     return {};
 }
 
-void torrent_storage::erase_file(
-    const file_index_index_t file_index, std::error_code& error)
+void torrent_storage::want_file(const file_index_t file) noexcept
 {
-    assert(file_index > 0 && file_index < m_file_indexs.size()); 
+    if(!is_valid_file_index(file) || m_files[file].is_wanted) return;
+    m_size_to_download += m_files[file].storage.length();
+    m_files[file].is_wanted = true;
+}
+
+void torrent_storage::dont_want_file(const file_index_t file) noexcept
+{
+    if(!is_valid_file_index(file) || !m_files[file].is_wanted) return;
+    m_size_to_download -= m_files[file].storage.length();
+    m_files[file].is_wanted = false;
+}
+
+void torrent_storage::erase_file(const file_index_t file_index, std::error_code& error)
+{
     error.clear();
     file& file = m_files[file_index].storage;
     if(file.is_open())
@@ -43,29 +109,29 @@ void torrent_storage::erase_file(
 
 void torrent_storage::move(path path, std::error_code& error)
 {
+    if(path == m_save_path) return;
     // TODO must close all files, I think
-    assert(path != m_info->save_path);
     // TODO things we must watch out for:
     // path may exist -> should probably be an error
-    // pay may be the same as old path
     // what if renaming does not succeed?
     // what about symlinks?
 #ifdef _WIN32
-    if(MoveFile(m_info->save_path, path) == 0)
+    if(MoveFile(m_save_path, path) == 0)
     {
         util::assign_errno(error);
         return;
     }
 #else // _WIN32
-    if(rename(m_info->save_path.c_str(), path.c_str()) != 0)
+    if(rename(m_save_path.c_str(), path.c_str()) != 0)
     {
         util::assign_errno(error);
         return;
     }
-#endif // _WIN32 // TODO this is a race condition
-    m_info->save_path = std::move(path);
+#endif // _WIN32
+    m_save_path = std::move(path);
 }
 
+/*
 std::vector<mmap_source> torrent_storage::create_mmap_source(
     const block_info& info, std::error_code& error)
 {
@@ -81,7 +147,6 @@ std::vector<mmap_source> torrent_storage::create_mmap_source(
             {
                 return 0;
             }
-
             mmaps.emplace_back(file.storage.create_mmap_source(
                 slice.offset, slice.length, error
             ));
@@ -130,13 +195,14 @@ std::vector<mmap_sink> torrent_storage::create_mmap_sink(
             }
             //assert(slice.length == mmaps.back().length());
             return slice.length;
-            */
+            * /
         },
         info,
         error
     );
     return mmaps;
 }
+*/
 
 void torrent_storage::read(
     view<iovec>& buffers, const block_info& info, std::error_code& error)
@@ -199,7 +265,10 @@ void torrent_storage::write(
             }
             else
             {
-                // we don't want this file, so just ignore it (must not write to it)
+                // we don't want this file, so just ignore it (must not write to it),
+                // but we must also trim the buffer as if it had been consumed by
+                // file::write
+                util::trim_buffers_front(buffers, slice.length);
                 num_written = slice.length;
             }
             assert(num_written == slice.length);
@@ -221,7 +290,7 @@ void torrent_storage::do_file_io(
     IOFunction io_fn, const block_info& info, std::error_code& error)
 {
     error.clear();
-    view<file_entry> files = find_files_containing_block(info);
+    view<file_entry> files = files_containing_block(info);
     if(files.is_empty())
     {
         // TODO perhaps create tailed error codes
@@ -229,7 +298,7 @@ void torrent_storage::do_file_io(
         return;
     }
 
-    int64_t offset = info.index * m_info->piece_length + info.offset;
+    int64_t offset = info.index * m_piece_length + info.offset;
     int num_left = info.length;
     for(file_entry& file : files)
     {
@@ -242,8 +311,8 @@ void torrent_storage::do_file_io(
     }
 }
 
-inline torrent_storage::file_slice torrent_storage::get_file_slice(
-    file_entry& file, int64_t offset, int64_t length) const noexcept
+inline file_slice torrent_storage::get_file_slice(
+    const file_entry& file, int64_t offset, int64_t length) const noexcept
 {
     file_slice slice;
     slice.offset = offset - file.offset;
@@ -289,20 +358,28 @@ void torrent_storage::before_reading(file_entry& file, std::error_code& error)
     }
 }
 
-void torrent_storage::initialize_file_entries()
+void torrent_storage::initialize_file_entries(const_view<file_info> files)
 {
-    m_files.reserve(m_info->files.size());
+    m_files.reserve(files.size());
     file_index_t index = 0;
     int64_t file_offset = 0;
-    for(const auto& f : m_info->files)
+    for(const auto& f : files)
     {
         // TODO mode
         uint8_t mode = 0;
-        file_entry entry(m_info->save_path / f.path, f.length, mode, f.is_wanted);
+        file_entry entry;
+        entry.storage = file(m_save_path / f.path, f.length, mode);
         entry.offset = file_offset;
-        m_files.emplace_back(std::move(entry));
+        entry.is_wanted = f.is_wanted;
         // move file_offset to the next file's beginning / this file's end
+        entry.first_piece = file_offset / m_piece_length;
         file_offset += f.length;
+        entry.last_piece = file_offset / m_piece_length;
+        m_files.emplace_back(std::move(entry));
+        if(entry.is_wanted)
+        {
+            m_size_to_download += f.length;
+        }
     }
 }
 
@@ -316,9 +393,9 @@ void torrent_storage::create_directory_tree()
         // first initialize the root directory (these will throw exceptions so uhm)
         std::error_code ec;
         // TODO correct error handling
-        if(!exists(m_info->save_path / m_info->name, ec))
+        if(!exists(m_save_path / m_name, ec))
         {
-            create_directory(m_info->save_path);
+            create_directory(m_save_path);
         }
         for(const file_entry& file : m_files)
         {
@@ -374,11 +451,11 @@ void torrent_storage::create_directories(const path& path, std::error_code& erro
 */
 
 view<torrent_storage::file_entry>
-torrent_storage::find_files_containing_block(const block_info& block)
+torrent_storage::files_containing_block(const block_info& block)
 {
     // get the first byte of block in the conceptual file stream by finding the first
     // byte of the piece and adding the block offset; and one past its last byte
-    const int block_offset = block.index * m_info->piece_length + block.offset;
+    const int block_offset = block.index * m_piece_length + block.offset;
     const int block_end = block_offset + block.length;
     auto it = m_files.begin();
     const auto end = m_files.end();
@@ -403,29 +480,16 @@ torrent_storage::find_files_containing_block(const block_info& block)
     return { first_file, last_file };
 }
 
+} // namespace tide
+
 /*
 view<torrent_storage::file_entry>
-torrent_storage::find_files_containing_piece(const piece_index_t piece)
+torrent_storage::files_containing_piece(const piece_index_t piece)
 {
-    int first_file_index = 0;
-    int last_file_index = 0;
-    int index = 0;
-    for(const auto& file : m_files)
-    {
-        if(file.first_piece == piece)
-        {
-            first_file_index = index;
-        }
-        if(file.last_piece == piece)
-        {
-            last_file_index = index;
-            break;
-        }
-        ++index;
-    }
+    const interval files = files_covering_piece(piece);
     return view<file_entry>(
-        m_files.data() + first_file_index,
-        last_file_index - first_file_index
+        m_files.data() + files.begin,
+        files.end - files.begin,
     );
 }
 */

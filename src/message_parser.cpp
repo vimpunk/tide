@@ -6,6 +6,8 @@
 #include <cassert>
 #include <cmath>
 
+namespace tide {
+
 void message_parser::reserve(const int n)
 {
     if(n <= buffer_size())
@@ -149,6 +151,15 @@ message_t message_parser::type() const
     return message_t(m_buffer[m_message_begin + 4]);
 }
 
+const_view<uint8_t> message_parser::peek_raw() const noexcept
+{
+    assert(m_unused_begin >= m_message_begin);
+    return {
+        m_buffer.data() + m_message_begin,
+        size_t(m_unused_begin - m_message_begin)
+    };
+}
+
 int message_parser::num_bytes_left_till_completion() const noexcept
 {
     if(!has(4))
@@ -235,3 +246,5 @@ inline void message_parser::shift_last_message_to_front()
     m_message_begin = 0;
     m_unused_begin = num_have;
 }
+
+} // namespace tide

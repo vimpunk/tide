@@ -1,5 +1,7 @@
 #include "peer_session_error.hpp"
 
+namespace tide {
+
 std::string peer_session_error_category::message(int env) const
 {
     switch(static_cast<peer_session_errc>(env))
@@ -104,3 +106,5 @@ std::error_condition make_error_condition(peer_session_errc e)
 {
     return std::error_condition(static_cast<int>(e), peer_session_category());
 }
+
+} // namespace tide

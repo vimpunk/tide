@@ -4,6 +4,8 @@
 #include <system_error>
 #include <string>
 
+namespace tide {
+
 /**
  * These are the types of errors that may occur in a peer connection, any of which result
  * in the peer being disconnected.
@@ -91,9 +93,11 @@ const peer_session_error_category& peer_session_category();
 std::error_code make_error_code(peer_session_errc e);
 std::error_condition make_error_condition(peer_session_errc e);
 
+} // namespace tide
+
 namespace std
 {
-    template<> struct is_error_code_enum<peer_session_errc> : public true_type {};
+    template<> struct is_error_code_enum<tide::peer_session_errc> : public true_type {};
 }
 
 // for more info:

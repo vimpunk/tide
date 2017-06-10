@@ -6,6 +6,8 @@
 
 #include <vector>
 
+namespace tide {
+
 /**
  * This is a read only mapping into a memory mapped region of the file in which the
  * block, represented by this buffer, is mapped. Since a block may span several files, a
@@ -19,11 +21,12 @@
  */
 struct block_source : public block_info
 {
-    std::vector<mmap_source> chunks;
+    using chunk_type = mmap_source;
+
+    std::vector<chunk_type> chunks;
 
     block_source() = default;
-
-    block_source(block_info info, std::vector<mmap_source>&& mmaps)
+    block_source(block_info info, std::vector<chunk_type>&& mmaps)
         : block_info(std::move(info))
         , chunks(std::move(mmaps))
     {}
@@ -36,5 +39,7 @@ struct block_source : public block_info
  * avoid intermediate copies of the block to be written.
  */
 struct block_sink : public block_info {};
+
+} // namespace tide
 
 #endif // TORRENT_BLOCK_DISK_BUFFER_HEADER

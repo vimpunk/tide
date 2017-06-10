@@ -3,11 +3,9 @@
 
 #include <cmath>
 
+namespace tide {
+
 /**
- * This is an exact copy of libtorrent's implementation:
- * http://blog.libtorrent.org/2014/09/running-averages/
- * https://github.com/arvidn/moving_average/blob/master/moving_average.hpp
- *
  * This is an exponential moving average accumulator, which addresss the initial bias
  * that occurs when all values are initialized with zero or with the first sample (which
  * would bias the average toward the first value). This is achieved by initially giving
@@ -17,11 +15,14 @@
  * When adding the second sample, the average has some meaning, but since it only has
  * one sample in it, the gain should be low. In the next round however, the gain may be
  * larger. This increase is repeated until InvertedGain is reached.
- * This way, even early samples have a reasonable impact on the average.
+ * This way, even early samples have a reasonable impact on the average, which is
+ * important in a torrent app.
+ *
+ * This is an exact copy of libtorrent's implementation:
+ * http://blog.libtorrent.org/2014/09/running-averages/
+ * https://github.com/arvidn/moving_average/blob/master/moving_average.hpp
  */
-template<
-    int InvertedGain
-> class sliding_average
+template<int InvertedGain> class sliding_average
 {
     int m_mean = 0;
     int m_deviation = 0;
@@ -67,5 +68,7 @@ public:
         m_mean = m_deviation = m_num_samples = 0;
     }
 };
+
+} // namespace tide
 
 #endif // TORRENT_SLIDING_AVERAGE_HEADER

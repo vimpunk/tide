@@ -14,9 +14,6 @@
 #  define WIN32_LEAN_AND_MEAN
 # endif // WIN32_LEAN_AND_MEAN
 # include <windows.h>
-
-using handle_type = HANDLE;
-
 #else // _WIN32
 # include <fcntl.h>
 # include <unistd.h>
@@ -24,14 +21,13 @@ using handle_type = HANDLE;
 # include <sys/stat.h>
 # include <sys/uio.h> // TODO might need io.h
 # define INVALID_HANDLE_VALUE -1 // this is the macro used on Windows
-
-using handle_type = int;
-
 #endif // _WIN32
 
+namespace tide {
+
 // TODO
-struct mmap_source {};
-struct mmap_sink {};
+//struct mmap_source {};
+//struct mmap_sink {};
 
 // TODO currently only linux is supported
 // TODO add optimization where user can tell file that only page aligned 16KiB blocks
@@ -61,6 +57,12 @@ struct file
         executable    = 128
     };
 
+#ifdef _WIN32
+    using handle_type = HANDLE;
+#else
+    using handle_type = int;
+#endif
+
 private:
 
     handle_type m_file_handle = INVALID_HANDLE_VALUE;
@@ -78,7 +80,7 @@ public:
      * This is to allow on demand execution of those functions, so call open() and then
      * allocate() separately, in this order.
      */
-    file();
+    file() = default;
     file(path path, int64_t length, uint8_t open_mode);
     file(const file&) = delete;
     file& operator=(const file&) = delete;
@@ -141,13 +143,13 @@ public:
      * An exception is thrown if file_offset and/or length are invalid. Any other IO
      * errors are reported via error. In both cases the returned mmap object is invalid/
      * uninitialized.
-     */
     mmap_source create_mmap_source(
         const int64_t file_offset, const int length, std::error_code& error
     );
     mmap_sink create_mmap_sink(
         const int64_t file_offset, const int length, std::error_code& error
     );
+     */
 
     /**
      * Reads or writes a single buffer and returns the number of bytes read/written, or
@@ -180,8 +182,8 @@ public:
      * sync_with_disk.
      *
      * An exception is thrown if file_offset is invalid.
-     * TODO consider only asserting the input values instead of throwing as this is a
-     * low-level class
+     TODO consider only asserting the input values instead of throwing as this is a
+     low-level class not used by anyone else
      * Any other IO errors are reported via error.
      *
      * If an error occurs while reading, the contents of the destination buffer is
@@ -324,5 +326,7 @@ inline bool file::is_allocated() const noexcept
 {
     return m_is_allocated;
 }
+
+} // namespace tide
 
 #endif // TORRENT_FILE_HEADER

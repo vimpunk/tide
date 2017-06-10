@@ -5,10 +5,13 @@
 #include "metainfo.hpp"
 #include "settings.hpp"
 #include "bdecode.hpp"
+#include "units.hpp"
 #include "path.hpp"
 
 #include <string>
 #include <vector>
+
+namespace tide {
 
 /**
  * These are the arguments with which a torrent can be started.
@@ -26,7 +29,7 @@ struct torrent_args
     // piece picker picks pieces that are the rarest (or it's in sequential mode, in
     // which case this list is still taken into consideration). This has the same effect
     // as calling torrent::prioritize_file() with the specified file.
-    std::vector<int> file_priorities;
+    std::vector<file_index_t> file_priorities;
 
     // This must be specified, and must be an absolute path.
     path save_path;
@@ -40,7 +43,9 @@ struct torrent_args
     torrent_settings settings;
 
     // Does not start the download, it merely creates a torrent entry in engine.
-    bool start_in_paused = 0;
+    bool start_in_paused = false;
 };
+
+} // namespace tide
 
 #endif // TORRENT_TORRENT_ARGS_HEADER

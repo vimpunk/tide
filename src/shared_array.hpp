@@ -1,6 +1,8 @@
 #include <memory>
 #include <iterator>
 
+namespace tide {
+
 template<
     typename T,
     typename Allocator = std::allocator<T>
@@ -8,10 +10,9 @@ template<
 {
     std::shared_ptr<T> m_data;
 
-    using deleter = std::default_delete<T[]>;
-
 public:
 
+    using deleter = std::default_delete<T[]>;
     using value_type = T;
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
@@ -62,3 +63,5 @@ public:
         return get()[i];
     }
 };
+
+} // namespace tide

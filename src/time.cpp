@@ -2,6 +2,8 @@
 
 #include <atomic>
 
+namespace tide {
+
 namespace cached_clock
 {
     static time_point g_cached_time(clock_type::now());
@@ -31,3 +33,5 @@ namespace ts_cached_clock
         g_cached_time.store(clock_type::now(), std::memory_order_relaxed);
     }
 }
+
+} // namespace tide

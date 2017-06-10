@@ -2,6 +2,8 @@
 
 #include <cctype> // isdigit
 
+namespace tide {
+
 class bdecoder
 {
     // Temporary holds the list of tokens, ownership of which will be passed to the
@@ -559,3 +561,5 @@ const btoken* bmap::find_token_in_list(
     }
     return nullptr;
 }
+
+} // namespace tide

@@ -4,6 +4,8 @@
 #include <iterator>
 #include <cassert>
 
+namespace tide {
+
 class disk_io;
 
 /**
@@ -15,7 +17,8 @@ class disk_io;
  * buffers have to be moved around to the entities that handle them.
  *
  * Only disk_io may instantiate and release the resources of a disk buffer.
- * TODO make disk_buffer clean up after itself RAII style to avoid accidental memory leaks
+ TODO make disk_buffer clean up after itself RAII style to avoid accidental memory leaks
+ this requires a reference to disk_io unfortunately
  */
 struct disk_buffer
 {
@@ -27,6 +30,7 @@ struct disk_buffer
     using reference = value_type&;
     using const_reference = const value_type&;
     using iterator = pointer;
+    using const_iterator = const_pointer;
     using iterator_tag = std::random_access_iterator_tag;
 
 private:
@@ -59,7 +63,7 @@ public:
     const_pointer data() const noexcept
     {
         assert(*this);
-        return m_data();
+        return m_data;
     }
 
     iterator begin() noexcept
@@ -86,5 +90,7 @@ public:
         return data() + 0x4000;
     }
 };
+
+} // namespace tide
 
 #endif // TORRENT_DISK_BUFFER_HEADER

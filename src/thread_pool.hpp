@@ -11,6 +11,8 @@
 #include <deque>
 #include <mutex>
 
+namespace tide {
+
 /**
  * This is a dynamically managed, configurable thread pool capable of running any type
  * of function.
@@ -27,11 +29,11 @@
 //template<
     //typename JobType = std::function<void()>
     // TODO support custom callables
-//> struct thread_pool
-struct thread_pool
+//> class thread_pool
+class thread_pool
 {
+public:
     using job_type = std::function<void()>;
-
 private:
 
     struct worker
@@ -49,6 +51,9 @@ private:
         // NOTE: wait() must be called while holding onto m_job_queue_mutex.
         // TODO give more general name as we use it for notifying workers that we're stopping as well
         std::condition_variable job_available;
+
+        // Initialize is_dead as false so we don't have to atomically do it.
+        explicit worker() : is_dead(false) {}
     };
 
     // All jobs are first placed in this queue from which they are retrieved by workers.
@@ -62,12 +67,12 @@ private:
     // First there is the waiters' stack, which comprises the idle workers waiting for
     // a job. When a worker becomes idle, it places itself on top of this stack. When
     // we're looking for a free worker who can execute a new job, we pick the one on
-    // the top of the stack, for tho reasons. First, it ensurse that if we have too many
+    // the top of the stack, for two reasons. First, it ensures that if we have too many
     // workers for the current workload, those on the bottom will eventually "starve" of
     // work and will thus spin down and mark themselves for removal. The other factor
     // is that workers who have done work more recently are preferred, since by reusing
     // recent threads we increase our chances of finding the thread's cache still hot,
-    // which may further improve performance.
+    // which may improve performance.
     //
     // The last idle worker's position in the conceptual stack is denoted by
     // m_last_idle_worker_pos, all other workers after this are busy with jobs. Thus,
@@ -83,7 +88,7 @@ private:
     // new work.
     //
     // NOTE: must only be handled after acquiring m_workers_mutex.
-    std::deque<std::shared_ptr<worker>> m_workers;
+    std::deque<std::unique_ptr<worker>> m_workers;
 
     mutable std::mutex m_job_queue_mutex;
     mutable std::mutex m_workers_mutex;
@@ -106,14 +111,14 @@ private:
 
 public:
 
-    struct info
+    struct stats
     {
         int num_idle_threads;
         int num_active_threads;
         int num_executed_jobs;
         int num_pending_jobs;
-        int ms_spent_working;
-        int ms_spent_idling;
+        milliseconds time_spent_working;
+        milliseconds time_spent_idling;
     };
 
     /**
@@ -126,21 +131,21 @@ public:
 
     /**
      * These are not recommended for frequent use, as each query function needs to
-     * acquire a mutex to get the latest info.
+     * acquire a mutex to get the latest stats.
      */
     bool is_idle() const;
     int num_threads() const;
     int num_active_threads() const;
     int num_idle_threads() const;
     int num_pending_jobs() const;
-    info get_info() const;
+    stats get_stats() const;
 
     /**
      * If the new value is lower than the current number of running threads, threads
      * will be signaled to stop. If all threads are currently executing, the stop signal
      * is heeded once each thread to be torn down is finished with its current job.
      */
-    void change_concurrency(const int n);
+    void set_concurrency(const int n);
 
     /**
      * Post a callable job to thread pool for execution at an unspecified time. If there
@@ -188,8 +193,17 @@ private:
      * and worker waits for someone else to reap it. In the former case, worker executes
      * the new job and any other jobs that may have been queued up in m_job_queue. Then,
      * thread tries to reap other dead workers, after which it repeats the procedure.
+     *
+     * Note that it is safe to pass a reference to the worker to this function, as
+     * in both cases in which a worker is removed, the run exits its scope safely
+     * without referring to invalid memory.
+     * 1) Worker starves after idling too long, so marks itself as dead and exits
+     * immediately.
+     * 2) Worker is signaled to shut down by join_n, in which case join_n holds onto
+     * m_workers_mutex throughout the entire join operation, so reap_dead_workers
+     * doesn't have a chance to remove a worker.
      */
-    void run(std::shared_ptr<worker> worker);
+    void run(worker& worker);
 
     /**
      * This is called right after worker is woken up to execute a new job, which means
@@ -209,21 +223,24 @@ private:
 
     /**
      * When a worker starts executing a job, it moves itself out of the waiters' stack,
-     * and when it finishes it moves itself back to the top of the stack.
+     * and when it finishes it moves itself back to the top of the waiters' stack.
      */
     void move_to_active(const worker& worker);
     void move_to_idle(const worker& worker);
 
-    /** If a thread unexpectedly terminated, this function decides what should happen. */
-    // TODO make this a user settable policy, i.e. what should happen with exceptions
-    // during execution
-    void handle_untimely_worker_demise(std::shared_ptr<worker> worker);
+    /**
+     * If a thread unexpectedly terminated, this marks worker as dead, moves it the idle
+     * workers and restores the stack logic.
+     */
+    void handle_untimely_worker_demise(worker& worker);
 
     /**
-     * Joins the first n workers but does NOT remove them from m_workers.
-     * NOTE: m_workers_mutex must be held when calling this function.
+     * Joins the first n workers and removes them from m_workers.
+     * The first overload will acquire m_workers_mutex while the second must be passed
+     * a lock that holds onto m_workers_mutex.
      */
     void join_n(const int n);
+    void join_n(const int n, std::unique_lock<std::mutex> workers_lock);
 
     /**
      * Before doing any jobs, one worker checks if there are any dead/finished workers
@@ -231,5 +248,7 @@ private:
      */
     void reap_dead_workers();
 };
+
+} // namespace tide
 
 #endif // TORRENT_THREAD_POOL_HEADER

@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <boost/detail/endian.hpp>
 
-namespace endian
+namespace tide { namespace endian
 {
     // TODO add native byte swap instructions using macros
     namespace
@@ -158,6 +158,8 @@ namespace endian
             *it++ = static_cast<uint8_t>((h >> shift) & 0xff);
         }
     }
+
 } // namespace endian
+} // namespace tide
 
 #endif // TORRENT_ENDIAN_HEADER

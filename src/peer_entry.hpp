@@ -4,6 +4,8 @@
 #include "units.hpp"
 #include "socket.hpp"
 
+namespace tide {
+
 /** Represents a peer collected from a tracker. */
 struct peer_entry
 {
@@ -25,5 +27,7 @@ struct peer_entry
         return id < other.id;
     }
 };
+
+} // namespace tide
 
 #endif // TORRENT_PEER_ENTRY_HEADER

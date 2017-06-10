@@ -1,7 +1,10 @@
 #include "piece_download.hpp"
 
+#include <iostream>
 #include <cassert>
 #include <cmath>
+
+namespace tide {
 
 piece_download::piece_download(const piece_index_t index, const int piece_length)
     : m_completion(num_blocks(piece_length), false)
@@ -10,7 +13,7 @@ piece_download::piece_download(const piece_index_t index, const int piece_length
     , m_num_blocks_left(num_blocks(piece_length))
 {}
 
-bool piece_download::got_block(const block_info& block) const noexcept
+bool piece_download::has_block(const block_info& block) const noexcept
 {
     const int index = block_index(block);
     if(index >= int(m_completion.size()))
@@ -49,8 +52,7 @@ void piece_download::got_block(
     }
 }
 
-#include <iostream>
-void piece_download::notify_all_of_hash_result(const bool is_piece_good)
+void piece_download::post_hash_result(const bool is_piece_good)
 {
     std::cerr << "notifying all participants of piece hash test result...\n";
     assert(m_num_blocks_left == 0);
@@ -58,13 +60,10 @@ void piece_download::notify_all_of_hash_result(const bool is_piece_good)
     {
         entry.second(is_piece_good);
     }
-    m_completion_handler(is_piece_good);
 }
 
 void piece_download::time_out(
-    const peer_id& peer,
-    const block_info& block,
-    cancel_handler handler)
+    const peer_id& peer, const block_info& block, cancel_handler handler)
 {
     verify_block(block);
     if(m_num_blocks_left == 1)
@@ -79,6 +78,21 @@ void piece_download::abort_download(const block_info& block)
 {
     verify_block(block);
     m_completion[block_index(block)] = false;
+}
+
+void piece_download::remove_peer(const peer_id& peer)
+{
+    m_participants.erase(peer);
+    auto it = m_timed_out_blocks.begin();
+    const auto end = m_timed_out_blocks.end();
+    while(it != end)
+    {
+        auto tmp = it++;
+        if(tmp->second.peer == peer)
+        {
+            m_timed_out_blocks.erase(tmp);
+        }
+    }
 }
 
 std::vector<block_info> piece_download::make_request_queue(const int n)
@@ -124,3 +138,5 @@ inline int piece_download::block_length(const int offset) const noexcept
 {
     return std::min(m_piece_length - offset, 0x4000);
 }
+
+} // namespace tide

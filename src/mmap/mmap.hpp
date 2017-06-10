@@ -8,6 +8,8 @@
 #include <string>
 #include <memory>
 
+namespace tide {
+
 class mmap_impl;
 size_t os_page_size();
 
@@ -195,5 +197,7 @@ inline mmap_base::iterator mmap_sink::end() noexcept
 {
     return data() + length();
 }
+
+} // namespace tide
 
 #endif

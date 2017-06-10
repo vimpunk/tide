@@ -10,6 +10,8 @@
 
 #include <asio/buffers_iterator.hpp>
 
+namespace tide {
+
 /**
  * Used to represent an outgoing raw network messages and provides convenient
  * multi-byte integer host to network conversion with builder semantics.
@@ -123,54 +125,54 @@ public:
 
     std::array<uint8_t, N> data;
 
-    void clear() noexcept
+    constexpr void clear() noexcept
     {
         m_pos = 0;
     }
 
-    fixed_payload& i8(const int8_t h)
+    constexpr fixed_payload& i8(const int8_t h)
     {
         data[m_pos++] = h;
         return *this;
     }
 
-    fixed_payload& u8(const uint8_t h)
+    constexpr fixed_payload& u8(const uint8_t h)
     {
         data[m_pos++] = h;
         return *this;
     }
 
-    fixed_payload& i16(const int16_t h)
+    constexpr fixed_payload& i16(const int16_t h)
     {
         add_integer<int16_t>(h);
         return *this;
     }
 
-    fixed_payload& u16(const uint16_t h)
+    constexpr fixed_payload& u16(const uint16_t h)
     {
         add_integer<uint16_t>(h);
         return *this;
     }
 
-    fixed_payload& i32(const int32_t h)
+    constexpr fixed_payload& i32(const int32_t h)
     {
         add_integer<int32_t>(h);
         return *this;
     }
 
-    fixed_payload& u32(const uint32_t h)
+    constexpr fixed_payload& u32(const uint32_t h)
     {
         add_integer<uint32_t>(h);
         return *this;
     }
 
-    fixed_payload& i64(const int64_t h)
+    constexpr fixed_payload& i64(const int64_t h)
     {
         add_integer<int64_t>(h);
         return *this;
     }
 
-    fixed_payload& u64(const uint64_t h)
+    constexpr fixed_payload& u64(const uint64_t h)
     {
         add_integer<uint64_t>(h);
         return *this;
@@ -201,12 +203,14 @@ public:
 private:
 
     template<typename Int>
-    void add_integer(Int x)
+    constexpr void add_integer(const Int x)
     {
-        assert(m_pos + sizeof(Int) <= N);
+        assert(m_pos + sizeof(Int) <= N && "fixed_payload overflow");
         endian::write<Int>(x, &data[m_pos]);
         m_pos += sizeof(Int);
     }
 };
+
+} // namespace tide
 
 #endif // TORRENT_PAYLOAD_HEADER

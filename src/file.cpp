@@ -3,6 +3,8 @@
 
 #include <cmath>
 
+#include <boost/filesystem/operations.hpp>
+
 #ifdef _WIN32
 // emulate UNIX syscalls on windows so we can use the same api
 // TODO
@@ -31,6 +33,8 @@ int pwritev(handle_type file_handle, iovec* buffers, int iovec_count, int64_t fi
 {
 }
 #endif // _WIN32
+
+namespace tide {
 
 file::file(path path, int64_t length, uint8_t open_mode)
     : m_absolute_path(std::move(path))
@@ -227,6 +231,7 @@ void file::close()
     m_file_handle = INVALID_HANDLE_VALUE;
 }
 
+/*
 mmap_sink file::create_mmap_sink(
     const int64_t file_offset, const int length, std::error_code& error)
 {
@@ -238,6 +243,7 @@ mmap_source file::create_mmap_source(
 {
     //before_mapping(file_offset, length, error);
 }
+*/
 
 int file::read(view<uint8_t> buffer, const int64_t file_offset, std::error_code& error)
 {
@@ -434,7 +440,7 @@ int file::repeated_positional_io(
                 return total_transferred;
             }
 
-            trim_iovec_front(buffer, num_transferred);
+            util::trim_iovec_front(buffer, num_transferred);
         }
     }
     return total_transferred;
@@ -562,8 +568,6 @@ file_status status(const path& path, std::error_code& error)
 }
 */
 
-#include <boost/filesystem/operations.hpp>
-
 bool exists(const path& path, std::error_code& error)
 {
     // TODO roll own
@@ -600,3 +604,5 @@ namespace util
 #endif
     }
 }
+
+} // namespace tide

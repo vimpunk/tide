@@ -31,7 +31,7 @@ namespace detail
     constexpr uint32_t hash(const T& t) noexcept
     {
         const char* data = reinterpret_cast<const char*>(&t);
-        uint32_t    hash = 0;
+        uint32_t hash = 0;
 
         for(auto i = 0; i < sizeof(T); ++i)
         {

@@ -1,6 +1,6 @@
 #include "random.hpp"
 
-namespace util
+namespace tide { namespace util
 {
     std::mt19937& random_engine()
     {
@@ -18,4 +18,5 @@ namespace util
     {
         return std::uniform_int_distribution<int>(min, max)(random_engine());
     }
-}
+} // namespace util
+} // namespace tide

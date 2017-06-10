@@ -4,10 +4,13 @@
 #include "units.hpp"
 #include "view.hpp"
 
+#include <utility> // declval
 #include <memory>
 #include <array>
 
 #include <openssl/sha.h>
+
+namespace tide {
 
 /**
  * This class is used to verify pieces using the SHA-1 hashing algorithm.
@@ -69,5 +72,7 @@ static sha1_hash create_sha1_digest(const Buffer& buffer)
     hasher.update(buffer);
     return hasher.finish();
 }
+
+} // namespace tide
 
 #endif // TORRENT_SHA1_HASHER_HEADER

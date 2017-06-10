@@ -2,31 +2,49 @@
 #define TORRENT_GLOBAL_SETTINGS_HEADER
 
 #include "units.hpp"
+#include "time.hpp"
 #include "path.hpp"
 
 #include <array>
 
-// TODO convert time values to chrono::duration types
+namespace tide {
+
+// all settings below, save for torrent's are universal, i.e. they apply to all
+// instances rather than for each individual class. TODO make this more obvious
+// using better structure. perhaps a single class for all settings should suffice
+// with a separate torrent_settings class?
+
 struct engine_settings
 {
     // Setting this option will tell engine to give new torrents higher priority, i.e.
     // put them first in the torrent priority queue.
-    bool should_enqueue_new_torrents_at_top = true;
+    bool enqueue_new_torrents_at_top = true;
 
     // Torrents without any piece transfers (protocol overhead is not counted as it's
     // negligible) are not considered when enforcing the maximum number of downloads and
     // uploads. The default is not counting these torrents as it leads to performance
     // improvements.
-    bool should_count_slow_torrents = false;
+    bool count_slow_torrents = false;
 
-    // These are the values (in bytes/s) that are used to determine slow torrents if the
-    // should_count_slow_torrents setting is turned off.
-    int slow_torrent_download_rate_threshold;
-    int slow_torrent_upload_rate_threshold;
+    // If this option is enabled, the piece picker that tracks piece availability in a
+    // torrent swarm and decides which pieces to download next is released once a torrent
+    // beocmes a seeder. It has a drawback, though it may be considered an edge case: 
+    // if the downloaded files are corrupted, and if user wants to download the torrent
+    // again, the availability of all pieces has to be collected again.
+    // TODO currently not implemented
+    bool discard_piece_picker_on_completion = true;
+
+    // TODO desc.
+    bool prioritize_udp_trackers = true;
 
     // The initial port to which the torrent engine will attempt to bind. If met with
     // failure or no port is specified, it falls back to the OS provided random port.
-    int listener_port;
+    uint16_t listener_port;
+
+    // These are the values (in bytes/s) that are used to determine slow torrents if the
+    // count_slow_torrents setting is turned off.
+    int slow_torrent_download_rate_threshold;
+    int slow_torrent_upload_rate_threshold;
 
     // The total number of active peer connections in all torrents.
     int max_all_torrent_connections = 200;
@@ -45,20 +63,27 @@ struct engine_settings
     // If a torrent reaches either of these values (number of seconds spent seeding,
     // upload / download ratio, time spent seeding / time spent downloading,
     // respectively), it is stopped (but not removed).
-    int seed_time_limit_s;
     int share_ratio_limit;
     int seed_time_ratio_limit;
+    seconds seed_time_limit;
 
     // The number of seconds following the tracker announce after which the tracker is
     // considered to have timed out and the connection is dropped.
-    int tracker_timeout_s = 60;
+    seconds tracker_timeout;
+
+    // This is the granularity at which statistics of a torrent are sent to the user.
+    // Note that user may manually request statistics of a certain torrent or even
+    // peer_session at arbitrary intervals.
+    // Note that this value should ideally not go below 500ms as it would be prohibitive
+    // in the face of many torrents.
+    milliseconds stats_aggregation_interval;
 
     // This is the amount of time between the torrent engine's event loop which, among
     // other things, is responsible for meting out bandwidth quota to peers. A lower
     // value results in more accurate quota distribution, while a higher value will likely
     // perform better on slower machines.
     // Should be between 100 and 1000.
-    int bandwidth_distribution_interval_ms = 150;
+    milliseconds bandwidth_distribution_interval;
 
     // TODO add choking algorithm choices
     enum class choking_algorithm_t
@@ -71,6 +96,12 @@ struct engine_settings
     };
 
     choking_algorithm_t choking_algorithm;
+
+    engine_settings()
+        : tracker_timeout(60)
+        , stats_aggregation_interval(2000)
+        , bandwidth_distribution_interval(150)
+    {}
 };
 
 struct disk_io_settings
@@ -98,15 +129,15 @@ struct torrent_settings
 {
     // If set to true the torrent will download pieces in order. This can be useful when
     // downloading serial media, but may result in slower overall performance.
-    bool should_download_sequentially = false;
+    bool download_sequentially = false;
 
     // This stops the torrent (though does not remove it) when all files have been
-    // fully downloaded.
-    bool should_stop_when_ready = false;
+    // fully downloaded. Take everything, give nothing back?
+    bool stop_when_downloaded = false;
 
     // Pick UDP trackers over HTTP trackers, even if HTTP trackers have a higher
     // priority in metainfo's announce-list.
-    bool should_prefer_udp_trackers = false;
+    bool prefer_udp_trackers = false;
 
     // The number of peers to which we upload pieces. This should probably be left at
     // the default value (4) for better performance.
@@ -135,12 +166,12 @@ struct peer_session_settings
     // message type) before concluding it to have timed out and closing the connection.
     // The default is 2 minutes.
     // TODO rework
-    int peer_timeout_s = 120;
+    seconds peer_timeout;
 
     // This is the number of seconds we wait for establishing a connection with a peer.
     // This should be lower than peer_timeout_sec, because until this peer is not
     // connected it takes up space from other potential candidates.
-    int peer_connect_timeout_s = 60;
+    seconds peer_connect_timeout;
 
     // The roundtrip time threshold in seconds under which we attempt to request whole
     // pieces instead of blocks.
@@ -166,7 +197,7 @@ struct peer_session_settings
 
     // Normally the TCP/IP overhead is not included when limiting torrent bandwidth. With
     // this set, an esimate of the overhead is added to the traffic.
-    bool should_include_ip_overhead = false;
+    bool include_ip_overhead = false;
 
     enum class encryption_policy_t
     {
@@ -184,6 +215,11 @@ struct peer_session_settings
     };
 
     encryption_policy_t encryption_policy = encryption_policy_t::no_encryption;
+
+    peer_session_settings()
+        : peer_timeout(60)
+        , peer_connect_timeout(120)
+    {}
 };
 
 /**
@@ -197,5 +233,7 @@ struct settings
     , public torrent_settings
     , public peer_session_settings
 {};
+
+} // namespace tide
 
 #endif // TORRENT_GLOBAL_SETTINGS_HEADER

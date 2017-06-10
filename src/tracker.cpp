@@ -4,12 +4,12 @@
 #include "address.hpp"
 #include "endian.hpp"
 
+#include <iostream>
 #include <algorithm>
 #include <stdexcept>
 #include <cassert>
-#include <iostream>
 
-#define P(m) do std::cout << m << '\n'; while(0)
+namespace tide {
 
 // -------------------
 // -- tracker error --
@@ -130,8 +130,6 @@ udp_tracker::udp_tracker(
     , m_socket(ios)
     , m_resolver(ios)
 {
-    P("url: " << m_url);
-    P("host: " << util::extract_host(m_url));
     m_resolver.async_resolve(
         udp::resolver::query(udp::v4(), util::extract_host(url), ""),
         [this](const std::error_code& error, udp::resolver::iterator it)
@@ -204,7 +202,8 @@ void udp_tracker::announce(
     if(!m_is_aborted)
     {
         execute_request(
-            create_request_entry<announce_request>(std::move(params), std::move(handler)),
+            create_request_entry<announce_request>(
+                std::move(params), std::move(handler)),
             [this](announce_request& r) { send_announce_request(r); }
         );
     }
@@ -297,11 +296,6 @@ void udp_tracker::send_connect_request(Request& request)
         .i64(0x41727101980)
         .i32(action_t::connect)
         .i32(request.transaction_id);
-    for(auto i = 0; i < 16; ++i)
-    {
-        std::cout << std::to_string(request.payload.data[i]);
-    }
-    std::cout << '\n';
     send_message(request, 16);
     receive_message();
 }
@@ -317,6 +311,7 @@ inline void udp_tracker::handle_connect_response(
 {
     if(num_bytes_received < 16)
     {
+        m_had_protocol_error = true;
         on_global_error(make_error_code(tracker_errc::response_too_small));
         //request.on_error(make_error_code(tracker_errc::response_too_small));
         //m_requests.erase(request.transaction_id);
@@ -444,14 +439,17 @@ inline void udp_tracker::handle_announce_response(
     if((num_bytes_received < 20) || ((num_bytes_received - 20) % 6 != 0))
     {
         m_requests.erase(request.transaction_id);
+        m_had_protocol_error = true;
         handler(make_error_code(tracker_errc::response_too_small), {});
         return;
     }
 
+    m_last_announce_time = cached_clock::now();
+
     // skip the 4 byte action and 4 byte transaction_id fields
     const uint8_t* buffer = m_receive_buffer->data() + 8;
     tracker_response response;
-    response.interval = endian::parse<int32_t>(buffer);
+    response.interval = seconds(endian::parse<int32_t>(buffer));
     response.num_leechers = endian::parse<int32_t>(buffer += 4);
     response.num_seeders = endian::parse<int32_t>(buffer += 4);
     // TODO branch here depending on ipv4 or ipv6 request (but currently ipv6 isn't sup.)
@@ -511,11 +509,6 @@ void udp_tracker::send_message(Request& request, const size_t num_bytes_to_send)
         num_bytes_to_send,
         request.transaction_id
     );
-    for(const auto b : request.payload.data)
-    {
-        std::cout << b;
-    }
-    std::cout << '\n';
     m_socket.async_send(
         asio::buffer(request.payload.data, num_bytes_to_send),
         [this, &request](const std::error_code& error, size_t num_bytes_sent)
@@ -579,7 +572,7 @@ inline void udp_tracker::receive_message()
             on_message_received(error, num_bytes_received);
         }
     );
-    m_timeout_timer.expires_from_now(seconds(m_settings.tracker_timeout_s));
+    m_timeout_timer.expires_from_now(m_settings.tracker_timeout);
     m_timeout_timer.async_wait(
         [this](const std::error_code& error) { handle_timeout(error); }
     );
@@ -588,10 +581,14 @@ inline void udp_tracker::receive_message()
 inline void udp_tracker::on_message_received(
     const std::error_code& error, const size_t num_bytes_received)
 {
-    if(error == asio::error::operation_aborted)
+    if((error == asio::error::operation_aborted) || m_is_aborted)
     {
-        // the deadline timer may have had a chance to run, but if it didn't close our
-        // socket we can ignore this, otherwise exit
+        return;
+    }
+    else if((error == std::errc::timed_out) || (error == asio::error::timed_out))
+    {
+        m_is_reachable = false;
+        // TODO we should probably let others know? and we should retry a few times
         return;
     }
     else if(error)
@@ -603,11 +600,11 @@ inline void udp_tracker::on_message_received(
     m_is_receiving = false;
     m_timeout_timer.cancel();
 
-    std::error_code ec;
-    check_receive_postconditions(ec, num_bytes_received);
-    if(ec)
+    if(num_bytes_received < 8)
     {
-        on_global_error(error);
+        // we need at least 8 bytes for the action and transaction_id
+        m_had_protocol_error = true;
+        on_global_error(make_error_code(tracker_errc::response_too_small));
         return;
     }
 
@@ -617,6 +614,7 @@ inline void udp_tracker::on_message_received(
     const int32_t transaction_id = endian::parse<int32_t>(buffer + 4);
     if((raw_action < 0) || (raw_action > 3))
     {
+        m_had_protocol_error = true;
         on_global_error(make_error_code(tracker_errc::invalid_response));
         return;
     }
@@ -672,15 +670,6 @@ inline void udp_tracker::on_message_received(
 inline void udp_tracker::check_receive_postconditions(
     std::error_code& error, const size_t num_bytes_received)
 {
-    if(m_is_aborted)
-    {
-        error = std::make_error_code(std::errc::operation_canceled);
-    }
-    else if(num_bytes_received < 8)
-    {
-        // we need at least 8 bytes for the action and transaction_id
-        error = make_error_code(tracker_errc::response_too_small);
-    }
 }
 
 /**
@@ -866,3 +855,5 @@ tracker_request tracker_request_builder::build()
 {
     return m_request;
 }
+
+} // namespace tide

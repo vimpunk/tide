@@ -3,6 +3,8 @@
 
 #include <cstdint>
 
+namespace tide {
+
 class average_counter
 {
     int64_t m_sum = 0;
@@ -26,5 +28,6 @@ public:
     }
 };
 
-#endif // TORRENT_AVERAGE_COUNTER_HEADER
+} // namespace tide
 
+#endif // TORRENT_AVERAGE_COUNTER_HEADER

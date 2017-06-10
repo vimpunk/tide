@@ -1,5 +1,4 @@
 #include "torrent_info.hpp"
-#include "sha1_hasher.hpp"
 #include "file_info.hpp"
 #include "settings.hpp"
 #include "disk_io.hpp"
@@ -8,6 +7,8 @@
 #include <map>
 
 #include <iostream>
+
+namespace tide {
 
 disk_io::disk_io(asio::io_service& network_ios, const disk_io_settings& settings)
     : m_network_ios(network_ios)
@@ -35,30 +36,29 @@ void disk_io::read_all_torrent_states(
 }
 
 void disk_io::read_metainfo(
-    const std::string& metainfo_path,
-    std::function<void(const std::error_code&, metainfo)> handler)
+    const path& path, std::function<void(const std::error_code&, metainfo)> handler)
 {
 }
 
 void disk_io::allocate_torrent(
     std::shared_ptr<torrent_info> info,
     string_view piece_hashes,
-    std::function<void(const std::error_code&)> handler)
+    std::function<void(const std::error_code&, torrent_storage_handle)> handler)
 {
-    m_torrents.emplace(torrent, torrent_storage(info, std::vector<sha1_hash>()));
+    //m_torrents.emplace(info->id, torrent_storage(info, piece_hashes));
 }
 
 void disk_io::move_torrent(
     const torrent_id_t torrent,
-    std::function<void(const std::error_code&)> handler,
-    std::string new_path)
+    std::string new_path,
+    std::function<void(const std::error_code&)> handler)
 {
 }
 
 void disk_io::rename_torrent(
     const torrent_id_t torrent,
-    std::function<void(const std::error_code&)> handler,
-    std::string name)
+    std::string name,
+    std::function<void(const std::error_code&)> handler)
 {
 }
 
@@ -99,12 +99,12 @@ void disk_io::create_sha1_digest(
 
 disk_buffer disk_io::get_write_buffer()
 {
-    return disk_buffer(reinterpret_cast<uint8_t*>(disk_buffer_pool.malloc()));
+    return disk_buffer(reinterpret_cast<uint8_t*>(m_disk_buffer_pool.malloc()));
 }
 
 void disk_io::return_write_buffer(disk_buffer buffer)
 {
-    disk_buffer_pool.free(reinterpret_cast<void*>(buffer.data()));
+    m_disk_buffer_pool.free(reinterpret_cast<void*>(buffer.data()));
 }
 
 void disk_io::save_block(
@@ -144,3 +144,5 @@ void disk_io::fetch_block(
     std::function<void(const std::error_code&, block_source)> handler)
 {
 }
+
+} // namespace tide
