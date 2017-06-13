@@ -35,7 +35,7 @@ class disk_io;
  * NOTE: even though peer_session is only handled by its corresponding torrent (i.e.
  * unique_ptr semantics), it must be stored in a shared_ptr as it uses shared_from_this
  * in the handlers passed to async operations in order to prolong its lifetime until
- * the operations complete (otherwise the handlers would refer to invalid memory).
+ * all such operations complete (otherwise the handlers could refer to invalid memory).
  */
 class peer_session : protected std::enable_shared_from_this<peer_session>
 {
@@ -136,7 +136,7 @@ private:
     std::shared_ptr<torrent_info> m_torrent_info;
 
     // This is where all current active piece downloads (from any peer in torrent)
-    // can be accessed.
+    // can be accessed. Only torrent may remove a download from here.
     //
     // NOTE: if this starts as an incoming connection, we won't have this field until we
     // finished the handshake and attached ourselves to a torrent. It's also null if
@@ -598,7 +598,7 @@ private:
      * This must be called when we know that we're not going to receive previously
      * requested blocks, so that they may be requested from other peers.
      */
-    void abort_our_requests();
+    void abort_outgoing_requests();
 
     /**
      * Removes the handlers associated with this peer_session from all downloads in
@@ -906,7 +906,7 @@ private:
     };
 
     template<typename... Args>
-    void log(const log_event event, const std::string& format, Args&&... args) const;
+    void log(const log_event event, const char* format, Args&&... args) const;
 
     /** Tries to detect client's software from its peer_id in its handshake. */
     void try_identify_client();

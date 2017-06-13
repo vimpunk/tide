@@ -94,6 +94,7 @@ peer_session::peer_session(
     assert(m_socket);
     assert(m_settings.max_receive_buffer_size != -1);
     m_info.remote_endpoint = std::move(peer_endpoint);
+    m_info.max_outgoing_request_queue_size = settings.max_outgoing_request_queue_size;
     m_op_state.set(op_t::slow_start);
 }
 
@@ -285,7 +286,7 @@ void peer_session::disconnect(const std::error_code& error)
 
     // if we have any pending requests, tell their corresponding piece downloads that
     // we won't get the blocks and to remove this peer from their participant registry
-    abort_our_requests();
+    abort_outgoing_requests();
     detach_downloads();
     if(m_piece_picker != nullptr)
     {
@@ -306,7 +307,7 @@ void peer_session::disconnect(const std::error_code& error)
     // TODO clear pending sent and received requests queue
 }
 
-inline void peer_session::abort_our_requests()
+inline void peer_session::abort_outgoing_requests()
 {
     std::error_code ec;
     m_request_timeout_timer.cancel(ec);
@@ -446,7 +447,7 @@ void peer_session::announce_new_piece(const piece_index_t piece)
         // whether we're interested in this peer, for we may have received the only piece
         // peer has in which we were interested TODO what if we're receiving that piece?
         update_interest();
-        if(am_seeder())
+        if(m_shared_downloads && am_seeder())
         {
             // we've become a seeder through this piece, we're not going to need this
             m_shared_downloads.reset();
@@ -972,37 +973,29 @@ void peer_session::handle_handshake()
 
     log(log_event::incoming,
         "HANDSHAKE (protocol: %s; extensions: %s; info_hash: %s; client_id: %s%s)",
-        handshake.protocol_id.data(), m_info.extensions.data(), info_hash.data(),
-        m_info.peer_id.data(),
+        handshake.protocol_id.data(), m_info.extensions.data(),
+        info_hash.data(), m_info.peer_id.data(),
         m_info.client.empty() ? "" : ("; " + m_info.client).c_str());
 
     /*
     // TODO change to this, not sure why I haven't already (think there was an error)
-    std::string extensions_str = [this]() -> std::string
+    char extensions_str[65];
+    int offset = 0;
+    for(const uint8_t b : m_info.extensions)
     {
-        std::string ret;
-        ret.reserve(64);
-        for(const uint8_t b : m_info.extensions)
-        {
-            for(const char c : std::bitset<8>(b).to_string())
-            {
-                ret += c;
-            }
-        }
-        return ret;
-    }();
+        std::string word = std::bitset<8>(b).to_string());
+        std::copy(word.begin(), word.end(), &extensions_str[offset]);
+        offset += 8;
+    }
     std::string info_hash_str = util::to_hex(info_hash);
     log(log_event::outgoing,
         "HANDSHAKE (protocol: %s; extensions: %s; info_hash: %s; client_id: %s%s)",
-        handshake.protocol_id,
-        extensions_str.c_str(),
-        info_hash_str.c_str(),
-        m_info.peer_id.data(),
-        m_info.client.empty() ? "" : ("; " + m_info.client).c_str()
-    );
+        handshake.protocol_id, extensions_str,
+        info_hash_str.c_str(), m_info.peer_id.data(),
+        m_info.client.empty() ? "" : ("; " + m_info.client).c_str());
     */
 
-    // move on to the next stage
+    // proceed to the next stage
     m_info.state = state_t::bitfield_exchange;
     send_bitfield();
 }
@@ -1064,7 +1057,7 @@ inline void peer_session::handle_choke()
     {
         m_info.am_choked = true;
         m_op_state.unset(op_t::slow_start);
-        abort_our_requests();
+        abort_outgoing_requests();
     }
     m_info.last_incoming_choke_time = cached_clock::now();
 }
@@ -1435,7 +1428,6 @@ inline void peer_session::adjust_best_request_queue_size() noexcept
     {
         m_info.best_request_queue_size = 2;
     }
-    assert(m_info.best_request_queue_size > 0);
 
     if(m_info.best_request_queue_size != old_best_request_queue_size)
     {
@@ -1587,6 +1579,7 @@ inline void peer_session::handle_corrupt_piece(const piece_download& download)
 {
     log(log_event::parole, "piece (%i) failed hash test (%i fails)",
         download.piece_index(), m_info.num_hash_fails);
+
     ++m_info.num_hash_fails;
     m_info.total_wasted_bytes += get_piece_length(
         *m_torrent_info, download.piece_index());
@@ -1624,6 +1617,7 @@ void peer_session::on_block_saved(const std::error_code& error,
         }
         return;
     }
+
     m_info.num_disk_io_failures = 0;
     m_info.total_bytes_written_to_disk += block.length;
     // TODO consider recording disk read/write stats in disk_io/torrent_storage
@@ -1668,6 +1662,7 @@ void peer_session::on_block_read(const std::error_code& error, const block_sourc
         }
         return;
     }
+
     // reset disk failuires to 0 since it only counts consecutive failures
     m_info.num_disk_io_failures = 0;
     m_info.total_bytes_read_from_disk += block.length;
@@ -1720,6 +1715,7 @@ void peer_session::send_handshake()
         .buffer(m_torrent_info->info_hash)
         .buffer(m_settings.client_id));
     send();
+
     log(log_event::outgoing,
         "HANDSHAKE (protocol: %s; extensions: %s; info_hash: %s, client_id: %s)",
         protocol_id, extensions, m_torrent_info->info_hash.data(),
@@ -1967,11 +1963,8 @@ inline int peer_session::make_requests_in_normal_mode()
     // blocks and there are downloads to join
     while(m_sent_requests.size() < m_info.best_request_queue_size)
     {
-        int num_blocks = join_download();
-        if(num_blocks == 0)
-        {
-            break;
-        }
+        const int num_blocks = join_download();
+        if(num_blocks == 0) { break; }
         num_new_requests += num_blocks;
     }
 
@@ -1979,11 +1972,8 @@ inline int peer_session::make_requests_in_normal_mode()
     // to the shared downloads via m_shared_downloads
     while(m_sent_requests.size() < m_info.best_request_queue_size)
     {
-        int num_blocks = start_download();
-        if(num_blocks == 0)
-        {
-            break;
-        }
+        const int num_blocks = start_download();
+        if(num_blocks == 0) { break; }
         num_new_requests += num_blocks;
     }
     return num_new_requests;
@@ -2114,8 +2104,7 @@ void peer_session::send_block(const block_source& block)
 // --------------------------------------------
 void peer_session::send_cancel(const block_info& block)
 {
-    // TODO check if we're not already receiving this block in which case we cannot send
-    // a cancel
+    // if we're already receiving this block we cannot (shouldn't) send a cancel
     if(block != m_info.in_transit_block)
     {
         m_send_buffer.append(fixed_payload<4 + 13>()
@@ -2149,7 +2138,7 @@ void peer_session::send_port(const int port)
 
 void peer_session::on_request_timeout(const std::error_code& error)
 {
-    if(error == asio::error::operation_aborted)
+    if(should_abort(error))
     {
         return;
     }
@@ -2209,7 +2198,7 @@ seconds peer_session::request_timeout() const
 
 void peer_session::on_connect_timeout(const std::error_code& error)
 {
-    if(error == asio::error::operation_aborted)
+    if(should_abort(error))
     {
         return;
     }
@@ -2227,7 +2216,7 @@ void peer_session::on_connect_timeout(const std::error_code& error)
 
 void peer_session::on_inactivity_timeout(const std::error_code& error)
 {
-    if(error == asio::error::operation_aborted)
+    if(should_abort(error))
     {
         return;
     }
@@ -2244,7 +2233,7 @@ void peer_session::on_inactivity_timeout(const std::error_code& error)
 
 void peer_session::on_keep_alive_timeout(const std::error_code& error)
 {
-    if(error == asio::error::operation_aborted)
+    if(should_abort(error))
     {
         return;
     }
@@ -2268,8 +2257,7 @@ void peer_session::on_keep_alive_timeout(const std::error_code& error)
 // -----------
 
 template<typename... Args>
-void peer_session::log(
-    const log_event event, const std::string& format, Args&&... args) const
+void peer_session::log(const log_event event, const char* format, Args&&... args) const
 {
     // TODO proper logging
     std::cerr << '[';
@@ -2313,9 +2301,9 @@ void peer_session::log(
     std::cerr << "] -- ";
 
     // + 1 for '\0'
-    const size_t length = std::snprintf(nullptr, 0, format.c_str(), args...) + 1;
+    const size_t length = std::snprintf(nullptr, 0, format, args...) + 1;
     std::unique_ptr<char[]> buffer(new char[length]);
-    std::snprintf(buffer.get(), length, format.c_str(), args...);
+    std::snprintf(buffer.get(), length, format, args...);
     // -1 to exclude the '\0' at the end
     // TODO this is temporary
     std::string message(buffer.get(), buffer.get() + length - 1);
