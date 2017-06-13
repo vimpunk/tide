@@ -8,13 +8,18 @@ metainfo parse_and_sanitize_metainfo(bmap source)
     metainfo m;
     m.announce = source.find_string_view("announce");
 
+    int tier = 0;
     blist announce_list;
     if(source.try_find_blist("announce-list", announce_list))
     {
         for(string_view s : announce_list.all_string_views())
         {
-            m.announce_list.emplace_back(std::move(s));
+            metainfo::tracker_entry tracker;
+            tracker.url = s;
+            tracker.tier = tier;
+            m.announce_list.emplace_back(std::move(tracker));
         }
+        ++tier;
     }
 
     const bmap info_map = source.find_bmap("info");
@@ -32,10 +37,8 @@ metainfo parse_and_sanitize_metainfo(bmap source)
         for(const bmap& file_info : files.all_bmaps())
         {
             const int64_t length = file_info.find_number("length");
-            m.files.emplace_back(
-                create_and_sanitize_path(file_info.find_blist("path")),
-                length
-            );
+            m.files.emplace_back(create_and_sanitize_path(
+                file_info.find_blist("path")), length);
             m.total_length += length;
         }
     }

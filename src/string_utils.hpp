@@ -13,22 +13,15 @@ namespace tide { namespace util
 {
     inline void ltrim(std::string& s)
     {
-        s.erase(
-            s.begin(),
-            std::find_if(
-                s.begin(), s.end(), [](const auto& c) { return !std::isspace(c); }
-            )
-        );
+        s.erase(s.begin(),
+            std::find_if(s.begin(), s.end(),
+                [](const auto& c) { return !std::isspace(c); }));
     }
 
     inline void rtrim(std::string& s)
     {
-        s.erase(
-            std::find_if(
-                s.rbegin(), s.rend(), [](const auto& c) { return !std::isspace(c); }
-            ).base(),
-            s.end()
-        );
+        s.erase(std::find_if(s.rbegin(), s.rend(),
+                [](const auto& c) { return !std::isspace(c); }).base(), s.end());
     }
 
     inline void trim(std::string& s)
@@ -39,16 +32,14 @@ namespace tide { namespace util
 
     inline void to_lower(std::string& s)
     {
-        std::transform(
-            s.begin(), s.end(), s.begin(), [](const auto& c) { return std::tolower(c); }
-        );
+        std::transform(s.begin(), s.end(), s.begin(),
+            [](const auto& c) { return std::tolower(c); });
     }
 
     inline void to_upper(std::string& s)
     {
-        std::transform(
-            s.begin(), s.end(), s.begin(), [](const auto& c) { return std::toupper(c); }
-        );
+        std::transform(s.begin(), s.end(), s.begin(),
+            [](const auto& c) { return std::toupper(c); });
     }
 
     inline bool starts_with(string_view s, string_view prefix) noexcept

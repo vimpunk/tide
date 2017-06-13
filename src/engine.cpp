@@ -64,13 +64,9 @@ void parse_metainfo(const path& path)
 {
     m_network_ios.post([this]
     {
-        m_disk_io.read_metainfo(
-            path,
+        m_disk_io.read_metainfo(path,
             [this](const std::error_code& error, metainfo metainfo)
-            {
-                // TODO post metainfo to alert system
-            }
-        );
+            { /* TODO post metainfo to alert system */ });
     });
 }
 
@@ -82,16 +78,10 @@ void engine::add_torrent(torrent_args args)
     {
         // torrent calls disk_io::allocate_torrent() so we don't have to here
         const torrent_id_t torrent_id = get_torrent_id();
-        auto it = m_torrents.emplace(
-            torrent_id, torrent(
-                torrent_id,
-                m_disk_io,
-                m_bandwidth_controller,
-                m_settings,
-                get_trackers(args.metainfo),
-                std::move(args)
-            )
-        ).first;
+        auto it = m_torrents.emplace(torrent_id, torrent( torrent_id,
+                m_disk_io, m_bandwidth_controller, m_settings,
+                get_trackers(args.metainfo), m_endpoint_filter, m_event_channel,
+                std::move(args))).first;
         assert(it != m_torrents.end());
         // TODO post torrent handle to user
         //post_event<torrent_created_event>(it->second.handle());
@@ -130,56 +120,61 @@ inline torrent_id_t engine::get_torrent_id() noexcept
     return s_id++;
 }
 
-std::vector<std::shared_ptr<tracker>> engine::get_trackers(const metainfo& metainfo)
+std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
 {
     // announce may be the same as one of the entries of announce-list, so check it
     bool is_announce_distinct = true;
-    for(string_view url : metainfo.announce_list)
+    for(metainfo::tracker_entry tracker : metainfo.announce_list)
     {
-        if(url == metainfo.announce)
+        if(tracker.url == metainfo.announce)
         {
             is_announce_distinct = false;
             break;
         }
     }
-    std::vector<std::shared_ptr<tracker>> trackers;
+    std::vector<tracker_entry> trackers;
     trackers.reserve(metainfo.announce_list.size() + is_announce_distinct ? 1 : 0);
-    auto add_tracker = [this, &trackers](const auto& url)
+    auto add_tracker = [this, &trackers](const metainfo::tracker_entry& tracker)
     {
-        auto it = std::find_if(
-            m_trackers.begin(),
-            m_trackers.end(),
-            [url](const std::shared_ptr<tracker>& t) { return t->url() == url; }
-        );
+        // FIXME TODO shit, tracker's url and the url in metainfo are not the same
+        tracker_entry entry;
+        entry.tier = tracker.tier;
+        auto it = std::find_if(m_trackers.begin(), m_trackers.end(),
+            [&tracker](const std::shared_ptr<tracker>& t)
+            { return t->url() == tracker.url; });
         if(it != m_trackers.end())
         {
-            trackers.emplace_back(*it);
+            entry.tracker = *it;
+            trackers.emplace_back(std::move(entry));
         }
         else
         {
             // at this point tracker urls must be valid
             if(util::is_udp_tracker(url))
             {
-                trackers.emplace_back(
-                    std::make_shared<udp_tracker>(url, m_network_ios, m_settings)
-                );
+                entry.tracker = std::make_shared<udp_tracker>(
+                    url, m_network_ios, m_settings);
+                trackers.emplace_back(std::move(entry));
             }
             else if(util::is_http_tracker(url))
             {
-                //trackers.emplace_back(
-                    //std::make_shared<http_tracker>(url, m_network_ios, m_settings)
-                //);
+                //entry.tracker = std::make_shared<http_tracker>(
+                    //url, m_network_ios, m_settings);
+                //trackers.emplace_back(std::move(entry));
             }
-            m_trackers.emplace_back(trackers.back());
+            m_trackers.emplace_back(trackers.back().tracker);
         }
     };
-    for(auto url : metainfo.announce_list)
+    for(auto tracker : metainfo.announce_list)
     {
-        add_tracker(url);
+        add_tracker(tracker);
     }
     if(is_announce_distinct)
     {
-        add_tracker(metainfo.announce);
+        tracker_entry entry;
+        entry.url = metainfo.announce;
+        entry.tier = !trackers.empty() ? trackers.back().tier + 1 : 0;
+        add_tracker(entry);
     }
     return trackers;
 }

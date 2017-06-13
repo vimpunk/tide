@@ -12,12 +12,10 @@
 #include <unordered_map>
 #include <system_error>
 #include <functional>
-#include <algorithm>
 #include <utility>
 #include <string>
 #include <memory>
 #include <vector>
-#include <string>
 #include <array>
 
 #include <asio/io_service.hpp>
@@ -46,7 +44,7 @@ struct tracker_request
     // --------------
 
     sha1_hash info_hash;
-    peer_id client_id;
+    peer_id_t client_id;
     uint16_t port;
     int64_t uploaded;
     int64_t downloaded;
@@ -106,7 +104,7 @@ public:
     // --------------
 
     tracker_request_builder& info_hash(sha1_hash info_hash);
-    tracker_request_builder& client_id(peer_id client_id);
+    tracker_request_builder& client_id(peer_id_t client_id);
     tracker_request_builder& port(uint16_t port);
     tracker_request_builder& uploaded(int64_t uploaded);
     tracker_request_builder& downloaded(int64_t downloaded);
@@ -161,6 +159,7 @@ struct scrape_response
 {
     struct torrent_status
     {
+        // The info_hash identifying the torrent.
         sha1_hash info_hash;
         int32_t num_seeders;
         int32_t num_leechers;
@@ -224,26 +223,17 @@ protected:
     // it is responsive, so timing out becomes unnecessary.
     deadline_timer m_timeout_timer;
 
-    // The total number of times we tried to contact tracker but failed.
-    int m_num_attempts = 0;
+    // The total number of times we tried to contact tracker in a row, but failed.
+    // TODO not actually incremented
+    int m_num_fails = 0;
 
     time_point m_last_announce_time;
     time_point m_last_scrape_time;
-
-    // When we receive a tracker response, we set interval and announce_interval, which
-    // user can later query to know whether they are eligible to contact tracker.
-    seconds m_interval;
-    seconds m_min_interval;
 
     // These fields are used to mark a tracker as "faulty", so that user can query a
     // tracker and move onto the next.
     bool m_is_reachable = true;
     bool m_had_protocol_error = false;
-
-    // Each tracker should be sent an event=started message, so even if the torrent has
-    // sent such a message to another tracker, but has since transitioned to this
-    // tracker, the started event will be automatically set.
-    bool m_was_start_sent = false;
 
     // When we abort all tracker connections this is set to false. TODO
     bool m_is_aborted = false;
@@ -260,20 +250,16 @@ public:
      * reported via the tracker_response.failure_reason field (in which case all other
      * fields in response are empty/invalid.
      */
-    virtual void announce(
-        tracker_request params,
-        std::function<void(const std::error_code&, tracker_response)> handler
-    ) = 0;
+    virtual void announce(tracker_request params,
+        std::function<void(const std::error_code&, tracker_response)> handler) = 0;
 
     /**
      * A scrape request is used to get data about one, multiple or all torrents tracker
      * manages. If in the second overload info_hashes is empty, the maximum number of
      * requestable torrents are scraped that tracker has.
      */
-    virtual void scrape(
-        std::vector<sha1_hash> info_hashes,
-        std::function<void(const std::error_code&, scrape_response)> handler
-    ) = 0;
+    virtual void scrape(std::vector<sha1_hash> info_hashes,
+        std::function<void(const std::error_code&, scrape_response)> handler) = 0;
 
     /**
      * This should be called when torrent is shutting down but we don't want to wait
@@ -282,20 +268,8 @@ public:
     virtual void abort() = 0;
 
     const std::string& url() const noexcept { return m_url; }
-
-    /**
-     * The number of seconds user should wait between intervals, and the absolute
-     * minimum number of seconds of the same. This may be violated if torrent is
-     * shutting down and we have to let tracker know or if user wants to force announce,
-     * but our engine will never announce more frequently otherwise.
-     */
-    seconds announce_interval() const noexcept { return m_interval; }
-    seconds min_announce_interval() const noexcept { return m_interval; }
     time_point last_announce_time() const noexcept { return m_last_announce_time; }
     time_point last_scrape_time() const noexcept { return m_last_scrape_time; }
-
-    /** Checks whether announce_interval time has elapsed since last announce. */
-    bool can_announce() const noexcept;
 
     /**
      * These are used to query if tracker is currently reachable or if it had exhibited
@@ -304,7 +278,7 @@ public:
      */
     bool is_reachable() const noexcept { return m_is_reachable; }
     bool had_protocol_error() const noexcept { return m_had_protocol_error; }
-    bool was_start_event_sent() const noexcept { return m_was_start_sent; }
+    int num_fails() const noexcept { return m_num_fails; }
 
 protected:
 
@@ -322,13 +296,13 @@ protected:
 };
 
 /** Currently not implemented. */
-struct http_tracker : public tracker
+struct http_tracker final : public tracker
 {
     http_tracker(std::string host, asio::io_service& ios, const settings& settings);
-    void announce(
-        tracker_request params,
-        std::function<void(const std::error_code&, tracker_response)> handler
-    ) override;
+    void announce(tracker_request params,
+        std::function<void(const std::error_code&, tracker_response)> handler) override;
+    void scrape(std::vector<sha1_hash> info_hashes,
+        std::function<void(const std::error_code&, scrape_response)> handler) override;
     void abort() override;
 };
 
@@ -337,7 +311,7 @@ struct http_tracker : public tracker
  *
  * NOTE: it is NOT thread-safe!
  */
-class udp_tracker : public tracker
+class udp_tracker final : public tracker
 {
     /** Each exchanged message has an action field specifying the message's intent. */
     enum action_t : uint8_t
@@ -386,11 +360,8 @@ class udp_tracker : public tracker
         // passed to socket should be capped).
         fixed_payload<98> payload;
 
-        announce_request(
-            int32_t tid,
-            tracker_request p,
-            std::function<void(const std::error_code&, tracker_response)> h
-        );
+        announce_request(int32_t tid, tracker_request p,
+            std::function<void(const std::error_code&, tracker_response)> h);
 
         void on_error(const std::error_code& error) override { handler(error, {}); }
     };
@@ -409,11 +380,8 @@ class udp_tracker : public tracker
         // Size cannot be fixed because info_hashes is of variable size.
         struct payload payload;
 
-        scrape_request(
-            int32_t tid,
-            std::vector<sha1_hash> i,
-            std::function<void(const std::error_code&, scrape_response)> h
-        );
+        scrape_request(int32_t tid, std::vector<sha1_hash> i,
+            std::function<void(const std::error_code&, scrape_response)> h);
 
         void on_error(const std::error_code& error) override { handler(error, {}); }
     };
@@ -472,15 +440,10 @@ public:
 
     void abort() override;
 
-    void announce(
-        tracker_request params,
-        std::function<void(const std::error_code&, tracker_response)> handler
-    ) override;
-
-    void scrape(
-        std::vector<sha1_hash> info_hashes,
-        std::function<void(const std::error_code&, scrape_response)> handler
-    ) override;
+    void announce(tracker_request params,
+        std::function<void(const std::error_code&, tracker_response)> handler) override;
+    void scrape(std::vector<sha1_hash> info_hashes,
+        std::function<void(const std::error_code&, scrape_response)> handler) override;
 
     udp::endpoint remote_endpoint() const noexcept;
     udp::endpoint local_endpoint() const noexcept;
@@ -535,12 +498,8 @@ private:
      * int32_t transaction_id
      * And action is used to determine which handler is invoked.
      */
-    void on_message_received(
-        const std::error_code& error, const size_t num_bytes_received
-    );
-    void check_receive_postconditions(
-        std::error_code& error, const size_t num_bytes_received
-    );
+    void on_message_received(const std::error_code& error,
+        const size_t num_bytes_received);
 
     /**
      * If multiple torrents announce in quick succession and we have yet to establish
@@ -550,9 +509,8 @@ private:
      * requests are located and continued here.
      */
     void handle_connect_response(request& request, const size_t num_bytes_received);
-    void handle_announce_response(
-        announce_request& request, const size_t num_bytes_received
-    );
+    void handle_announce_response(announce_request& request,
+        const size_t num_bytes_received);
     void handle_scrape_response(scrape_request& request, const size_t num_bytes_received);
     void handle_error_response(request& request, const size_t num_bytes_received);
 
@@ -583,29 +541,52 @@ private:
     static int create_transaction_id();
 };
 
+/**
+ * A tracker may be used by more than a single torrent, but torrents need to record
+ * some state specific to them, so these can't be stored in the tracker. Thus, each
+ * torrent has its own tracker_entry.
+ */
+struct tracker_entry
+{
+    std::shared_ptr<class tracker> tracker;
+
+    // Each tracker announce starts with a 'started' event. Each tracker that received
+    // such a message, must be sent a 'completed' event once the download is done, and
+    // a 'stopped' event when the torrent is gracefully stopped.
+    bool has_sent_started = false;
+    bool has_sent_completed = false;
+    bool has_sent_stopped = false;
+
+    // True when we're either scraping or announcing to tracker.
+    //bool is_busy = false;
+
+    // If torrent's metainfo file supports the announce-list extension, then trackers
+    // are grouped in tiers, and the announce-list is a list of these tiers. This field
+    // denotes the zero-based index of that group in announce-list.
+    uint8_t tier = 0;
+
+    // We should not announce more frequently than every 'interval' seconds, however,
+    // 'completed' and 'stopped' events must be sent regardless of these fields.
+    // min_interval is optional, and it means we must not reannounce more frequently
+    // than this (except in the above cases), not even if user forces a reannounce.
+    seconds interval;
+    seconds min_interval;
+
+    time_point last_announce_time;
+    time_point last_scrape_time;
+
+    // If there was an error with tracker, it will be kept here.
+    std::error_code last_error;
+
+    // The last warning message is stored here.
+    std::string warning_message;
+};
+
 namespace util
 {
-    inline bool is_udp_tracker(string_view url) noexcept
-    {
-        static constexpr char udp[] = "udp://";
-        static constexpr int udp_len = sizeof(udp) - 1;
-        return url.length() >= 3
-            && std::equal(url.begin(), url.begin() + udp_len, udp);
-    }
-
-    inline bool is_http_tracker(string_view url) noexcept
-    {
-        static constexpr char http[] = "http://";
-        static constexpr int http_len = sizeof(http) - 1;
-        return url.length() >= 3
-            && std::equal(url.begin(), url.begin() + http_len, http);
-    }
-}
-
-inline bool tracker::can_announce() const noexcept
-{
-    return cached_clock::now() - last_announce_time() >= announce_interval();
-}
+    bool is_udp_tracker(string_view url) noexcept;
+    bool is_http_tracker(string_view url) noexcept;
+} // namespace util
 
 } // namespace tide
 

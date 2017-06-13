@@ -1,6 +1,7 @@
 #ifndef TORRENT_TORRENT_INFO_HEADER
 #define TORRENT_TORRENT_INFO_HEADER
 
+#include "throughput_rate.hpp"
 #include "file_info.hpp"
 #include "flag_set.hpp"
 #include "settings.hpp"
@@ -43,9 +44,14 @@ struct torrent_info
     // Torrent's name and the name of the root directory if it has more than one file.
     std::string name;
 
-    // The total size of the download, i.e. the sum of all file lengths that we are
-    // downloading.
+    // Latest weighed moving average of payload (piece) upload and download rates.
+    throughput_rate<20> upload_rate;
+    throughput_rate<20> download_rate;
+
+    // The total size of the download and the number of bytes that we're actually
+    // downloading from it.
     int64_t size;
+    int64_t wanted_size;
 
     int piece_length;
     int last_piece_length;
@@ -64,14 +70,6 @@ struct torrent_info
     // Counting the number of times the choking algorithm has been invoked. This is done
     // so that every 3rd time we can run optimistic_unchoke.
     int num_choke_cycles = 0;
-
-    // Latest payload (piece) upload and download rates in bytes/s.
-    int upload_rate = 0;
-    int download_rate = 0;
-
-    // The highest upload and download rate recorded among all connections.
-    int peak_upload_rate = 0;
-    int peak_download_rate = 0;
 
     // The total number of bad pieces in the entire connection.
     int num_hash_fails = 0;
@@ -120,8 +118,9 @@ struct torrent_info
 
     torrent_settings settings;
 
-    enum class state_t : uint8_t
+    enum state_t : uint8_t
     {
+        // If this state is set, no other state may be set. TODO guarantee
         stopped,
         // Torrent's disk space is being allocated, which means that a torrent_storage
         // instance and the directory structure is being created.
@@ -139,6 +138,7 @@ struct torrent_info
     flag_set<state_t, state_t::max> state;
 };
 
+// TODO perhaps make this a torrent_info member function
 inline int get_piece_length(const torrent_info& info, const piece_index_t piece) noexcept
 {
     return piece == info.num_pieces -1

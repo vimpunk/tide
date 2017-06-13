@@ -118,26 +118,18 @@ template<
         reference& operator=(bool x) noexcept
         {
             if(x)
-            {
                 m_flags |= m_mask;
-            }
             else
-            {
                 m_flags &= ~m_mask;
-            }
             return *this;
         }
 
         reference& operator=(const reference& other) noexcept
         {
             if(other)
-            {
                 m_flags |= m_mask;
-            }
             else
-            {
                 m_flags &= ~m_mask;
-            }
             return *this;
         }
 

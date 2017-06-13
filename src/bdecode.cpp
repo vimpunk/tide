@@ -342,11 +342,8 @@ namespace detail
         );
     }
 
-    void format_map(
-        std::stringstream& ss,
-        const bcontainer& map,
-        const btoken* head,
-        int nesting_level)
+    void format_map(std::stringstream& ss, const bcontainer& map,
+        const btoken* head, int nesting_level)
     {
         ss << '{';
         if(!map.head())
@@ -405,11 +402,8 @@ namespace detail
         ss << '}';
     }
 
-    void format_list(
-        std::stringstream& ss,
-        const bcontainer& list,
-        const btoken* head,
-        int nesting_level)
+    void format_list(std::stringstream& ss, const bcontainer& list,
+        const btoken* head, int nesting_level)
     {
         ss << '[';
         if(!list.head())

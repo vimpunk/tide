@@ -30,10 +30,11 @@ namespace detail
     template<typename T>
     constexpr uint32_t hash(const T& t) noexcept
     {
+        constexpr int size = sizeof(T);
         const char* data = reinterpret_cast<const char*>(&t);
         uint32_t hash = 0;
 
-        for(auto i = 0; i < sizeof(T); ++i)
+        for(auto i = 0; i < size; ++i)
         {
             hash += data[i];
             hash += (hash << 10);

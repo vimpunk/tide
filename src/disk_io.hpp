@@ -172,54 +172,34 @@ public:
         std::function<void(const std::error_code&, std::vector<torrent_state>)> handler
     );
 
-    void read_metainfo(
-        const path& path,
-        std::function<void(const std::error_code&, metainfo)> handler
-    );
+    void read_metainfo(const path& path,
+        std::function<void(const std::error_code&, metainfo)> handler);
 
-    void allocate_torrent(
-        std::shared_ptr<torrent_info> info,
-        string_view piece_hashes,
-        std::function<void(const std::error_code&, torrent_storage_handle)> handler
-    );
+    void allocate_torrent(std::shared_ptr<torrent_info> info, string_view piece_hashes,
+        std::function<void(const std::error_code&, torrent_storage_handle)> handler);
 
-    void move_torrent(
-        const torrent_id_t torrent,
-        std::string new_path,
-        std::function<void(const std::error_code&)> handler
-    );
+    void move_torrent(const torrent_id_t torrent, std::string new_path,
+        std::function<void(const std::error_code&)> handler);
 
-    void rename_torrent(
-        const torrent_id_t torrent,
-        std::string name,
-        std::function<void(const std::error_code&)> handler
-    );
+    void rename_torrent(const torrent_id_t torrent, std::string name,
+        std::function<void(const std::error_code&)> handler);
 
     /** Completely removes the torrent (files + metadata). */
-    void erase_torrent_files(
-        const torrent_id_t torrent,
-        std::function<void(const std::error_code&)> handler
-    );
+    void erase_torrent_files(const torrent_id_t torrent,
+        std::function<void(const std::error_code&)> handler);
 
     /**
      * Only erases the torrent's metadata, which is useful when user no longer wants
      * to seed it but wishes to retain the file.
      */
-    void erase_torrent_metadata(
-        const torrent_id_t torrent,
-        std::function<void(const std::error_code&)> handler
-    );
+    void erase_torrent_metadata(const torrent_id_t torrent,
+        std::function<void(const std::error_code&)> handler);
 
-    void save_torrent_state(
-        const torrent_id_t torrent,
-        const torrent_state& state,
-        std::function<void(const std::error_code&)> handler
-    );
+    void save_torrent_state(const torrent_id_t torrent, const torrent_state& state,
+        std::function<void(const std::error_code&)> handler);
 
-    void read_torrent_state(
-        const torrent_id_t torrent,
-        std::function<void(const std::error_code&, torrent_state)> handler
-    );
+    void read_torrent_state(const torrent_id_t torrent,
+        std::function<void(const std::error_code&, torrent_state)> handler);
 
     /**
      * Verifies that all currently downloaded torrents' files are where they should be.
@@ -231,10 +211,8 @@ public:
      * save_block which incrementally hashes a piece with each additional block.
      * The lifetime of data must be ensured until the invocation of the handler.
      */
-    void create_sha1_digest(
-        const_view<uint8_t> data,
-        std::function<void(sha1_hash)> handler
-    );
+    void create_sha1_digest(const_view<uint8_t> data,
+        std::function<void(sha1_hash)> handler);
 
     /**
      * This creates a page aligend disk buffer into which peer_session can receive or
@@ -263,13 +241,10 @@ public:
      * The piece_completion_handler is only stored once per piece, i.e. the handler
      * supplied with the first block in piece that was saved.
      */
-    void save_block(
-        const torrent_id_t torrent,
-        const block_info& block_info,
-        disk_buffer block_data,
+    void save_block(const torrent_id_t torrent,
+        const block_info& block_info, disk_buffer block_data,
         std::function<void(const std::error_code&)> save_handler,
-        std::function<void(bool)> piece_completion_handler
-    );
+        std::function<void(bool)> piece_completion_handler);
 
     /**
      * Requests are queued up and those that ask for pieces that are cached are served
@@ -278,11 +253,8 @@ public:
      * disk read operation, while the others will be queued up and notified when the
      * piece is available.
      */
-    void fetch_block(
-        const torrent_id_t torrent,
-        const block_info& block_info,
-        std::function<void(const std::error_code&, block_source)> handler
-    );
+    void fetch_block(const torrent_id_t torrent, const block_info& block_info,
+        std::function<void(const std::error_code&, block_source)> handler);
 };
 
 } // namespace tide

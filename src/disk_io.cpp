@@ -35,54 +35,44 @@ void disk_io::read_all_torrent_states(
 {
 }
 
-void disk_io::read_metainfo(
-    const path& path, std::function<void(const std::error_code&, metainfo)> handler)
+void disk_io::read_metainfo(const path& path,
+    std::function<void(const std::error_code&, metainfo)> handler)
 {
 }
 
 void disk_io::allocate_torrent(
-    std::shared_ptr<torrent_info> info,
-    string_view piece_hashes,
+    std::shared_ptr<torrent_info> info, string_view piece_hashes,
     std::function<void(const std::error_code&, torrent_storage_handle)> handler)
 {
     //m_torrents.emplace(info->id, torrent_storage(info, piece_hashes));
 }
 
-void disk_io::move_torrent(
-    const torrent_id_t torrent,
-    std::string new_path,
+void disk_io::move_torrent(const torrent_id_t torrent, std::string new_path,
     std::function<void(const std::error_code&)> handler)
 {
 }
 
-void disk_io::rename_torrent(
-    const torrent_id_t torrent,
-    std::string name,
+void disk_io::rename_torrent(const torrent_id_t torrent, std::string name,
     std::function<void(const std::error_code&)> handler)
 {
 }
 
-void disk_io::erase_torrent_files(
-    const torrent_id_t torrent,
+void disk_io::erase_torrent_files(const torrent_id_t torrent,
     std::function<void(const std::error_code&)> handler)
 {
 }
 
-void disk_io::erase_torrent_metadata(
-    const torrent_id_t torrent,
+void disk_io::erase_torrent_metadata(const torrent_id_t torrent,
     std::function<void(const std::error_code&)> handler)
 {
 }
 
-void disk_io::save_torrent_state(
-    const torrent_id_t torrent,
-    const torrent_state& state,
+void disk_io::save_torrent_state(const torrent_id_t torrent, const torrent_state& state,
     std::function<void(const std::error_code&)> handler)
 {
 }
 
-void disk_io::read_torrent_state(
-    const torrent_id_t torrent,
+void disk_io::read_torrent_state(const torrent_id_t torrent,
     std::function<void(const std::error_code&, torrent_state)> handler)
 {
 }
@@ -91,8 +81,7 @@ void disk_io::check_storage_integrity(std::function<void(const std::error_code&)
 {
 }
 
-void disk_io::create_sha1_digest(
-    const_view<uint8_t> data,
+void disk_io::create_sha1_digest(const_view<uint8_t> data,
     std::function<void(sha1_hash)> handler)
 {
 }
@@ -107,10 +96,8 @@ void disk_io::return_write_buffer(disk_buffer buffer)
     m_disk_buffer_pool.free(reinterpret_cast<void*>(buffer.data()));
 }
 
-void disk_io::save_block(
-    const torrent_id_t torrent,
-    const block_info& block_info,
-    disk_buffer block_data,
+void disk_io::save_block(const torrent_id_t torrent,
+    const block_info& block_info, disk_buffer block_data,
     std::function<void(const std::error_code&)> save_handler,
     std::function<void(bool)> piece_completion_handler)
 {
@@ -138,9 +125,7 @@ void disk_io::save_block(
     */
 }
 
-void disk_io::fetch_block(
-    const torrent_id_t torrent,
-    const block_info& block_info,
+void disk_io::fetch_block(const torrent_id_t torrent, const block_info& block_info,
     std::function<void(const std::error_code&, block_source)> handler)
 {
 }

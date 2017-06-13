@@ -14,6 +14,9 @@ enum class peer_session_errc
 {
     unknown = 0,
 
+    // peer_session was stopped by torrent.
+    stopped,
+
     // The info hash sent in the initial handshake was invalid.
     invalid_info_hash,
 

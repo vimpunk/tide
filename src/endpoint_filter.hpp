@@ -10,7 +10,7 @@ class endpoint_filter
 {
 public:
 
-    bool operator()(const tcp::endpoint& ep)
+    bool is_allowed(const tcp::endpoint& ep)
     {
         // TODO
         return true;

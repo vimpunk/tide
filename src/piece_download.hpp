@@ -35,9 +35,9 @@ private:
     struct cancel_candidate
     {
         cancel_handler handler;
-        const peer_id& peer;
+        const peer_id_t& peer;
 
-        cancel_candidate(cancel_handler h, const peer_id& p)
+        cancel_candidate(cancel_handler h, const peer_id_t& p)
             : handler(std::move(h))
             , peer(p)
         {}
@@ -47,7 +47,7 @@ private:
 
     // All peers from whom we've downloaded blocks in this piece are saved so that when
     // a piece is finished downloading each participant can be let know.
-    std::map<peer_id, completion_handler> m_participants;
+    std::map<peer_id_t, completion_handler> m_participants;
 
     // All pending blocks that have timed out and were made free to be downloaded from
     // other peers are placed here.
@@ -80,21 +80,48 @@ private:
     // should move on to another.
     int m_num_blocks_picked = 0;
 
+    // A peer may be disconnected, so it's important not to rely on the current number
+    // of participants to determine whether we downloaded the block from a single peer
+    // or several peers, even if some were disconnected. This is because if we download
+    // from more than a single peer, but then all but one are disconnected, and
+    // if the remaining peer completes the download, it would be marked as the culprit,
+    // even though any one of the other peers may have sent bad data.
+    int m_all_time_num_participants = 0;
+
 public:
 
+    /**
+     * Note that only downloads with the same m_index and m_piece_length can be
+     * assigned to another.
+     */
     piece_download(const piece_index_t index, const int piece_length);
+    piece_download(const piece_download& other);
+    piece_download(piece_download&& other);
+    piece_download& operator=(const piece_download& other);
+    piece_download& operator=(piece_download&& other);
 
     /** Tests whether there are blocks left to request. */
     bool can_request() const noexcept;
 
-    /** Unique download means that the number of participants is one. */
+    /**
+     * Exclusive means that we downloaded this piece from a single peer, even if we
+     * disconnected that peer and detached it from this download since.
+     */
     bool is_exclusive() const noexcept;
-    int num_participants() const noexcept;
-    int num_blocks_left() const noexcept;
-    piece_index_t piece_index() const noexcept;
 
     /** Checks if we already downloaded block. */
     bool has_block(const block_info& block) const noexcept;
+
+    int num_participants() const noexcept;
+    int num_blocks() const noexcept;
+    int num_blocks_left() const noexcept;
+    piece_index_t piece_index() const noexcept;
+
+    /**
+     * Returns the peers that participated in this download and haven't been disconnected
+     * (i.e. removed by remove_peer).
+     */
+    std::vector<peer_id_t> peers() const;
 
     /**
      * When a part of the piece is received, it must be registered. The completion
@@ -104,7 +131,7 @@ public:
      * must propagate the results to other participants of this download.
      */
     void got_block(
-        const peer_id& peer,
+        const peer_id_t& peer,
         const block_info& block,
         completion_handler completion_handler
     );
@@ -114,6 +141,7 @@ public:
      * each participating peer's completion_handler to notify them of the piece's hash
      * test.
      */
+    // alternate name: invoke_completion_handlers
     void post_hash_result(const bool is_piece_good);
 
     /**
@@ -132,7 +160,7 @@ public:
      * NOTE: must not time out the block if peer is the only one that has this piece.
      * This is the caller's responsibility.
      */
-    void time_out(const peer_id& peer, const block_info& block, cancel_handler handler);
+    void time_out(const peer_id_t& peer, const block_info& block, cancel_handler handler);
 
     /**
      * This should be called when it is known that a block requested from a peer is not
@@ -140,14 +168,15 @@ public:
      * in the latter case peer may still decide to serve our requests).
      * This makes sure that the block is immediately freed for others to download.
      */
-    void abort_download(const block_info& block);
+    // TODO rename cancel_request
+    void abort_request(const block_info& block);
     
     /**
      * A peer may be disconnected before the download finishes, so it must be removed
      * on destruction so as not to call its handler, which after destructing would point
      * to invalid memory.
      */
-    void remove_peer(const peer_id& peer);
+    void remove_peer(const peer_id_t& peer);
 
     /** Returns n or less blocks to request. */
     std::vector<block_info> make_request_queue(const int n);
@@ -162,7 +191,7 @@ private:
 
 inline bool piece_download::is_exclusive() const noexcept
 {
-    return num_participants() == 1;
+    return m_all_time_num_participants > 1;
 }
 
 inline int piece_download::num_participants() const noexcept
@@ -173,6 +202,11 @@ inline int piece_download::num_participants() const noexcept
 inline bool piece_download::can_request() const noexcept
 {
     return m_num_blocks_picked < m_completion.size();
+}
+
+inline int piece_download::num_blocks() const noexcept
+{
+    return m_completion.size();
 }
 
 inline int piece_download::num_blocks_left() const noexcept

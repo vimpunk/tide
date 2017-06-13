@@ -115,9 +115,9 @@ public:
         return m_num_bits;
     }
 
-    bt_bitfield& set(const int pos) noexcept
+    bt_bitfield& set(const int bit) noexcept
     {
-        get_block(pos) |= make_bit_mask(pos);
+        get_block(bit) |= make_bit_mask(bit);
         return *this;
     }
 
@@ -128,9 +128,9 @@ public:
         return *this;
     }
 
-    bt_bitfield& reset(const int pos) noexcept
+    bt_bitfield& reset(const int bit) noexcept
     {
-        get_block(pos) &= ~make_bit_mask(pos);
+        get_block(bit) &= ~make_bit_mask(bit);
         return *this;
     }
 
@@ -140,9 +140,9 @@ public:
         return *this;
     }
 
-    bt_bitfield& flip(const int pos) noexcept
+    bt_bitfield& flip(const int bit) noexcept
     {
-        get_block(pos) ^= make_bit_mask(pos);
+        get_block(bit) ^= make_bit_mask(bit);
         return *this;
     }
 
@@ -189,32 +189,32 @@ public:
         return true;
     }
 
-    reference operator[](const int pos) noexcept
+    reference operator[](const int bit) noexcept
     {
-        return reference(get_block(pos), make_bit_mask(pos));
+        return reference(get_block(bit), make_bit_mask(bit));
     }
 
-    const_reference operator[](const int pos) const noexcept
+    const_reference operator[](const int bit) const noexcept
     {
-        return (get_block(pos) & make_bit_mask(pos)) != 0;
+        return (get_block(bit) & make_bit_mask(bit)) != 0;
     }
 
-    reference at(const int pos)
+    reference at(const int bit)
     {
-        if((pos < 0) || (pos >= m_num_bits))
+        if((bit < 0) || (bit >= m_num_bits))
         {
             throw std::out_of_range("bitfield element ouf of range");
         }
-        return operator[](pos);
+        return operator[](bit);
     }
 
-    const_reference at(const int pos) const
+    const_reference at(const int bit) const
     {
-        if((pos < 0) || (pos >= m_num_bits))
+        if((bit < 0) || (bit >= m_num_bits))
         {
             throw std::out_of_range("bitfield element ouf of range");
         }
-        return operator[](pos);
+        return operator[](bit);
     }
 
     const_iterator begin() const noexcept
@@ -352,34 +352,34 @@ private:
         return std::ceil(double(num_bits) / bits_per_block());
     }
 
-    block_type& get_block(const int pos) noexcept
+    block_type& get_block(const int bit) noexcept
     {
-        return m_blocks[block_index(pos)];
+        return m_blocks[block_index(bit)];
     }
 
-    const block_type& get_block(const int pos) const noexcept
+    const block_type& get_block(const int bit) const noexcept
     {
-        assert(pos < size());
-        return m_blocks[block_index(pos)];
+        assert(bit < size());
+        return m_blocks[block_index(bit)];
     }
 
-    static constexpr int block_index(const int pos) noexcept
+    static constexpr int block_index(const int bit) noexcept
     {
-        return pos / bits_per_block();
+        return bit / bits_per_block();
     }
 
-    static constexpr block_type make_bit_mask(const int pos) noexcept
+    static constexpr block_type make_bit_mask(const int bit) noexcept
     {
         // note that because of BitTorrent the least significant bit is on the left side
         // rather than on the right (as is the case with traditional bit layouts), so
         // shifting is a bit more involved
-        const auto shift = bits_per_block() - bit_index(pos) - 1;
+        const auto shift = bits_per_block() - bit_index(bit) - 1;
         return 1 << shift;
     }
 
-    static constexpr size_type bit_index(const int pos) noexcept
+    static constexpr size_type bit_index(const int bit) noexcept
     {
-        return pos % bits_per_block();
+        return bit % bits_per_block();
     }
 
     void clear_unused_bits() noexcept
@@ -515,45 +515,45 @@ public:
     class const_iterator
     {
         const bt_bitfield* m_bitfield;
-        size_type m_pos;
+        size_type m_bit;
 
     public:
 
         using iterator_category = std::random_access_iterator_tag;
 
-        const_iterator(const bt_bitfield& bitfield, size_type pos = 0)
+        const_iterator(const bt_bitfield& bitfield, size_type bit = 0)
             : m_bitfield(&bitfield)
-            , m_pos(pos)
+            , m_bit(bit)
         {}
 
         const_reference operator*()
         {
-            return (*m_bitfield)[m_pos];
+            return (*m_bitfield)[m_bit];
         }
 
         const_iterator& operator++()
         {
-            ++m_pos;
+            ++m_bit;
             return *this;
         }
 
         const_iterator operator++(int)
         {
             auto tmp(*this);
-            ++m_pos;
+            ++m_bit;
             return tmp;
         }
 
         const_iterator& operator--()
         {
-            --m_pos;
+            --m_bit;
             return *this;
         }
 
         const_iterator operator--(int)
         {
             auto tmp(*this);
-            --m_pos;
+            --m_bit;
             return tmp;
         }
 
@@ -573,24 +573,24 @@ public:
 
         const_iterator& operator+=(const size_type n)
         {
-            m_pos += n;
+            m_bit += n;
             return *this;
         }
 
         const_iterator& operator-=(const size_type n)
         {
-            m_pos -= n;
+            m_bit -= n;
             return *this;
         }
 
         difference_type operator-(const_iterator other) noexcept
         {
-            return m_pos - other.m_pos;
+            return m_bit - other.m_bit;
         }
 
         friend bool operator==(const const_iterator& a, const const_iterator& b) noexcept
         {
-            return (a.m_bitfield == b.m_bitfield) && (a.m_pos == b.m_pos);
+            return (a.m_bitfield == b.m_bitfield) && (a.m_bit == b.m_bit);
         }
 
         friend bool operator!=(const const_iterator& a, const const_iterator& b) noexcept

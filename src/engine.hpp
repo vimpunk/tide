@@ -1,6 +1,7 @@
 #ifndef TORRENT_ENGINE_HEADER
 #define TORRENT_ENGINE_HEADER
 
+#include "event_channel.hpp"
 #include "torrent_handle.hpp"
 #include "torrent_args.hpp"
 #include "settings.hpp"
@@ -40,6 +41,12 @@ class engine
 
     // Rules may be applied for filtering specific IP addresses and ports.
     endpoint_filter m_endpoint_filter;
+    
+    // Internal entities within tide::engine communicate with user asynchronously via
+    // this event channel. This is done by accumulating events (stats, alerts, async
+    // op results etc) and user periodically, at their own convenience, query for the
+    // latest queue of events. thread-safe.
+    event_channel m_event_channel;
 
     // All active and inactive torrents are stored here.
     std::unordered_map<torrent_id_t, torrent> m_torrents;
@@ -70,6 +77,11 @@ class engine
     // user does not have to handle thread synchronization. All torrents must be created
     // on the network thread so that all its operations execute there.
     std::thread m_network_thread;
+
+    // Since the engine uses system time extensively, the time returend by the system
+    // is cached and only updated every 100ms, which should save some costs and most
+    // components don't need a higher resolution that this.
+    deadline_timer m_cached_clock_updater;
 
 public:
 
@@ -163,11 +175,11 @@ private:
      * If any of torrent's trackers are already present in m_trackers, those are
      * returned, and any that is not is created, added to m_trackers and returned.
      * The trackers in announce-list come first, in the order they were specified, then,
-     * if the traditional tracker is not in the announce-list (which is a common
+     * if the traditional tracker is not in the announce-list (which is an uncommon
      * scenario), it is added last, as these are rarely used if an announce-list is
      * present.
      */
-    std::vector<std::shared_ptr<tracker>> get_trackers(const metainfo& metainfo);
+    std::vector<tracker_entry> get_trackers(const metainfo& metainfo);
     bool has_tracker(string_view url) const noexcept;
 
     /**

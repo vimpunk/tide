@@ -155,8 +155,7 @@ namespace util
     template<typename T, typename U> struct is_same
     {
         static constexpr bool value = std::is_same<
-            typename std::decay<T>::type,
-            typename std::decay<U>::type
+            typename std::decay<T>::type, typename std::decay<U>::type
         >::value;
     };
 } // namespace util

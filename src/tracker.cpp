@@ -101,9 +101,7 @@ void tracker::log(const log_event event, const std::string& format, Args&&... ar
 // -- udp tracker --
 // -----------------
 
-udp_tracker::announce_request::announce_request(
-    int32_t tid,
-    tracker_request p,
+udp_tracker::announce_request::announce_request(int32_t tid, tracker_request p,
     std::function<void(const std::error_code&, tracker_response)> h
 )
     : request(tid)
@@ -111,9 +109,7 @@ udp_tracker::announce_request::announce_request(
     , handler(std::move(h))
 {}
 
-udp_tracker::scrape_request::scrape_request(
-    int32_t tid,
-    std::vector<sha1_hash> i,
+udp_tracker::scrape_request::scrape_request(int32_t tid, std::vector<sha1_hash> i,
     std::function<void(const std::error_code&, scrape_response)> h
 )
     : request(tid)
@@ -121,10 +117,8 @@ udp_tracker::scrape_request::scrape_request(
     , handler(std::move(h))
 {}
 
-udp_tracker::udp_tracker(
-    const std::string& url,
-    asio::io_service& ios,
-    const settings& settings
+udp_tracker::udp_tracker(const std::string& url,
+    asio::io_service& ios, const settings& settings
 )
     : tracker(util::strip_protocol_identifier(url), ios, settings)
     , m_socket(ios)
@@ -133,10 +127,7 @@ udp_tracker::udp_tracker(
     m_resolver.async_resolve(
         udp::resolver::query(udp::v4(), util::extract_host(url), ""),
         [this](const std::error_code& error, udp::resolver::iterator it)
-        {
-            on_host_resolved(error, it);
-        }
-    );
+        { on_host_resolved(error, it); });
 }
 
 void udp_tracker::on_host_resolved(
@@ -155,10 +146,9 @@ void udp_tracker::on_host_resolved(
     assert(it != udp::resolver::iterator());
     udp::endpoint ep(*it);
     ep.port(util::extract_port(m_url));
-    log(log_event::connecting,
-        "tracker (%s) resolved to: %s:%i",
-        m_url.c_str(), ep.address().to_string().c_str(), ep.port()
-    );
+    log(log_event::connecting, "tracker (%s) resolved to: %s:%i",
+        m_url.c_str(), ep.address().to_string().c_str(), ep.port());
+
     std::error_code ec;
     // connect also opens socket
     m_socket.connect(ep, ec);
@@ -195,28 +185,23 @@ udp::endpoint udp_tracker::local_endpoint() const noexcept
     return m_socket.local_endpoint();
 }
 
-void udp_tracker::announce(
-    tracker_request params,
+void udp_tracker::announce(tracker_request params,
     std::function<void(const std::error_code&, tracker_response)> handler)
 {
     if(!m_is_aborted)
     {
-        execute_request(
-            create_request_entry<announce_request>(
+        execute_request(create_request_entry<announce_request>(
                 std::move(params), std::move(handler)),
-            [this](announce_request& r) { send_announce_request(r); }
-        );
+            [this](announce_request& r) { send_announce_request(r); });
     }
 }
 
-void udp_tracker::scrape(
-    std::vector<sha1_hash> info_hashes,
+void udp_tracker::scrape(std::vector<sha1_hash> info_hashes,
     std::function<void(const std::error_code&, scrape_response)> handler)
 {
     if(!m_is_aborted)
     {
-        execute_request(
-            create_request_entry<scrape_request>(
+        execute_request(create_request_entry<scrape_request>(
                 std::move(info_hashes), std::move(handler)),
             [this](scrape_request& r) { send_scrape_request(r); }
         );
@@ -321,10 +306,8 @@ inline void udp_tracker::handle_connect_response(
     m_state = state_t::connected;
     m_last_connect_time = cached_clock::now();
     m_connection_id = endian::parse<int64_t>(m_receive_buffer->data() + 8);
-    log(log_event::incoming,
-        "received CONNECT (trans_id: %i, conn.id: %i)",
-        request.transaction_id, m_connection_id
-    );
+    log(log_event::incoming, "received CONNECT (trans_id: %i, conn.id: %i)",
+        request.transaction_id, m_connection_id);
     // continue requests that were stalled because we weren't connected yet
     resume_stalled_requests();
 }
@@ -398,8 +381,7 @@ void udp_tracker::send_announce_request(announce_request& request)
         " left: %lli; up: %lli; event: %s; num_want: %i; port: %i)",
         request.transaction_id, params.info_hash.data(), params.client_id.data(),
         params.downloaded, params.left, params.uploaded,
-        event_to_string(params.event).c_str(), params.num_want, params.port
-    );
+        event_to_string(params.event).c_str(), params.num_want, params.port);
     request.payload.clear();
     request.payload
         .i64(m_connection_id)
@@ -467,8 +449,7 @@ inline void udp_tracker::handle_announce_response(
         "received ANNOUNCE (trans_id: %i; interval: %i; num_leechers: %i;"
         " num_seeders: %i; num_peers: %i)",
         request.transaction_id, response.interval, response.num_leechers,
-        response.num_seeders, num_peers
-    );
+        response.num_seeders, num_peers);
 
     m_requests.erase(request.transaction_id);
     handler({}, std::move(response));
@@ -504,22 +485,15 @@ template<typename Request>
 void udp_tracker::send_message(Request& request, const size_t num_bytes_to_send)
 {
     assert(m_socket.is_open());
-    log(log_event::outgoing,
-        "sending %i bytes (trans_id: %i)",
-        num_bytes_to_send,
-        request.transaction_id
-    );
-    m_socket.async_send(
-        asio::buffer(request.payload.data, num_bytes_to_send),
+    log(log_event::outgoing, "sending %i bytes (trans_id: %i)",
+        num_bytes_to_send, request.transaction_id);
+    m_socket.async_send(asio::buffer(request.payload.data, num_bytes_to_send),
         [this, &request](const std::error_code& error, size_t num_bytes_sent)
-        {
-            on_message_sent(request, error, num_bytes_sent);
-        }
-    );
+        { on_message_sent(request, error, num_bytes_sent); });
 }
 
-inline void udp_tracker::on_message_sent(
-    request& request, const std::error_code& error, const size_t num_bytes_sent)
+inline void udp_tracker::on_message_sent(request& request,
+    const std::error_code& error, const size_t num_bytes_sent)
 {
     if(error)
     {
@@ -529,11 +503,8 @@ inline void udp_tracker::on_message_sent(
         return;
     }
 
-    log(log_event::outgoing,
-        "sent %i bytes (trans_id: %i)",
-        num_bytes_sent,
-        request.transaction_id
-    );
+    log(log_event::outgoing, "sent %i bytes (trans_id: %i)",
+        num_bytes_sent, request.transaction_id);
 
     switch(request.action)
     {
@@ -545,8 +516,7 @@ inline void udp_tracker::on_message_sent(
         break;
     case action_t::scrape_1:
         assert(num_bytes_sent == 16 + 20 *
-            std::min(int(static_cast<scrape_request&>(request).info_hashes.size()), 74)
-        );
+            std::min(int(static_cast<scrape_request&>(request).info_hashes.size()), 74));
         break;
     }
 }
@@ -565,17 +535,12 @@ inline void udp_tracker::receive_message()
         m_receive_buffer = std::make_unique<std::array<uint8_t, 1500>>();
     }
     m_is_receiving = true;
-    m_socket.async_receive(
-        asio::buffer(*m_receive_buffer, m_receive_buffer->max_size()),
+    m_socket.async_receive(asio::buffer(*m_receive_buffer, m_receive_buffer->max_size()),
         [this](const std::error_code& error, size_t num_bytes_received)
-        {
-            on_message_received(error, num_bytes_received);
-        }
-    );
+        { on_message_received(error, num_bytes_received); });
     m_timeout_timer.expires_from_now(m_settings.tracker_timeout);
     m_timeout_timer.async_wait(
-        [this](const std::error_code& error) { handle_timeout(error); }
-    );
+        [this](const std::error_code& error) { handle_timeout(error); });
 }
 
 inline void udp_tracker::on_message_received(
@@ -639,10 +604,8 @@ inline void udp_tracker::on_message_received(
         receive_message();
         return;
     }
-    log(log_event::incoming,
-        "received %i bytes (trans_id: %i; action: %i)",
-        num_bytes_received, request.transaction_id, raw_action
-    );
+    log(log_event::incoming, "received %i bytes (trans_id: %i; action: %i)",
+        num_bytes_received, request.transaction_id, raw_action);
 
     switch(request.action)
     {
@@ -651,9 +614,7 @@ inline void udp_tracker::on_message_received(
         break;
     case action_t::announce_1:
         handle_announce_response(
-            static_cast<announce_request&>(request),
-            num_bytes_received
-        );
+            static_cast<announce_request&>(request), num_bytes_received);
         receive_message();
         break;
     case action_t::scrape_1:
@@ -665,11 +626,6 @@ inline void udp_tracker::on_message_received(
         receive_message();
         break;
     }
-}
-
-inline void udp_tracker::check_receive_postconditions(
-    std::error_code& error, const size_t num_bytes_received)
-{
 }
 
 /**
@@ -690,20 +646,16 @@ inline void udp_tracker::handle_error_response(
     {
         tracker_response r;
         r.failure_reason = std::string(buffer, buffer + error_msg_len);
-        log(log_event::incoming,
-            "received announce ERROR (trans_id: %i; error_msg: %s)",
-            request.transaction_id, r.failure_reason.c_str()
-        );
+        log(log_event::incoming, "received announce ERROR (trans_id: %i; error_msg: %s)",
+            request.transaction_id, r.failure_reason.c_str());
         static_cast<announce_request&>(request).handler({}, std::move(r));
     }
     else
     {
         scrape_response r;
         r.failure_reason = std::string(buffer, buffer + error_msg_len);
-        log(log_event::incoming,
-            "received scrape ERROR (trans_id: %i; error_msg: %s)",
-            request.transaction_id, r.failure_reason.c_str()
-        );
+        log(log_event::incoming, "received scrape ERROR (trans_id: %i; error_msg: %s)",
+            request.transaction_id, r.failure_reason.c_str());
         static_cast<scrape_request&>(request).handler({}, std::move(r));
     }
     m_requests.erase(request.transaction_id);
@@ -758,7 +710,7 @@ tracker_request_builder& tracker_request_builder::info_hash(sha1_hash info_hash)
     return *this;
 }
 
-tracker_request_builder& tracker_request_builder::client_id(peer_id client_id)
+tracker_request_builder& tracker_request_builder::client_id(peer_id_t client_id)
 {
     m_request.client_id = client_id;
     ++m_required_param_counter;
@@ -856,4 +808,22 @@ tracker_request tracker_request_builder::build()
     return m_request;
 }
 
+namespace util
+{
+    bool is_udp_tracker(string_view url) noexcept
+    {
+        static constexpr char udp[] = "udp://";
+        static constexpr int udp_len = sizeof(udp) - 1;
+        return url.length() >= 3
+            && std::equal(url.begin(), url.begin() + udp_len, udp);
+    }
+
+    bool is_http_tracker(string_view url) noexcept
+    {
+        static constexpr char http[] = "http://";
+        static constexpr int http_len = sizeof(http) - 1;
+        return url.length() >= 3
+            && std::equal(url.begin(), url.begin() + http_len, http);
+    }
+} // namespace util
 } // namespace tide

@@ -23,6 +23,8 @@ struct block_info
     {}
 };
 
+static const block_info invalid_block(-1, -1, -1);
+
 inline bool operator==(const block_info& a, const block_info& b) noexcept
 {
     return a.index == b.index

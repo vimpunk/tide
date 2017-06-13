@@ -79,10 +79,7 @@ private:
 
         group(type_t type) : m_type(type) {}
 
-        bool is_empty() const noexcept
-        {
-            return m_pieces.empty();
-        }
+        bool is_empty() const noexcept { return m_pieces.empty(); }
 
         bool is_complete() const noexcept
         {
@@ -91,40 +88,15 @@ private:
             return !is_empty() && (m_pieces.cbegin()->frequency > 0);
         }
 
-        type_t type() const noexcept
-        {
-            return m_type;
-        }
+        type_t type() const noexcept { return m_type; }
 
-        piece_iterator begin() noexcept
-        {
-            return m_pieces.begin();
-        }
+        piece_iterator begin() noexcept { return m_pieces.begin(); }
+        const_piece_iterator begin() const noexcept { return m_pieces.cbegin(); }
+        const_piece_iterator cbegin() const noexcept { return m_pieces.cbegin(); }
 
-        const_piece_iterator begin() const noexcept
-        {
-            return m_pieces.cbegin();
-        }
-
-        const_piece_iterator cbegin() const noexcept
-        {
-            return m_pieces.cbegin();
-        }
-
-        piece_iterator end() noexcept
-        {
-            return m_pieces.end();
-        }
-
-        const_piece_iterator end() const noexcept
-        {
-            return m_pieces.cend();
-        }
-
-        const_piece_iterator cend() const noexcept
-        {
-            return m_pieces.cend();
-        }
+        piece_iterator end() noexcept { return m_pieces.end(); }
+        const_piece_iterator end() const noexcept { return m_pieces.cend(); }
+        const_piece_iterator cend() const noexcept { return m_pieces.cend(); }
 
         template<typename... Args>
         piece_iterator emplace(Args&&... args)
@@ -181,20 +153,14 @@ private:
             , piece(g->emplace(piece, frequency))
         {}
 
-        bool is_owner_group_complete() const noexcept
-        {
-            return group->is_complete();
-        }
-
         bool is_priority() const noexcept
         {
             return group->type() != group::type_t::normal;
         }
 
-        int frequency() const noexcept
-        {
-            return piece->frequency;
-        }
+        bool is_owner_group_complete() const noexcept { return group->is_complete(); }
+
+        int frequency() const noexcept { return piece->frequency; }
 
         void increase_frequency()
         {
@@ -209,8 +175,10 @@ private:
 
     // For O(1) access by piece index.
     std::vector<piece_entry> m_piece_map;
+
     // For iteration by priority (high -> low) and frequency (low -> high) order.
     groups m_groups;
+
     // This is the group into which all pieces are placed be default, and will persist
     // throughout the lifetime of the tracker, while priority groups last only as long
     // as there are piece indices in them.
@@ -392,25 +360,26 @@ public:
         return *m_piece_map[index].piece;
     }
 
-    std::string debug_str() const
+    std::string to_string() const
     {
         std::ostringstream ss;
         int n = 0;
         for(const auto& group : m_groups)
         {
             ss << "group#" << ++n << " ("
-              << (group.type() == group::type_t::normal
+               << (group.type() == group::type_t::normal
                     ? "default"
                     : (group.type() == group::type_t::priority
                         ? "priority"
                         : "top priority"))
-              << "): [";
+               << "): [";
             for(const auto& piece : group)
             {
                 ss << " {" << piece.index << ":" << piece.frequency << '}';
             }
             ss << " ]\n";
         }
+        return ss.str();
     }
 
 private:
@@ -726,15 +695,17 @@ public:
 // ------------------
 
 piece_picker::piece_picker(int num_pieces)
-    : m_my_bitfield(num_pieces)
+    : m_downloaded_pieces(num_pieces)
+    , m_wanted_pieces(num_pieces, true)
     , m_num_pieces_left(num_pieces)
     , m_piece_tracker(new piece_tracker(num_pieces))
 {}
 
 piece_picker::piece_picker(bt_bitfield available_pieces)
-    : m_my_bitfield(std::move(available_pieces))
-    , m_num_pieces_left(m_my_bitfield.size())
-    , m_piece_tracker(new piece_tracker(m_my_bitfield.size()))
+    : m_downloaded_pieces(std::move(available_pieces))
+    , m_wanted_pieces(m_downloaded_pieces.size(), true)
+    , m_num_pieces_left(m_downloaded_pieces.size())
+    , m_piece_tracker(new piece_tracker(m_downloaded_pieces.size()))
 {}
 
 // DO NOT DELETE THIS.
@@ -938,7 +909,7 @@ void piece_picker::unreserve(const piece_index_t piece)
 
 void piece_picker::got(const piece_index_t piece)
 {
-    m_my_bitfield.set(piece);
+    m_downloaded_pieces.set(piece);
     unreserve(piece);
     --m_num_pieces_left;
     assert(m_num_pieces_left >= 0);
@@ -946,7 +917,7 @@ void piece_picker::got(const piece_index_t piece)
 
 void piece_picker::lost(const piece_index_t piece)
 {
-    m_my_bitfield.reset(piece);
+    m_downloaded_pieces.reset(piece);
     ++m_num_pieces_left;
 }
 
@@ -954,7 +925,7 @@ void piece_picker::lost(const std::vector<piece_index_t>& pieces)
 {
     for(const auto piece : pieces)
     {
-        m_my_bitfield.reset(piece);
+        m_downloaded_pieces.reset(piece);
     }
     m_num_pieces_left += pieces.size();
 }
@@ -974,7 +945,7 @@ void piece_picker::clear_priority(interval interval)
     m_piece_tracker->clear_priority(interval);
 }
 
-bool piece_picker::am_interested_in(const bt_bitfield& available_pieces) const
+bool piece_picker::am_interested_in(const bt_bitfield& available_pieces) const noexcept
 {
     // cases to consider
     // -----------------
@@ -985,12 +956,22 @@ bool piece_picker::am_interested_in(const bt_bitfield& available_pieces) const
     // we're interested if the union of peer's and my available_pieces are disparate from
     // my available_pieces, because then peer has pieces we don't
     // TODO optimize this
-    return (available_pieces | m_my_bitfield) != m_my_bitfield;
+    //return (available_pieces | m_downloaded_pieces) != m_downloaded_pieces;
+
+    // we're interested in peer if it has at least one piece that we don't have but want
+    for(const bool p : available_pieces)
+    {
+        if(p && !m_downloaded_pieces[p] && m_wanted_pieces[p])
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
-std::string piece_picker::debug_str() const
+std::string piece_picker::to_string() const
 {
-    return m_piece_tracker->debug_str();
+    return m_piece_tracker->to_string();
 }
 
 template<typename Piece>
@@ -1003,7 +984,9 @@ bool piece_picker::should_pick(
 inline bool piece_picker::should_download_piece(
     const bt_bitfield& available_pieces, const piece_index_t piece) const
 {
-    return !m_my_bitfield[piece] && available_pieces[piece];
+    return !m_downloaded_pieces[piece]
+        && m_wanted_pieces[piece]
+        && available_pieces[piece];
 }
 
 } // namespace tide

@@ -17,7 +17,7 @@ using piece_index_t = int32_t;
 using torrent_id_t = int;
 
 using sha1_hash = std::array<uint8_t, 20>;
-using peer_id = sha1_hash;
+using peer_id_t = sha1_hash;
 
 } // namespace tide
 

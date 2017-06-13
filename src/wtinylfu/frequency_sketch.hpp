@@ -42,9 +42,7 @@
  * The white paper:
  * http://dimacs.rutgers.edu/~graham/pubs/papers/cm-full.pdf
  */
-template<
-    typename T
-> class frequency_sketch
+template<typename T> class frequency_sketch
 {
     // Holds 64 bit blocks, each of which holds sixteen 4 bit counters. For simplicity's
     // sake, the 64 bit blocks are partitioned into four 16 bit sub-blocks, and the four
@@ -74,10 +72,10 @@ public:
 
     bool has(const T& t) const noexcept
     {
-        return get_frequency(t) > 0;
+        return frequency(t) > 0;
     }
 
-    int get_frequency(const T& t) const noexcept
+    int frequency(const T& t) const noexcept
     {
         const uint32_t hash = detail::hash(t);
         int frequency = std::numeric_limits<int>::max();
@@ -100,7 +98,7 @@ public:
             was_added |= try_increment_counter_at(hash, i);
         }
 
-        if(was_added && (++m_size == get_sampling_size()))
+        if(was_added && (++m_size == sampling_size()))
         {
             reset();
         }
@@ -110,8 +108,8 @@ protected:
 
     int get_count(const uint32_t hash, const int counter_index) const noexcept
     {
-        const int index = get_table_index(hash, counter_index);
-        const int offset = get_counter_offset(hash, counter_index);
+        const int index = table_index(hash, counter_index);
+        const int offset = counter_offset(hash, counter_index);
         return (m_table[index] >> offset) & 0xfL;
     }
 
@@ -120,7 +118,7 @@ protected:
      * $counter_index resides (since each item is mapped to four different counters in
      * $m_table, an index is necessary to differentiate between each).
      */
-    int get_table_index(const uint32_t hash, const int counter_index) const noexcept
+    int table_index(const uint32_t hash, const int counter_index) const noexcept
     {
         static constexpr uint64_t seeds[] = {
             0xc3a5c85c97cb3127L,
@@ -128,7 +126,6 @@ protected:
             0x9ae16a3b2f90404fL,
             0xcbf29ce484222325L
         };
-
         uint64_t h = seeds[counter_index] * hash;
         h += h >> 32;
         return h & (m_table.size() - 1);
@@ -140,11 +137,11 @@ protected:
      */
     bool try_increment_counter_at(const uint32_t hash, const int counter_index)
     {
-        const int table_index = get_table_index(hash, counter_index);
-        const int offset = get_counter_offset(hash, counter_index);
-        if(can_increment_counter_at(table_index, offset))
+        const int index = table_index(hash, counter_index);
+        const int offset = counter_offset(hash, counter_index);
+        if(can_increment_counter_at(index, offset))
         {
-            m_table[table_index] += 1L << offset;
+            m_table[index] += 1L << offset;
             return true;
         }
         return false;
@@ -157,9 +154,9 @@ protected:
      * associated with $hash.
      * Offset may be [0, 60] and is a multiple of 4. $counter_index must be [0, 3].
      */
-    int get_counter_offset(const uint32_t hash, const int counter_index) const noexcept
+    int counter_offset(const uint32_t hash, const int counter_index) const noexcept
     {
-        return (get_offset_multiplier(hash) + counter_index) << 2;
+        return (offset_multiplier(hash) + counter_index) << 2;
     }
 
     /**
@@ -174,7 +171,7 @@ protected:
      *
      * The return value may be 0, 4, 8 or 12.
      */
-    int get_offset_multiplier(const uint32_t hash) const noexcept
+    int offset_multiplier(const uint32_t hash) const noexcept
     {
         return (hash & 3) << 2;
     }
@@ -203,7 +200,7 @@ protected:
      * The reset operation is launched when $m_size reaches the value returned by this
      * function.
      */
-    int get_sampling_size() const noexcept
+    int sampling_size() const noexcept
     {
         return m_table.size() * 10;
     }

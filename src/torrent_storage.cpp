@@ -158,8 +158,7 @@ std::vector<mmap_source> torrent_storage::create_mmap_source(
             return slice.length;
         },
         info,
-        error
-    );
+        error);
     return mmaps;
 }
 
@@ -198,8 +197,7 @@ std::vector<mmap_sink> torrent_storage::create_mmap_sink(
             * /
         },
         info,
-        error
-    );
+        error);
     return mmaps;
 }
 */
@@ -228,8 +226,7 @@ void torrent_storage::read(
             return num_read;
         },
         info,
-        error
-    );
+        error);
 }
 
 void torrent_storage::read(
@@ -275,8 +272,7 @@ void torrent_storage::write(
             return num_written;
         },
         info,
-        error
-    );
+        error);
 }
 
 void torrent_storage::write(

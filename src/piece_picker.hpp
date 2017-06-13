@@ -12,7 +12,16 @@ namespace tide {
 
 class piece_picker
 {
-    bt_bitfield m_my_bitfield;
+    // Records all the pieces that we have downloaded so far.
+    bt_bitfield m_downloaded_pieces;
+
+    // And this keeps track of all the pieces that we want to download. By default this
+    // is all set, but user may request to download only part of the torrent.
+    bt_bitfield m_wanted_pieces;
+
+    // This is the number of pieces that we still need to download and want, i.e. pieces
+    // corresponding to the bit positions in m_wanted_pieces.
+    // TODO this has not been updated for the new wanted_pieces logic
     int m_num_pieces_left;
 
     // Tracks each piece in the peer swarm and orders them by priority and frequency.
@@ -31,15 +40,15 @@ public:
      * Called to determine whether client is interested in peer according to the
      * pieces it has, the ones we have and the availability in the swarm.
      */
-    bool am_interested_in(const bt_bitfield& available_pieces) const;
+    bool am_interested_in(const bt_bitfield& available_pieces) const noexcept;
     bool has_no_pieces() const noexcept;
     bool has_all_pieces() const noexcept;
 
     /** Returns the total number of pieces in this torrent (== my_bitfield().size()). */
     int num_pieces() const noexcept;
     const bt_bitfield& my_bitfield() const noexcept;
-
-    const bt_bitfield& my_available_pieces() const noexcept;
+    // TODO rename above to:
+    //const bt_bitfield& my_available_pieces() const noexcept;
 
     /** Index corresponds to piece index, and the value at index is the frequency. */
     std::vector<int> piece_availability() const;
@@ -107,6 +116,15 @@ public:
     void lost(const std::vector<piece_index_t>& pieces);
 
     /**
+     * TODO
+     */
+    void set_wanted_pieces(bt_bitfield wanted_pieces);
+    void want_piece(const piece_index_t piece);
+    void want_pieces(const interval pieces);
+    void dont_want_piece(const piece_index_t piece);
+    void dont_want_pieces(const interval pieces);
+
+    /**
      * Places pieces at the beginning of the to-download-next queue, regardless whether
      * they're fully available.
      */
@@ -133,7 +151,11 @@ public:
     void clear_priority(const piece_index_t begin, const piece_index_t end);
     void clear_priority(interval interval);
 
-    std::string debug_str() const;
+    /**
+     * Used only for debugging, returns a beautified string of the pieces, ordered by
+     * priority groups and by frequency.
+     */
+    std::string to_string() const;
 
 private:
 
@@ -149,7 +171,7 @@ private:
 
 inline int piece_picker::num_pieces() const noexcept
 {
-    return m_my_bitfield.size();
+    return m_downloaded_pieces.size();
 }
 
 inline
@@ -172,7 +194,7 @@ void piece_picker::clear_priority(const piece_index_t begin, const piece_index_t
 
 inline const bt_bitfield& piece_picker::my_bitfield() const noexcept
 {
-    return m_my_bitfield;
+    return m_downloaded_pieces;
 }
 
 inline bool piece_picker::has_no_pieces() const noexcept
@@ -183,6 +205,39 @@ inline bool piece_picker::has_no_pieces() const noexcept
 inline bool piece_picker::has_all_pieces() const noexcept
 {
     return m_num_pieces_left == 0;
+}
+
+inline void piece_picker::set_wanted_pieces(bt_bitfield wanted_pieces)
+{
+    assert(wanted_pieces.size() == m_downloaded_pieces.size());
+    m_wanted_pieces = std::move(wanted_pieces);
+}
+
+inline void piece_picker::want_piece(const piece_index_t piece)
+{
+    assert(piece >= 0 && piece < num_pieces());
+    m_wanted_pieces.set(piece);
+}
+
+inline void piece_picker::want_pieces(const interval pieces)
+{
+    for(auto i = pieces.begin; i < pieces.end; ++i)
+    {
+        want_piece(i);
+    }
+}
+
+inline void piece_picker::dont_want_piece(const piece_index_t piece)
+{
+    m_wanted_pieces.reset(piece);
+}
+
+inline void piece_picker::dont_want_pieces(const interval pieces)
+{
+    for(auto i = pieces.begin; i < pieces.end; ++i)
+    {
+        dont_want_piece(i);
+    }
 }
 
 } // namespace tide

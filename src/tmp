@@ -1,0 +1,14 @@
+
+    // Each tracker should be sent an event=started message, so even if the torrent has
+    // sent such a message to another tracker, but has since transitioned to this
+    // tracker, the started event will be automatically set.
+    bool m_was_start_sent = false;
+
+
+    /**
+     * Can also be used to test if we've contacted tracker at all. This is imporant if
+     * torrent is gracefully shutting down, it tells tracker that we're leaving the
+     * swarm; or when torrent becomes a seeder an event_t::completed shall be sent to
+     * each tracker to which torrent announced.
+     */
+    bool was_start_event_sent() const noexcept { return m_was_start_sent; }

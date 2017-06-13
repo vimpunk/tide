@@ -35,7 +35,7 @@ struct engine_settings
     bool discard_piece_picker_on_completion = true;
 
     // TODO desc.
-    bool prioritize_udp_trackers = true;
+    bool prefer_udp_trackers = true;
 
     // The initial port to which the torrent engine will attempt to bind. If met with
     // failure or no port is specified, it falls back to the OS provided random port.
@@ -160,7 +160,7 @@ struct peer_session_settings
     // The client's name and version should come here. This will be used when contacting
     // trackers and when interacting with peers that support the extension.
     // It is 20 bytes long.
-    peer_id client_id;
+    peer_id_t client_id;
 
     // The number of seconds we should wait for a peer (regardless of the last sent
     // message type) before concluding it to have timed out and closing the connection.

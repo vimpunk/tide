@@ -15,6 +15,8 @@ enum class disk_io_errc
     tried_unwanted_file_write,
     tried_unallocated_file_read,
     tried_unallocated_file_write,
+    // Used when we abort a block read.
+    operation_aborted
 };
 
 inline bool operator==(const disk_io_errc e, const int i) noexcept

@@ -19,8 +19,7 @@ void send_buffer::append(const block_source& block)
     {
         m_size += chunk.length();
         m_buffers.emplace_back(
-            std::make_unique<disk_buffer_holder<block_source::chunk_type>>(chunk)
-        );
+            std::make_unique<disk_buffer_holder<block_source::chunk_type>>(chunk));
     }
 }
 
@@ -34,8 +33,7 @@ std::vector<asio::const_buffer> send_buffer::get_send_buffers(int num_bytes) con
     {
         // first buffer may be partially sent, so treat separately
         const int first_size = std::min(
-            m_buffers[0]->size() - m_first_unsent_byte, num_bytes
-        );
+            m_buffers[0]->size() - m_first_unsent_byte, num_bytes);
         buffers.emplace_back(m_buffers[0]->data() + m_first_unsent_byte, first_size);
         num_bytes -= first_size;
         send_size += first_size;

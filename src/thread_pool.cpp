@@ -212,20 +212,16 @@ void thread_pool::run(worker& worker)
         time_point idle_start = ts_cached_clock::now();
         std::unique_lock<std::mutex> job_queue_lock(m_job_queue_mutex);
         worker.job_available.wait_for(
-            job_queue_lock,
-            seconds(15),
+            job_queue_lock, seconds(15),
             [this, &worker]
             {
                 // wake up if worker is begin shut down, a new job is available, or if
                 // worker has idled for a minute
                 return worker.is_dead.load(std::memory_order_acquire)
                     || !m_job_queue.empty();
-            }
-        );
-        m_idle_time.fetch_add(
-            total_milliseconds(ts_cached_clock::now() - idle_start),
-            std::memory_order_relaxed
-        );
+            });
+        m_idle_time.fetch_add(total_milliseconds(ts_cached_clock::now() - idle_start),
+            std::memory_order_relaxed);
 
         // thread woke up because thread_pool is stopping worker or thread hasn't
         // worked in the past minute; either way, stop execution
@@ -272,10 +268,8 @@ bool thread_pool::execute_jobs(worker& worker, std::unique_lock<std::mutex> job_
         time_point work_start = ts_cached_clock::now();
         // TODO exception safety
         job();
-        m_work_time.fetch_add(
-            total_milliseconds(ts_cached_clock::now() - work_start),
-            std::memory_order_relaxed
-        );
+        m_work_time.fetch_add(total_milliseconds(ts_cached_clock::now() - work_start),
+            std::memory_order_relaxed);
         m_num_executed_jobs.fetch_add(1, std::memory_order_relaxed);
 
         // we're shutting down, stop execution immediately

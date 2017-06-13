@@ -255,8 +255,7 @@ int file::read(view<uint8_t> buffer, const int64_t file_offset, std::error_code&
             m_file_handle,
             reinterpret_cast<void*>(buffer.data()),
             std::min(buffer.length(), length() - buffer.length()),
-            file_offset
-        );
+            file_offset);
         if(num_read < 0)
         {
             util::assign_errno(error);
@@ -270,8 +269,7 @@ int file::read(iovec buffer, const int64_t file_offset, std::error_code& error)
     return read(
         view<uint8_t>(reinterpret_cast<uint8_t*>(buffer.iov_base), buffer.iov_len),
         file_offset,
-        error
-    );
+        error);
 }
 
 int file::write(view<uint8_t> buffer, const int64_t file_offset, std::error_code& error)
@@ -284,8 +282,7 @@ int file::write(view<uint8_t> buffer, const int64_t file_offset, std::error_code
             m_file_handle,
             reinterpret_cast<void*>(buffer.data()),
             std::min(buffer.length(), length() - buffer.length()),
-            file_offset
-        );
+            file_offset);
         if(num_written < 0)
         {
             util::assign_errno(error);
@@ -299,21 +296,17 @@ int file::write(iovec buffer, const int64_t file_offset, std::error_code& error)
     return write(
         view<uint8_t>(reinterpret_cast<uint8_t*>(buffer.iov_base), buffer.iov_len),
         file_offset,
-        error
-    );
+        error);
 }
 
 int file::read(view<iovec>& buffers, const int64_t file_offset, std::error_code& error)
 {
     return positional_vector_io(
         [this](view<iovec>& buffers, int64_t file_offset) -> int
-        {
-            return preadv(m_file_handle, buffers.data(), buffers.size(), file_offset);
-        },
+        { return preadv(m_file_handle, buffers.data(), buffers.size(), file_offset); },
         buffers,
         file_offset,
-        error
-    );
+        error);
 }
 
 int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code& error)
@@ -367,14 +360,12 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
         num_written = positional_vector_io(
             [this](view<iovec>& buffers, int64_t file_offset) -> int
             {
-                return pwritev(
-                    m_file_handle, buffers.data(), buffers.size(), file_offset
-                );
+                return pwritev(m_file_handle, buffers.data(),
+                    buffers.size(), file_offset);
             },
             buffers,
             file_offset,
-            error
-        );
+            error);
 
         // now we need to restore the last buffer that could be exhausted, like so:
         // |xxxx---|
@@ -390,14 +381,12 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
         num_written = positional_vector_io(
             [this](view<iovec>& buffers, int64_t file_offset) -> int
             {
-                return pwritev(
-                    m_file_handle, buffers.data(), buffers.size(), file_offset
-                );
+                return pwritev(m_file_handle, buffers.data(),
+                    buffers.size(), file_offset);
             },
             buffers,
             file_offset,
-            error
-        );
+            error);
     }
 
     if(!error && (m_open_mode & no_os_cache))

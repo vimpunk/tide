@@ -19,13 +19,15 @@ struct metainfo
     string_view announce;
     string_view piece_hashes;
 
+    struct tracker_entry
+    {
+        string_view url;
+        int tier;
+    };
+
     // http://bittorrent.org/beps/bep_0012.html
-    // If this is not empty, only this list will be used. Note that tiers, as described
-    // in the protocol extension, are not actually implemented, as trackers in announce
-    // list are simply placed in here in the correct order they are tiered. This is to
-    // save some dynamic allocation that would be inherent with the extra vectors that
-    // comprise the tiers.
-    std::vector<string_view> announce_list;
+    // If this is not empty, only this list will be used.
+    std::vector<tracker_entry> announce_list;
 
     // A position in this vector corresponds to the file(s) specified in metainfo. This
     // vector must contain all the files listed in metainfo, but user may choose which
