@@ -9,7 +9,9 @@
 namespace tide {
 
 torrent_storage::torrent_storage(
-    std::shared_ptr<torrent_info> info, string_view piece_hashes
+    std::shared_ptr<torrent_info> info,
+    string_view piece_hashes,
+    std::string resume_data_path
 )
     : m_info(info)
     , m_piece_hashes(piece_hashes)
@@ -107,7 +109,7 @@ void torrent_storage::erase_file(const file_index_t file_index, std::error_code&
     file.erase(error);
 }
 
-void torrent_storage::move(path path, std::error_code& error)
+void torrent_storage::move_file(path path, std::error_code& error)
 {
     if(path == m_save_path) return;
     // TODO must close all files, I think
@@ -202,8 +204,8 @@ std::vector<mmap_sink> torrent_storage::create_mmap_sink(
 }
 */
 
-void torrent_storage::read(
-    view<iovec>& buffers, const block_info& info, std::error_code& error)
+void torrent_storage::read(view<iovec>& buffers,
+    const block_info& info, std::error_code& error)
 {
     do_file_io(
         [this, &buffers]
@@ -229,14 +231,14 @@ void torrent_storage::read(
         error);
 }
 
-void torrent_storage::read(
-    std::vector<iovec> buffers, const block_info& info, std::error_code& error)
+void torrent_storage::read(std::vector<iovec> buffers,
+    const block_info& info, std::error_code& error)
 {
     read(buffers, info, error);
 }
 
-void torrent_storage::write(
-    view<iovec>& buffers, const block_info& info, std::error_code& error)
+void torrent_storage::write(view<iovec>& buffers,
+    const block_info& info, std::error_code& error)
 {
     do_file_io(
         [this, &buffers]
@@ -247,7 +249,7 @@ void torrent_storage::write(
             int num_written = 0;
             if(file.is_wanted)
             {
-                before_writing(file, error);
+                before_writing(file.storage, error);
                 if(error)
                 {
                     return 0;
@@ -275,15 +277,62 @@ void torrent_storage::write(
         error);
 }
 
-void torrent_storage::write(
-    std::vector<iovec> buffers, const block_info& info, std::error_code& error)
+void torrent_storage::write(std::vector<iovec> buffers,
+    const block_info& info, std::error_code& error)
 {
     write(buffers, info, error);
 }
 
+bmap torrent_storage::read_resume_data(std::error_code& error)
+{
+    error.clear();
+    before_reading(m_resume_data, error);
+    if(error)
+    {
+        return {};
+    }
+    std::string encoded(m_resume_data.length(), 0);
+    iovec buffer;
+    buffer.iov_base = static_cast<void*>(&encoded[0]);
+    buffer.iov_len = encoded.length();
+    m_resume_data.read(buffer, 0, error);
+    if(error)
+    {
+        return {};
+    }
+    return decode_bmap(std::move(encoded));
+}
+
+void torrent_storage::write_resume_data(
+    const bmap_encoder& resume_data, std::error_code& error)
+{
+    error.clear();
+    if(!m_resume_data.is_open())
+    {
+        m_resume_data.open(error);
+        if(error)
+        {
+            return;
+        }
+    }
+    std::string encoded = resume_data.encode();
+    if(!m_resume_data.is_allocated() || (m_resume_data.length() < encoded.length()))
+    {
+        m_resume_data.reallocate(encoded.length(), error);
+        if(error)
+        {
+            return;
+        }
+    }
+    iovec buffer;
+    buffer.iov_base = static_cast<void*>(&encoded[0]);
+    buffer.iov_len = encoded.length();
+    m_resume_data.write(buffer, 0, error);
+}
+
 template<typename IOFunction>
-void torrent_storage::do_file_io(
-    IOFunction io_fn, const block_info& info, std::error_code& error)
+void torrent_storage::do_file_io(IOFunction io_fn,
+    const block_info& info, std::error_code& error)
 {
     error.clear();
     view<file_entry> files = files_containing_block(info);
@@ -317,19 +366,19 @@ inline file_slice torrent_storage::get_file_slice(
     return slice;
 }
 
-void torrent_storage::before_writing(file_entry& file, std::error_code& error)
+void torrent_storage::before_writing(file& file, std::error_code& error)
 {
-    if(!file.storage.is_open())
+    if(!file.is_open())
     {
-        file.storage.open(error);
+        file.open(error);
         if(error)
         {
             return;
         }
     }
-    if(!file.storage.is_allocated())
+    if(!file.is_allocated())
     {
-        file.storage.allocate(error);
+        file.allocate(error);
     }
 }
 
@@ -340,15 +389,20 @@ void torrent_storage::before_reading(file_entry& file, std::error_code& error)
         error = make_error_code(disk_io_errc::tried_unwanted_file_read);
         return;
     }
-    if(!file.storage.is_open())
+    before_reading(file.storage, error);
+}
+
+void torrent_storage::before_reading(file& file, std::error_code& error)
+{
+    if(!file.is_open())
     {
-        file.storage.open(error);
+        file.open(error);
         if(error)
         {
             return;
         }
     }
-    if(!file.storage.is_allocated())
+    if(!file.is_allocated())
     {
         error = make_error_code(disk_io_errc::tried_unallocated_file_read);
     }

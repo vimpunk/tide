@@ -1,6 +1,7 @@
 #ifndef TORRENT_FILE_HEADER
 #define TORRENT_FILE_HEADER
 
+#include "flag_set.hpp"
 #include "iovec.hpp"
 #include "view.hpp"
 #include "path.hpp"
@@ -38,12 +39,13 @@ namespace tide {
 // be issues with syncing to disk but look into this)
 struct file
 {
+    // TODO use flag_set here for safety
     enum open_mode : uint8_t
     {
         read_only     = 0,
         write_only    = 1,
         read_write    = 2,
-        // Don't update the access timestamps, which should improve performane.
+        // Don't update the access timestamps, which should improve performance.
         no_atime      = 4,
         // Tell OS not to read ahead.
         random        = 8,
@@ -55,6 +57,7 @@ struct file
         no_os_cache   = 64,
         // When creating the file, set the executabe attribute.
         executable    = 128
+        //max
     };
 
 #ifdef _WIN32
@@ -70,6 +73,7 @@ private:
     bool m_is_allocated = false;
     uint8_t m_open_mode;
     int64_t m_length;
+    //flag_set<open_mode, open_mode::max> m_open_mode;
 
 public:
 
@@ -101,19 +105,20 @@ public:
     void close();
 
     /**
-     * This should be called when torrent's storage has been relocated. This just
+     * This should be called when torrent's storage has been relocated. This merely
      * updates the path.
      */
-    void change_path(path path);
+    void set_path(path path);
 
     /**
-     * Instructs the OS to allocate length() number of bytes on the hardware for this
+     * Instructs the OS to allocate length number of bytes on the hardware for this
      * file, if file hasn't been allocated the correct size yet.
      *
      * NOTE: this must be called before the first time we try to do any operation on
      * file and the file must already be opened.
      */
     void allocate(std::error_code& error);
+    void reallocate(const int64_t length, std::error_code& error);
 
     /**
      * Removes the data associated with this file from disk. After the successful
@@ -144,11 +149,9 @@ public:
      * errors are reported via error. In both cases the returned mmap object is invalid/
      * uninitialized.
     mmap_source create_mmap_source(
-        const int64_t file_offset, const int length, std::error_code& error
-    );
+        const int64_t file_offset, const int length, std::error_code& error);
     mmap_sink create_mmap_sink(
-        const int64_t file_offset, const int length, std::error_code& error
-    );
+        const int64_t file_offset, const int length, std::error_code& error);
      */
 
     /**
@@ -204,11 +207,9 @@ public:
 private:
 
     void check_read_preconditions(
-        const int64_t file_offset, std::error_code& error
-    ) const noexcept;
+        const int64_t file_offset, std::error_code& error) const noexcept;
     void check_write_preconditions(
-        const int64_t file_offset, std::error_code& error
-    ) const noexcept;
+        const int64_t file_offset, std::error_code& error) const noexcept;
     void verify_handle(std::error_code& error) const;
     void verify_file_offset(const int64_t file_offset) const;
 
@@ -225,12 +226,8 @@ private:
      * able to write to a file between calls to pio_fn.
      */
     template<typename PIOFunction>
-    int repeated_positional_io(
-        PIOFunction pio_fn,
-        view<iovec>& buffers,
-        int64_t file_offset,
-        std::error_code& error
-    );
+    int repeated_positional_io(PIOFunction pio_fn, view<iovec>& buffers,
+        int64_t file_offset, std::error_code& error);
 
     /**
      * Abstraction around preadv/writev functions, which imparts the responsibility of
@@ -245,12 +242,8 @@ private:
      * where the return value is the number of bytes transferred.
      */
     template<typename PVIOFunction>
-    int positional_vector_io(
-        PVIOFunction pvio_fn,
-        view<iovec>& buffers,
-        int64_t file_offset,
-        std::error_code& error
-    );
+    int positional_vector_io(PVIOFunction pvio_fn, view<iovec>& buffers,
+        int64_t file_offset, std::error_code& error);
 };
 
 /** This is a cross platform mapping of stat and the windows equivalent. *

@@ -377,9 +377,9 @@ void udp_tracker::send_announce_request(announce_request& request)
     request.action = action_t::announce_1;
     tracker_request& params = request.params;
     log(log_event::outgoing,
-        "sending ANNOUNCE (trans_id: %i; info_hash: %s; client_id: %s; down: %lli;"
+        "sending ANNOUNCE (trans_id: %i; info_hash: %s; peer_id: %s; down: %lli;"
         " left: %lli; up: %lli; event: %s; num_want: %i; port: %i)",
-        request.transaction_id, params.info_hash.data(), params.client_id.data(),
+        request.transaction_id, params.info_hash.data(), params.peer_id.data(),
         params.downloaded, params.left, params.uploaded,
         event_to_string(params.event).c_str(), params.num_want, params.port);
     request.payload.clear();
@@ -388,7 +388,7 @@ void udp_tracker::send_announce_request(announce_request& request)
         .i32(action_t::announce_1)
         .i32(static_cast<int>(request.transaction_id))
         .buffer(params.info_hash)
-        .buffer(params.client_id)
+        .buffer(params.peer_id)
         .i64(params.downloaded)
         .i64(params.left)
         .i64(params.uploaded)
@@ -710,9 +710,9 @@ tracker_request_builder& tracker_request_builder::info_hash(sha1_hash info_hash)
     return *this;
 }
 
-tracker_request_builder& tracker_request_builder::client_id(peer_id_t client_id)
+tracker_request_builder& tracker_request_builder::peer_id(peer_id_t peer_id)
 {
-    m_request.client_id = client_id;
+    m_request.peer_id = peer_id;
     ++m_required_param_counter;
     return *this;
 }

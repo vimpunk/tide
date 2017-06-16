@@ -3,7 +3,8 @@
 
 #include <random>
 
-namespace tide { namespace util
+namespace tide {
+namespace util
 {
     std::mt19937& random_engine();
 

@@ -701,7 +701,7 @@ piece_picker::piece_picker(int num_pieces)
     , m_piece_tracker(new piece_tracker(num_pieces))
 {}
 
-piece_picker::piece_picker(bt_bitfield available_pieces)
+piece_picker::piece_picker(bitfield available_pieces)
     : m_downloaded_pieces(std::move(available_pieces))
     , m_wanted_pieces(m_downloaded_pieces.size(), true)
     , m_num_pieces_left(m_downloaded_pieces.size())
@@ -741,7 +741,7 @@ void piece_picker::increase_frequency(const std::vector<piece_index_t>& pieces)
     for(const auto piece : pieces) { m_piece_tracker->increase_frequency(piece); }
 }
 
-void piece_picker::increase_frequency(const bt_bitfield& available_pieces)
+void piece_picker::increase_frequency(const bitfield& available_pieces)
 {
     for(piece_index_t piece = 0; piece < num_pieces(); ++piece)
     {
@@ -757,7 +757,7 @@ void piece_picker::decrease_frequency(const piece_index_t piece)
     m_piece_tracker->decrease_frequency(piece);
 }
 
-void piece_picker::decrease_frequency(const bt_bitfield& available_pieces)
+void piece_picker::decrease_frequency(const bitfield& available_pieces)
 {
     assert(available_pieces.size() == num_pieces());
     for(piece_index_t piece = 0; piece < num_pieces(); ++piece)
@@ -773,7 +773,7 @@ void piece_picker::decrease_frequency(const bt_bitfield& available_pieces)
 // -- piece picking --
 // -------------------
 
-piece_index_t piece_picker::pick(const bt_bitfield& available_pieces) const
+piece_index_t piece_picker::pick(const bitfield& available_pieces) const
 {
     auto piece_it = m_piece_tracker->cbegin();
     const auto pieces_end = m_piece_tracker->cend();
@@ -807,7 +807,7 @@ piece_index_t piece_picker::pick(const bt_bitfield& available_pieces) const
 }
 
 std::vector<piece_index_t> piece_picker::pick(
-    const bt_bitfield& available_pieces, const int n) const
+    const bitfield& available_pieces, const int n) const
 {
     std::vector<piece_index_t> indices;
     for(const auto& piece : *m_piece_tracker)
@@ -824,7 +824,7 @@ std::vector<piece_index_t> piece_picker::pick(
     return indices;
 }
 
-piece_index_t piece_picker::pick_and_reserve(const bt_bitfield& available_pieces)
+piece_index_t piece_picker::pick_and_reserve(const bitfield& available_pieces)
 {
     const auto selected = pick(available_pieces);
     if(selected != invalid_piece) { m_piece_tracker->reserve(selected); }
@@ -832,7 +832,7 @@ piece_index_t piece_picker::pick_and_reserve(const bt_bitfield& available_pieces
 }
 
 std::vector<piece_index_t>
-piece_picker::pick_and_reserve(const bt_bitfield& available_pieces, const int n)
+piece_picker::pick_and_reserve(const bitfield& available_pieces, const int n)
 {
     std::vector<piece_index_t> indices;
     for(auto& piece : *m_piece_tracker)
@@ -851,7 +851,7 @@ piece_picker::pick_and_reserve(const bt_bitfield& available_pieces, const int n)
 }
 
 piece_index_t piece_picker::pick_ignore_reserved(
-    const bt_bitfield& available_pieces) const
+    const bitfield& available_pieces) const
 {
     auto piece_it = m_piece_tracker->cbegin();
     const auto pieces_end = m_piece_tracker->cend();
@@ -885,7 +885,7 @@ piece_index_t piece_picker::pick_ignore_reserved(
 }
 
 std::vector<piece_index_t> piece_picker::pick_ignore_reserved(
-    const bt_bitfield& available_pieces, const int n) const
+    const bitfield& available_pieces, const int n) const
 {
     std::vector<piece_index_t> indices;
     for(const auto& piece : *m_piece_tracker)
@@ -945,7 +945,7 @@ void piece_picker::clear_priority(interval interval)
     m_piece_tracker->clear_priority(interval);
 }
 
-bool piece_picker::am_interested_in(const bt_bitfield& available_pieces) const noexcept
+bool piece_picker::am_interested_in(const bitfield& available_pieces) const noexcept
 {
     // cases to consider
     // -----------------
@@ -976,13 +976,13 @@ std::string piece_picker::to_string() const
 
 template<typename Piece>
 bool piece_picker::should_pick(
-    const bt_bitfield& available_pieces, const Piece& piece) const
+    const bitfield& available_pieces, const Piece& piece) const
 {
     return !piece.is_reserved && should_download_piece(available_pieces, piece.index);
 }
 
 inline bool piece_picker::should_download_piece(
-    const bt_bitfield& available_pieces, const piece_index_t piece) const
+    const bitfield& available_pieces, const piece_index_t piece) const
 {
     return !m_downloaded_pieces[piece]
         && m_wanted_pieces[piece]

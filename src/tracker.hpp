@@ -44,7 +44,7 @@ struct tracker_request
     // --------------
 
     sha1_hash info_hash;
-    peer_id_t client_id;
+    peer_id_t peer_id;
     uint16_t port;
     int64_t uploaded;
     int64_t downloaded;
@@ -104,7 +104,7 @@ public:
     // --------------
 
     tracker_request_builder& info_hash(sha1_hash info_hash);
-    tracker_request_builder& client_id(peer_id_t client_id);
+    tracker_request_builder& peer_id(peer_id_t peer_id);
     tracker_request_builder& port(uint16_t port);
     tracker_request_builder& uploaded(int64_t uploaded);
     tracker_request_builder& downloaded(int64_t downloaded);

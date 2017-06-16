@@ -9,19 +9,19 @@
 
 #include "string_view.hpp"
 
-namespace tide { namespace util
+namespace tide {
+namespace util
 {
     inline void ltrim(std::string& s)
     {
-        s.erase(s.begin(),
-            std::find_if(s.begin(), s.end(),
-                [](const auto& c) { return !std::isspace(c); }));
+        s.erase(s.begin(), std::find_if(s.begin(), s.end(),
+            [](const auto& c) { return !std::isspace(c); }));
     }
 
     inline void rtrim(std::string& s)
     {
         s.erase(std::find_if(s.rbegin(), s.rend(),
-                [](const auto& c) { return !std::isspace(c); }).base(), s.end());
+            [](const auto& c) { return !std::isspace(c); }).base(), s.end());
     }
 
     inline void trim(std::string& s)
@@ -98,6 +98,7 @@ namespace tide { namespace util
     }
 
     /** Strips the "protocol://" identifier from the front of the URL. */
+    // TODO maybe make this an out param only function
     inline std::string strip_protocol_identifier(const std::string& url)
     {
         const int prot_id_pos = url.find("//");

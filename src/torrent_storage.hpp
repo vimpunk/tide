@@ -1,11 +1,12 @@
 #ifndef TORRENT_TORRENT_STORAGE_HEADER
 #define TORRENT_TORRENT_STORAGE_HEADER
 
-#include "torrent_state.hpp"
 #include "torrent_info.hpp"
 #include "string_view.hpp"
 #include "block_info.hpp"
 #include "interval.hpp"
+#include "bdecode.hpp"
+#include "bencode.hpp"
 #include "units.hpp"
 #include "iovec.hpp"
 #include "path.hpp"
@@ -80,6 +81,9 @@ class torrent_storage
     // NOTE: the metainfo into which this points must be kept alive.
     string_view m_piece_hashes;
 
+    // This is the file where torrent resume data is stored.
+    file m_resume_data;
+
     // This is an absolute path.
     path m_save_path;
 
@@ -98,7 +102,8 @@ class torrent_storage
 
 public:
 
-    torrent_storage(std::shared_ptr<torrent_info> info, string_view piece_hashes);
+    torrent_storage(std::shared_ptr<torrent_info> info,
+        string_view piece_hashes, std::string resume_data_path);
 
     /**
      * This is the name of the torrent which, if the torrent has multiple files, is also
@@ -137,9 +142,8 @@ public:
      * Returns where in file block resides. The return value is invalid if both
      * fields in file_slice are 0. This can happen if the block is not in file.
      */
-    file_slice get_file_slice(
-        const file_index_t file, const block_info& block
-    ) const noexcept;
+    file_slice get_file_slice(const file_index_t file,
+        const block_info& block) const noexcept;
 
     /** Returns the expected 20 byte SHA-1 hash for this piece. */
     string_view expected_hash(const piece_index_t piece) const noexcept;
@@ -159,11 +163,10 @@ public:
      * from anywhere but here. If this operation is sucessful, the torrent_info.save_path
      * is updated to the new path.
      */
-    void move(path path, std::error_code& error);
+    void move_file(path path, std::error_code& error);
 
-    void update_torrent_state(const torrent_state& state, std::error_code& error);
-    void save_torrent_state(const torrent_state& state, std::error_code& error);
-    bool is_state_up_to_date(const torrent_state& state);
+    bmap read_resume_data(std::error_code& error);
+    void write_resume_data(const bmap_encoder& resume_data, std::error_code& error);
 
     /**
      * Returns a list of memory mapped objects that fully cover the specified portion
@@ -178,11 +181,9 @@ public:
      * In the case of read-write mode, files are opened and allocated if they haven't
      * already been.
     std::vector<mmap_source> create_mmap_source(
-        const block_info& info, std::error_code& error
-    );
+        const block_info& info, std::error_code& error);
     std::vector<mmap_sink> create_mmap_sink(
-        const block_info& info, std::error_code& error
-    );
+        const block_info& info, std::error_code& error);
      */
 
     /**
@@ -233,13 +234,14 @@ private:
      * function checks and takes care of doing so if necessary. If otherwise it's
      * allocated just not open, it is opened.
      */
-    void before_writing(file_entry& file, std::error_code& error);
+    void before_writing(file& file, std::error_code& error);
 
     /**
      * When reading, files must already be allocated, so if they aren't, an error is
      * set. If otherwise it's allocated just not open, it is opened.
      */
     void before_reading(file_entry& file, std::error_code& error);
+    void before_reading(file& file, std::error_code& error);
 
     /**
      * Both reading from, writing to and mapping files (the portions of them that
@@ -258,16 +260,14 @@ private:
      * )
      */
     template<typename IOFunction> void do_file_io(
-        IOFunction io_fn, const block_info& info, std::error_code& error
-    );
+        IOFunction io_fn, const block_info& info, std::error_code& error);
 
     /**
      * Returns the position where in file offset, which refers to the offset in
      * all files combined, is and how much of length is contained in file.
      */
-    file_slice get_file_slice(
-        const file_entry& file, int64_t offset, int64_t length
-    ) const noexcept;
+    file_slice get_file_slice(const file_entry& file,
+        int64_t offset, int64_t length) const noexcept;
 
     /** Returns a range of files that contain some portion of the block or piece. */
     view<file_entry> files_containing_block(const block_info& block);

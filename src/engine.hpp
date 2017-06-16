@@ -1,7 +1,7 @@
 #ifndef TORRENT_ENGINE_HEADER
 #define TORRENT_ENGINE_HEADER
 
-#include "event_channel.hpp"
+#include "event_queue.hpp"
 #include "torrent_handle.hpp"
 #include "torrent_args.hpp"
 #include "settings.hpp"
@@ -46,7 +46,7 @@ class engine
     // this event channel. This is done by accumulating events (stats, alerts, async
     // op results etc) and user periodically, at their own convenience, query for the
     // latest queue of events. thread-safe.
-    event_channel m_event_channel;
+    event_queue m_event_queue;
 
     // All active and inactive torrents are stored here.
     std::unordered_map<torrent_id_t, torrent> m_torrents;

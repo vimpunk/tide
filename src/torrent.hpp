@@ -2,14 +2,18 @@
 #define TORRENT_TORRENT_HEADER
 
 #include "torrent_storage_handle.hpp"
+#include "torrent_handle.hpp"
 #include "torrent_info.hpp"
 #include "peer_session.hpp"
 #include "torrent_args.hpp"
 #include "string_view.hpp"
 #include "interval.hpp"
-#include "bdecoder.hpp"
+#include "bdecode.hpp"
+#include "bencode.hpp"
+#include "socket.hpp"
 #include "units.hpp"
 #include "time.hpp"
+#include "tracker.hpp"
 
 #include <memory>
 #include <mutex>
@@ -17,13 +21,13 @@
 
 namespace tide {
 
+class torrent_disk_io_frontend;
 class bandwidth_controller;
 class torrent_settings;
 class endpoint_filter;
 class piece_download;
 class piece_picker;
-class event_channel;
-class tracker_entry;
+class event_queue;
 class disk_io;
 struct settings;
 
@@ -32,15 +36,15 @@ struct settings;
  * associated with a torrent. This is an internal class, user may only interact with
  * torrent indirectly via a torrent_handle.
  *
- * It must not be destructed as long as there are outstanding async operations run by it.
- *
  * NOTE: torrent must be stored in a shared_ptr because it uses enable_shared_from_this
  * to pass a shared_ptr to itself to disk_io for async disk operations so as to ensure
  * that async operations not completed before shutting down don't refer to invalid
  * memory.
  */
-class torrent : protected std::enable_shared_from_this<torrent>
+class torrent : public std::enable_shared_from_this<torrent>
 {
+    friend class torrent_disk_io_frontend;
+
     // This is main network io_service that runs everything network related. It's used
     // to instantiate peer_sessions.
     asio::io_service& m_ios;
@@ -67,7 +71,7 @@ class torrent : protected std::enable_shared_from_this<torrent>
     endpoint_filter& m_endpoint_filter;
 
     // Alerts to user are sent via this.
-    event_channel& m_event_channel;
+    event_queue& m_event_queue;
 
     // Some storage specific operations are done directly via torrent's storage, but
     // the actual disk interaction is done indirectly through m_disk_io.
@@ -157,7 +161,7 @@ class torrent : protected std::enable_shared_from_this<torrent>
     bool m_is_state_changed = false;
 
     // This is the original .torrent file of this torrent. It is kept in memory for
-    // m_piece_hashes.
+    // m_piece_hashes points into its source buffer.
     bmap m_metainfo;
     string_view m_piece_hashes;
 
@@ -175,10 +179,15 @@ public:
      * NOTE: at this point of execution args is assumed to be checked, file paths
      * sanitized etc, so it is crucial that engine do this.
      */
-    torrent(torrent_id_t id, asio::io_service& ios, disk_io& disk_io,
-        bandwidth_controller& bandwidth_controller, torrent_settings& global_settings,
-        std::vector<tracker_entry> trackers, endpoint_filter& endpoint_filter,
-        event_channel& event_channel, torrent_args args);
+    torrent(torrent_id_t id,
+        asio::io_service& ios,
+        disk_io& disk_io,
+        bandwidth_controller& bandwidth_controller,
+        settings& global_settings,
+        std::vector<tracker_entry> trackers,
+        endpoint_filter& endpoint_filter,
+        event_queue& event_queue,
+        torrent_args args);
 
     /**
      * This is called for continued torrents. engine retrieves the resume state data and
@@ -190,10 +199,15 @@ public:
      * started in the assumption that storage is intact (which should be in the majority
      * of cases) to save time, after which regular execution commences.
      */
-    torrent(torrent_id_t id, asio::io_service& ios, disk_io& disk_io,
-        bandwidth_controller& bandwidth_controller, torrent_settings& global_settings,
-        std::vector<tracker_entry> trackers, endpoint_filter& endpoint_filter,
-        event_channel& event_channel, torrent_args args);
+    torrent(torrent_id_t id,
+        asio::io_service& ios,
+        disk_io& disk_io,
+        bandwidth_controller& bandwidth_controller,
+        settings& global_settings,
+        std::vector<tracker_entry> trackers,
+        endpoint_filter& endpoint_filter,
+        event_queue& event_queue,
+        bmap resume_data);
 
     /**
      * Since torrent is not exposed to the public directly, users may interact with a
@@ -201,8 +215,23 @@ public:
      *
      * If torrent could not be set up successfully, the returned handle is invalid.
      */
-    torrent_handle get_handle();
-    torrent_storage_handle get_storage_handle();
+    torrent_handle get_handle() noexcept;
+    torrent_storage_handle get_storage_handle() noexcept;
+
+    /**
+     * The constructor only sets up torrent but does not start it, this has to be
+     * done explicitly; or if the torrent has been stopped, it can be resumed by calling
+     * start again.
+     */
+    void start();
+
+    /**
+     * stop should be preferred over abort as it will wait for all current operations
+     * to complete before closing connections (e.g. mid-transmission blocks will be
+     * completed, so will storage checks) and trackers are notified of our leave.
+     */
+    void stop();
+    void abort();
 
     /**
      * It's unknown to which torrent incoming connections belong, so at first they
@@ -218,10 +247,13 @@ public:
     std::vector<peer_session::detailed_stats> detailed_peer_stats() const;
     void detailed_peer_stats(std::vector<peer_session::detailed_stats>& s) const;
 
+    void piece_availability(std::vector<int>& piece_map);
+
     torrent_info info() const;
     void info(torrent_info& info) const;
-    const info_hash& info_hash() const noexcept;
-    void piece_availability(std::vector<int>& piece_map);
+
+    torrent_id_t id() const noexcept;
+    const sha1_hash& info_hash() const noexcept;
 
     seconds total_seed_time() const noexcept;
     seconds total_leech_time() const noexcept;
@@ -234,15 +266,6 @@ public:
     bool is_running() const noexcept;
     bool is_leech() const noexcept;
     bool is_seed() const noexcept;
-
-    /**
-     * pause should be preferred over abort as it will wait for all current operations
-     * to complete before closing connections (e.g. mid-transmission blocks will be
-     * completed, so will storage checks) and trackers are notified of our leave.
-     */
-    void pause();
-    void abort();
-    void resume();
 
     /** file_index must be the position of the file in the original .torrent metainfo. */
     void prioritize_file(const int file_index);
@@ -269,10 +292,11 @@ public:
     void force_tracker_announce();
 
     /**
-     * This saves torrent's current state to disk. This is done automatically as well,
-     * but can be requested manually here.
+     * This saves torrent's current state to disk. This is done automatically if a
+     * change to torrent's state occurs, but user may request it manually. It will not
+     * issue a disk_io job if torrent's state has not changed since the last save.
      */
-    void save_torrent_state();
+    void save_state();
 
     void force_storage_integrity_check();
     void force_resume_data_check();
@@ -343,6 +367,7 @@ private:
     // -------------
 
     bool wants_peers() const noexcept;
+    int calculate_num_want() const noexcept;
 
     /**
      * If event is `none` or `started`, we announe to a single most suitable tracker,
@@ -388,8 +413,9 @@ private:
     void handle_disk_error(const std::error_code& error);
     void check_storage_integrity();
     void on_storage_integrity_checked(const std::error_code& error);
+    void on_state_saved(const std::error_code& error);
 
-    torrent_state write_torrent_state() const;
+    bmap_encoder create_resume_data() const;
 
     void lost_pieces(std::vector<piece_index_t> pieces);
 
@@ -451,12 +477,17 @@ inline bool torrent::is_leech() const noexcept
 
 inline bool torrent::is_seed() const noexcept
 {
-    return m_info.state[torrent_info::state_t::seeding];
+    return m_info->state[torrent_info::state_t::seeding];
 }
 
 inline torrent_handle torrent::get_handle() noexcept
 {
     return torrent_handle(this);
+}
+
+inline torrent_storage_handle torrent::get_storage_handle() noexcept
+{
+    return m_storage;
 }
 
 } // namespace tide

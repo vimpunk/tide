@@ -8,6 +8,8 @@
 #include <queue>
 #include <mutex>
 
+namespace tide {
+
 /** This is an interface that all events must implement. */
 struct event
 {
@@ -27,9 +29,8 @@ struct alert_event : public event
 };
 
 /** This is a base class for all events that return an async operation's results. */
-template<typename Result> struct async_result_event : public event
+struct async_result_event : public event
 {
-    Result result;
 };
 
 /**
@@ -40,7 +41,7 @@ template<typename Result> struct async_result_event : public event
  * It is thread-safe, i.e. users thread can safely retrieve the latest events without
  * having to do external mutual exclusion.
  */
-class event_channel
+class event_queue
 {
 public:
 
@@ -69,10 +70,12 @@ public:
 };
 
 template<typename Event, typename... Args>
-void event_channel::emplace(Args&&... args)
+void event_queue::emplace(Args&&... args)
 {
     // TODO just a placeholder
-    m_internal_events.emplace_back(std::make_unique<Event>(std::forward<Args>(args)...));
+    m_internal_events.emplace(std::make_unique<Event>(std::forward<Args>(args)...));
 }
+
+} // namespace tide
 
 #endif // TORRENT_EVENT_CHANNEL_HEADER

@@ -70,14 +70,12 @@ public:
         else if(c == 'i')
         {
             return std::make_unique<bnumber>(
-                detail::make_number_from_token(m_encoded, decode_bnumber())
-            );
+                detail::make_number_from_token(m_encoded, decode_bnumber()));
         }
         else if(std::isdigit(c))
         {
             return std::make_unique<bstring>(
-                detail::make_string_from_token(m_encoded, decode_bstring())
-            );
+                detail::make_string_from_token(m_encoded, decode_bstring()));
         }
         return nullptr;
     }
@@ -268,7 +266,8 @@ private:
 
             if(m_pos >= m_encoded.length())
             {
-                throw std::runtime_error("invalid bmap encoding (no value assigned to key)");
+                throw std::runtime_error(
+                    "invalid bmap encoding (no value assigned to key)");
             }
 
             // decode value and add the number of tokens that were parsed while decoding
@@ -461,8 +460,8 @@ namespace detail
     }
 } // namespace detail
 
-const btoken* bmap::find_token(
-    const std::string& key, const btoken* start_pos) const noexcept
+const btoken* bmap::find_token(const std::string& key,
+    const btoken* start_pos) const noexcept
 {
     if(!head())
     {

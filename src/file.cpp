@@ -9,19 +9,13 @@
 // emulate UNIX syscalls on windows so we can use the same api
 // TODO
 
-int pread(
-    handle_type file_handle,
-    void* buffer,
-    const int count,
-    const int64_t file_offset)
+int pread(handle_type file_handle, void* buffer,
+    const int count, const int64_t file_offset)
 {
 }
 
-int pwrite(
-    handle_type file_handle,
-    void* buffer,
-    const int count,
-    const int64_t file_offset)
+int pwrite(handle_type file_handle, void* buffer,
+    const int count, const int64_t file_offset)
 {
 }
 
@@ -49,9 +43,16 @@ file::~file()
 
 void file::allocate(std::error_code& error)
 {
+    reallocate(length(), error);
+}
+
+void file::reallocate(const int64_t length, std::error_code& error)
+{
     error.clear();
     verify_handle(error);
-    if(error || is_allocated())
+    // only (re)allocate if we're not allocated, or if we are if the requested length
+    // to allocate is not equal to the currently allocated amount
+    if(error || (is_allocated() && (length == this->length())))
     {
         return;
     }
@@ -64,10 +65,10 @@ void file::allocate(std::error_code& error)
         return;
     }
 
-    if(size.QuadPart != length())
+    if(size.QuadPart != length)
     {
         LARGE_INTEGER distance;
-        distance.QuadPart = length();
+        distance.QuadPart = length;
         if(SetFilePointerEx(m_file_handle, distance, &distance, FILE_BEGIN) == FALSE)
         {
             util::assign_errno(error);
@@ -88,13 +89,13 @@ void file::allocate(std::error_code& error)
     }
 
     // don't truncate file if it's already truncated (has the correct length)
-    if(stat.st_size == length())
+    if(stat.st_size == length)
     {
         m_is_allocated = true;
         return;
     }
 
-    if(ftruncate(m_file_handle, length()) < 0)
+    if(ftruncate(m_file_handle, length) < 0)
     {
         util::assign_errno(error);
         return;
@@ -103,9 +104,9 @@ void file::allocate(std::error_code& error)
     // only allocate file blocks if it isn't allocated yet (check if the correct number
     // of blocks (we have to round of the number of blocks relative to the file length
     // here) are allocated)
-    if(stat.st_blocks < (length() + stat.st_blksize - 1) / stat.st_blksize)
+    if(stat.st_blocks < (length + stat.st_blksize - 1) / stat.st_blksize)
     {
-        const int ret = posix_fallocate(m_file_handle, 0, length());
+        const int ret = posix_fallocate(m_file_handle, 0, length);
         if(ret != 0)
         {
             error.assign(ret, std::system_category());
@@ -114,6 +115,7 @@ void file::allocate(std::error_code& error)
     }
 #endif // _WIN32
     m_is_allocated = true;
+    m_length = length;
 }
 
 void file::erase(std::error_code& error)
@@ -397,11 +399,8 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
 }
 
 template<typename PIOFunction>
-int file::repeated_positional_io(
-    PIOFunction pio_fn,
-    view<iovec>& buffers,
-    int64_t file_offset,
-    std::error_code& error)
+int file::repeated_positional_io(PIOFunction pio_fn, view<iovec>& buffers,
+    int64_t file_offset, std::error_code& error)
 {
     int file_length_left = length() - file_offset;
     int total_transferred = 0;
@@ -436,11 +435,8 @@ int file::repeated_positional_io(
 }
 
 template<typename PVIOFunction>
-int file::positional_vector_io(
-    PVIOFunction pvio_fn,
-    view<iovec>& buffers,
-    int64_t file_offset,
-    std::error_code& error)
+int file::positional_vector_io(PVIOFunction pvio_fn, view<iovec>& buffers,
+    int64_t file_offset, std::error_code& error)
 {
     int file_length_left = length() - file_offset;
     int total_transferred = 0;

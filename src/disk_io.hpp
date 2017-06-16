@@ -5,7 +5,6 @@
 #include "block_disk_buffer.hpp"
 #include "average_counter.hpp"
 #include "torrent_storage.hpp"
-#include "torrent_state.hpp"
 #include "disk_io_error.hpp"
 #include "disk_buffer.hpp"
 #include "string_view.hpp"
@@ -13,6 +12,7 @@
 #include "time.hpp"
 #include "path.hpp"
 #include "sha1_hasher.hpp"
+#include "bdecode.hpp"
 
 #include <system_error>
 #include <unordered_map>
@@ -26,6 +26,7 @@
 namespace tide {
 
 class metainfo;
+class bmap_encoder;
 struct torrent_info;
 struct disk_io_settings;
 
@@ -71,14 +72,6 @@ public:
     };
 
 private:
-
-    struct disk_job
-    {
-        enum class priority_t { high, normal, low };
-        virtual ~disk_job() = default;
-        virtual void execute() = 0;
-        virtual priority_t priority() { return priority_t::normal; }
-    };
 
     // This is the io_service that runs the network thread. It is used to post handlers
     // on the network thread so that no syncing is required between the two threads, as
@@ -141,46 +134,20 @@ private:
     // done in disk_io, as torrent_storage only takes care of the low level functions.
     std::unordered_map<torrent_id_t, torrent_storage> m_torrents;
 
-    // TODO record pending disk reads: this is necessary if multiple requests are issued
-    // for blocks in the same piece to avoid multiple disk jobs for the same piece
-    //std::deque<std::shared_ptr<disk_job>> m_outstanding_read_jobs;
-
-    average_counter m_avg_hash_time;
-    average_counter m_avg_write_time;
-    average_counter m_avg_read_time;
-    average_counter m_avg_job_time;
-
 public:
 
     disk_io(asio::io_service& network_ios, const disk_io_settings& settings);
     ~disk_io();
 
-    /**
-     * If there are more disk jobs running than what disk_io can keep up with, we should
-     * slow down the downloads. This function can be used for determining this condition.
-     */
-    bool is_overwhelmed() const noexcept;
-
     void change_cache_size(const int64_t n);
-
-    /**
-     * Reads the state of every torrent whose state was saved to disk and returns a list
-     * of all torrent states through the handler. This should be used when starting the
-     * application.
-     */
-    void read_all_torrent_states(
-        std::function<void(const std::error_code&, std::vector<torrent_state>)> handler
-    );
 
     void read_metainfo(const path& path,
         std::function<void(const std::error_code&, metainfo)> handler);
 
     void allocate_torrent(std::shared_ptr<torrent_info> info, string_view piece_hashes,
         std::function<void(const std::error_code&, torrent_storage_handle)> handler);
-
     void move_torrent(const torrent_id_t torrent, std::string new_path,
         std::function<void(const std::error_code&)> handler);
-
     void rename_torrent(const torrent_id_t torrent, std::string name,
         std::function<void(const std::error_code&)> handler);
 
@@ -189,17 +156,24 @@ public:
         std::function<void(const std::error_code&)> handler);
 
     /**
-     * Only erases the torrent's metadata, which is useful when user no longer wants
+     * Only erases the torrent's resume data, which is useful when user no longer wants
      * to seed it but wishes to retain the file.
      */
-    void erase_torrent_metadata(const torrent_id_t torrent,
+    void erase_torrent_resume_data(const torrent_id_t torrent,
         std::function<void(const std::error_code&)> handler);
-
-    void save_torrent_state(const torrent_id_t torrent, const torrent_state& state,
+    void save_torrent_resume_data(
+        const torrent_id_t torrent, const bmap_encoder& resume_data,
         std::function<void(const std::error_code&)> handler);
+    void load_torrent_resume_data(const torrent_id_t torrent,
+        std::function<void(const std::error_code&, bmap)> handler);
 
-    void read_torrent_state(const torrent_id_t torrent,
-        std::function<void(const std::error_code&, torrent_state)> handler);
+    /**
+     * Reads the state of every torrent whose state was saved to disk and returns a list
+     * of all torrent states through the handler. This should be used when starting the
+     * application.
+     */
+    void load_all_torrent_resume_data(
+        std::function<void(const std::error_code&, std::vector<bmap>)> handler);
 
     /**
      * Verifies that all currently downloaded torrents' files are where they should be.

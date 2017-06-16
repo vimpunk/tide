@@ -4,6 +4,9 @@
 #include "units.hpp"
 
 #include <vector>
+#include <memory>
+
+namespace tide {
 
 class torrent_settings;
 class torrent;
@@ -18,11 +21,11 @@ class torrent;
  *
  * Note that torrent_handle cannot outlive the torrent it is referring to, so it must
  * be ensured by user that when a torrent is shut down, this handle is disposed of as
- * well. The reason shared_ptr<torrent> is not used is to decrease internal complexity.
+ * well.
  */
 class torrent_handle
 {
-    torrent* m_torrent;
+    std::weak_ptr<torrent> m_torrent;
 
 public:
 
@@ -53,5 +56,6 @@ public:
     void force_tracker_reannounce();
 };
 
-#endif // TORRENT_TORRENT_HANDLE_HEADER
+} // namespace tide
 
+#endif // TORRENT_TORRENT_HANDLE_HEADER

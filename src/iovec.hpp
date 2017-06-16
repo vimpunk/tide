@@ -21,7 +21,8 @@ struct iovec
 # include <sys/uio.h>
 #endif // _WIN32
 
-namespace tide { namespace util
+namespace tide {
+namespace util
 {
     /** NOTE: if n is larger than iov.iov_len, using the iovec after this function is UB. */
     inline void trim_iovec_front(iovec& iov, const int n) noexcept

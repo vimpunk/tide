@@ -80,7 +80,7 @@ void engine::add_torrent(torrent_args args)
         const torrent_id_t torrent_id = get_torrent_id();
         auto it = m_torrents.emplace(torrent_id, torrent( torrent_id,
                 m_disk_io, m_bandwidth_controller, m_settings,
-                get_trackers(args.metainfo), m_endpoint_filter, m_event_channel,
+                get_trackers(args.metainfo), m_endpoint_filter, m_event_queue,
                 std::move(args))).first;
         assert(it != m_torrents.end());
         // TODO post torrent handle to user

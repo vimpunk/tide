@@ -2,6 +2,7 @@
 #include "file_info.hpp"
 #include "settings.hpp"
 #include "disk_io.hpp"
+#include "bencode.hpp"
 
 #include <cmath>
 #include <map>
@@ -20,18 +21,7 @@ disk_io::~disk_io()
 {
 }
 
-bool disk_io::is_overwhelmed() const noexcept
-{
-    // TODO this should be determined according to some threshold/watermark system
-    return false;
-}
-
 void disk_io::change_cache_size(const int64_t n)
-{
-}
-
-void disk_io::read_all_torrent_states(
-    std::function<void(const std::error_code&, std::vector<torrent_state>)> handler)
 {
 }
 
@@ -62,18 +52,26 @@ void disk_io::erase_torrent_files(const torrent_id_t torrent,
 {
 }
 
-void disk_io::erase_torrent_metadata(const torrent_id_t torrent,
+void disk_io::erase_torrent_resume_data(const torrent_id_t torrent,
     std::function<void(const std::error_code&)> handler)
 {
 }
+    void save_torrent_resume_data(
+        const torrent_id_t torrent, const bmap_encoder& resume_data,
+        std::function<void(const std::error_code&)> handler);
 
-void disk_io::save_torrent_state(const torrent_id_t torrent, const torrent_state& state,
-    std::function<void(const std::error_code&)> handler)
+void disk_io::save_torrent_resume_data(const torrent_id_t torrent,
+    const bmap_encoder& resume_data, std::function<void(const std::error_code&)> handler)
 {
 }
 
-void disk_io::read_torrent_state(const torrent_id_t torrent,
-    std::function<void(const std::error_code&, torrent_state)> handler)
+void disk_io::load_torrent_resume_data(const torrent_id_t torrent,
+    std::function<void(const std::error_code&, bmap)> handler)
+{
+}
+
+void disk_io::load_all_torrent_resume_data(
+    std::function<void(const std::error_code&, std::vector<bmap>)> handler)
 {
 }
 

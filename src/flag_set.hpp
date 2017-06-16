@@ -126,11 +126,7 @@ template<
 
         reference& operator=(const reference& other) noexcept
         {
-            if(other)
-                m_flags |= m_mask;
-            else
-                m_flags &= ~m_mask;
-            return *this;
+            return operator=(static_cast<bool>(other));
         }
 
         friend bool operator==(const reference& a, const reference& b) noexcept

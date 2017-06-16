@@ -79,18 +79,10 @@ struct btoken
 namespace detail
 {
     class bcontainer;
-    void format_map(
-        std::stringstream& ss,
-        const bcontainer& map,
-        const btoken* head = nullptr,
-        int nesting_level = 0
-    );
-    void format_list(
-        std::stringstream& ss,
-        const bcontainer& list,
-        const btoken* head = nullptr,
-        int nesting_level = 0
-    );
+    void format_map(std::stringstream& ss, const bcontainer& map,
+        const btoken* head = nullptr, int nesting_level = 0);
+    void format_list(std::stringstream& ss, const bcontainer& list,
+        const btoken* head = nullptr, int nesting_level = 0);
 
     /**
      * Defines common operations for container type bencode classes (list, map).
@@ -220,18 +212,10 @@ namespace detail
          */
         string_view encode() const;
 
-        friend void format_map(
-            std::stringstream& ss,
-            const bcontainer& map,
-            const btoken* head,
-            int nesting_level
-        );
-        friend void format_list(
-            std::stringstream& ss,
-            const bcontainer& list,
-            const btoken* head,
-            int nesting_level
-        );
+        friend void format_map(std::stringstream& ss, const bcontainer& map,
+            const btoken* head, int nesting_level);
+        friend void format_list(std::stringstream& ss, const bcontainer& list,
+            const btoken* head, int nesting_level);
     };
 
     inline string_view make_string_view_from_token(
@@ -295,13 +279,13 @@ namespace detail
     };
 }
 
-struct bnumber : public detail::bprimitive<int64_t, btype::number>
+struct bnumber final : public detail::bprimitive<int64_t, btype::number>
 {
     bnumber() = default;
     bnumber(int64_t n) : bprimitive(n) {}
 };
 
-struct bstring : public detail::bprimitive<std::string, btype::string>
+struct bstring final : public detail::bprimitive<std::string, btype::string>
 {
     bstring() = default;
     bstring(std::string s) : bprimitive(std::move(s)) {}
@@ -329,9 +313,7 @@ struct bstring : public detail::bprimitive<std::string, btype::string>
 
 class bmap;
 
-class blist
-    : public detail::bcontainer
-    , public belement
+class blist final : public detail::bcontainer, public belement
 {
     template<typename BType, btype TokenType> class list_proxy;
 
@@ -502,8 +484,7 @@ private:
             >::type operator*()
             {
                 return detail::make_number_from_token(
-                    m_list_proxy->m_list.source(), *m_pos
-                );
+                    m_list_proxy->m_list.source(), *m_pos);
             }
 
             template<typename T = BType>
@@ -513,8 +494,7 @@ private:
             >::type operator*()
             {
                 return detail::make_string_from_token(
-                    m_list_proxy->m_list.source(), *m_pos
-                );
+                    m_list_proxy->m_list.source(), *m_pos);
             }
 
             template<typename T = BType>
@@ -524,8 +504,7 @@ private:
             >::type operator*()
             {
                 return detail::make_string_view_from_token(
-                    m_list_proxy->m_list.source(), *m_pos
-                );
+                    m_list_proxy->m_list.source(), *m_pos);
             }
 
             template<typename T = BType>
@@ -534,9 +513,8 @@ private:
                 blist
             >::type operator*()
             {
-                return blist(
-                    static_cast<detail::bcontainer>(m_list_proxy->m_list), m_pos
-                );
+                return blist(static_cast<detail::bcontainer>(
+                    m_list_proxy->m_list), m_pos);
             }
 
             template<typename T = BType>
@@ -545,9 +523,8 @@ private:
                 bmap
             >::type operator*()
             {
-                return bmap(
-                    static_cast<detail::bcontainer>(m_list_proxy->m_list), m_pos
-                );
+                return bmap(static_cast<detail::bcontainer>(
+                    m_list_proxy->m_list), m_pos);
             }
 
             pointer operator->() noexcept
@@ -591,9 +568,10 @@ private:
     };
 };
 
-class bmap : public detail::bcontainer, public belement
+class bmap final : public detail::bcontainer, public belement
 {
 public:
+
     bmap() = default;
 
     bmap(std::vector<btoken>&& tokens, std::string&& encoded)
@@ -734,20 +712,16 @@ public:
         {
         case btype::number:
             return std::make_unique<bnumber>(
-                detail::make_number_from_token(source(), *token)
-            );
+                detail::make_number_from_token(source(), *token));
         case btype::string:
             return std::make_unique<bstring>(
-                detail::make_string_from_token(source(), *token)
-            );
+                detail::make_string_from_token(source(), *token));
         case btype::list:
             return std::make_unique<blist>(
-                static_cast<const detail::bcontainer&>(*this), token
-            );
+                static_cast<const detail::bcontainer&>(*this), token);
         case btype::map:
             return std::make_unique<bmap>(
-                static_cast<const detail::bcontainer&>(*this), token
-            );
+                static_cast<const detail::bcontainer&>(*this), token);
         }
     }
 
@@ -769,17 +743,15 @@ private:
      *
      * start_pos must be a map token (i.e. a token with type == btype::map).
      */
-    const btoken* find_token(
-        const std::string& key, const btoken* start_pos = nullptr
-    ) const noexcept;
+    const btoken* find_token(const std::string& key,
+        const btoken* start_pos = nullptr) const noexcept;
 
     /**
      * If list nested in this map (starting at token) has any nested maps, the search
      * for key is continued in them, otherwise nullptr is returned.
      */
     const btoken* find_token_in_list(
-        const std::string& key, const btoken* token
-    ) const noexcept;
+        const std::string& key, const btoken* token) const noexcept;
 };
 
 inline std::ostream& operator<<(std::ostream& out, const blist& b)

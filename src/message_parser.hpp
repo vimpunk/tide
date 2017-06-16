@@ -25,7 +25,7 @@ enum message_t : uint8_t
     interested     = 2,
     not_interested = 3,
     have           = 4,
-    bitfield       = 5,
+    bitfield_      = 5, // _ so as not to clash with the bitfield class TODO
     request        = 6,
     block          = 7,
     cancel         = 8,
