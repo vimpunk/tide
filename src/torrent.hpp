@@ -116,9 +116,16 @@ class torrent : public std::enable_shared_from_this<torrent>
     //  this should be a std::set despite the bad effect on cache?
     std::shared_ptr<std::vector<std::shared_ptr<piece_download>>> m_downloads;
 
-    // Since torrent may be accessed by user's thread (through torrent_handle), we need
-    // mutual exclusion. TODO work this out
-    mutable std::mutex m_torrent_mutex;
+    // Since torrent is exposed to user through torrent_handle and since torrent runs on
+    // a different thread than where these query functions are likely to be called, it's 
+    // public query methods need to enforce mutual exclusion on their data. So as not to
+    // lock a mutex every time a peer_session or torrent's internals work with m_info,
+    // a copy of m_info is kept, and thus acquiring a mutex is only necessary while
+    // handling this copy. Moreover, it need only be updated on demand, further
+    // decreasing the use of mutexes.
+    // TODO this is an idea
+    //torrent_info m_ts_info;
+    //mutable std::mutex m_ts_info_mutex;
 
     // The update cycle runs every second (TODO), cleans up finished peer_sessions,
     // connects to new peers, if necessary, and does general housekeeping. Also, every
@@ -148,7 +155,7 @@ class torrent : public std::enable_shared_from_this<torrent>
     // are preferred.
     unchoke_comparator m_unchoke_comparator;
 
-    bool m_is_paused = false;
+    bool m_is_stopped = false;
     bool m_is_aborted = false;
 
     // This is set to true as soon as any change occurs in state/statistics since the
@@ -160,10 +167,7 @@ class torrent : public std::enable_shared_from_this<torrent>
     // *
     bool m_is_state_changed = false;
 
-    // This is the original .torrent file of this torrent. It is kept in memory for
-    // m_piece_hashes points into its source buffer.
-    bmap m_metainfo;
-    string_view m_piece_hashes;
+    std::string m_piece_hashes;
 
 public:
 
@@ -219,9 +223,8 @@ public:
     torrent_storage_handle get_storage_handle() noexcept;
 
     /**
-     * The constructor only sets up torrent but does not start it, this has to be
-     * done explicitly; or if the torrent has been stopped, it can be resumed by calling
-     * start again.
+     * The constructor only sets up torrent but does not start it, this has to be done
+     * explicitly; or if torrent has been stopped it can be resumed with this.
      */
     void start();
 
@@ -241,6 +244,23 @@ public:
      * found, invokes this function of torrent. At this point peer is filtered by engine.
      */
     void attach_peer_session(std::shared_ptr<peer_session> session);
+
+    /** file_index must be the position of the file in the original .torrent metainfo. */
+    void prioritize_file(const int file_index);
+    void deprioritize_file(const int file_index);
+    void prioritize_piece(const piece_index_t piece);
+    void deprioritize_piece(const piece_index_t piece);
+
+    void apply_settings(const torrent_settings& settings);
+
+    void set_max_upload_slots(const int n);
+    void set_max_upload_rate(const int n);
+    void set_max_download_rate(const int n);
+    void set_max_connections(const int n);
+    int max_upload_slots() const noexcept;
+    int max_upload_rate() const noexcept;
+    int max_download_rate() const noexcept;
+    int max_connections() const noexcept;
 
     std::vector<peer_session::stats> peer_stats() const;
     void peer_stats(std::vector<peer_session::stats>& s) const;
@@ -262,27 +282,10 @@ public:
     time_point download_started_time() const noexcept;
     time_point download_ended_time() const noexcept;
 
-    bool is_paused() const noexcept;
+    bool is_stopped() const noexcept;
     bool is_running() const noexcept;
     bool is_leech() const noexcept;
     bool is_seed() const noexcept;
-
-    /** file_index must be the position of the file in the original .torrent metainfo. */
-    void prioritize_file(const int file_index);
-    void deprioritize_file(const int file_index);
-    void prioritize_piece(const piece_index_t piece);
-    void deprioritize_piece(const piece_index_t piece);
-
-    void apply_settings(const torrent_settings& settings);
-
-    void set_max_upload_slots(const int n);
-    void set_max_upload_rate(const int n);
-    void set_max_download_rate(const int n);
-    void set_max_connections(const int n);
-    int max_upload_slots() const noexcept;
-    int max_upload_rate() const noexcept;
-    int max_download_rate() const noexcept;
-    int max_connections() const noexcept;
 
     /**
      * Announces to trackers are usually spaced fixed intervals apart (this is set by
@@ -315,7 +318,17 @@ public:
 
 private:
 
-    void initialize_torrent_info(const torrent_id_t id, torrent_args& args);
+    /** Initializes fields common to both constructors. */
+    torrent(torrent_id_t id,
+        asio::io_service& ios,
+        disk_io& disk_io,
+        bandwidth_controller& bandwidth_controller,
+        settings& global_settings,
+        std::vector<tracker_entry> trackers,
+        endpoint_filter& endpoint_filter,
+        event_queue& event_queue);
+
+    void apply_torrent_args(torrent_args& args);
 
     /**
      * This is the main update cycle that is invoked every second. It removes
@@ -367,20 +380,19 @@ private:
     // -------------
 
     bool wants_peers() const noexcept;
-    int calculate_num_want() const noexcept;
 
     /**
      * If event is `none` or `started`, we announe to a single most suitable tracker,
      * otherwise (event is `completed` or `stopped`) we announce to all trackers to
-     * torrent has announced in the past.
+     * which torrent we've announced in the past.
      */
-    void announce_to_tracker(
-        tracker_request::event_t event = tracker_request::event_t::none,
+    void announce(tracker_request::event_t event = tracker_request::event_t::none,
         const bool force = false);
-    void on_announce_response(tracker_entry& tracker_entry,
-        const std::error_code& error, tracker_response response);
+    void on_announce_response(tracker_entry& tracker, const std::error_code& error,
+        tracker_response response, const tracker_request::event_t event);
     tracker_request create_tracker_request(
         tracker_request::event_t event) const noexcept;
+    int calculate_num_want() const noexcept;
 
     /**
      * Adds a peer returned in an announce response if we're not already connected to
@@ -416,6 +428,7 @@ private:
     void on_state_saved(const std::error_code& error);
 
     bmap_encoder create_resume_data() const;
+    void restore_resume_data(const bmap& resume_data);
 
     void lost_pieces(std::vector<piece_index_t> pieces);
 
@@ -467,8 +480,18 @@ private:
     };
 
     template<typename... Args>
-    void log(const log_event event, const std::string& format, Args&&... args) const;
+    void log(const log_event event, const char* format, Args&&... args) const;
 };
+
+inline bool torrent::is_stopped() const noexcept
+{
+    return m_info->state[torrent_info::stopped];
+}
+
+inline bool torrent::is_running() const noexcept
+{
+    return !is_stopped();
+}
 
 inline bool torrent::is_leech() const noexcept
 {

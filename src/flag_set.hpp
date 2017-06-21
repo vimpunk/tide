@@ -1,6 +1,7 @@
 #ifndef TORRENT_FLAG_SET_HEADER
 #define TORRENT_FLAG_SET_HEADER
 
+#include <initializer_list>
 #include <type_traits>
 #include <cstdint>
 #include <cstdlib>
@@ -86,8 +87,7 @@ template<
 > struct flag_set
 {
     static_assert(
-        util::enum_cast<size_t>(NumFlags) <= 64, "The maximum number of flags is 64."
-    );
+        util::enum_cast<size_t>(NumFlags) <= 64, "The maximum number of flags is 64.");
 
     using value_type = bool;
     using size_type = size_t;
@@ -143,6 +143,15 @@ template<
 private:
     underlying_type m_flags = 0;
 public:
+
+    flag_set() = default;
+    flag_set(const std::initializer_list<enum_type>& flags)
+    {
+        for(const auto flag : flags)
+        {
+            set(flag);
+        }
+    }
 
     size_type size() const noexcept
     {

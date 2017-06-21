@@ -12,6 +12,7 @@
 
 namespace tide {
 
+// TODO maybe separate basic info and stats into two classes
 /**
  * This class is a means of bookkeeping for torrent, to hold and update all relevant
  * information. Each torrent has a single instance, and if any party needs some info
@@ -35,7 +36,10 @@ struct torrent_info : public stats
     // and made system conformant, so it is safe to use them. Paths are relative and
     // must be appended to save_path if the absolute path is required. This is so that
     // when torrent is moved, only the save_path has to be changed.
+    //
+    // priority_files contains indices of entries in files.
     std::vector<file_info> files;
+    std::vector<file_index_t> priority_files;
 
     // The absolute path denoting where the torrent will be downloaded.
     path save_path;
@@ -66,6 +70,20 @@ struct torrent_info : public stats
     // so that every 3rd time we can run optimistic_unchoke.
     int num_choke_cycles = 0;
 
+    // In bytes per second. Whenever a peer has received or uploaded a block (i.e. cause
+    // to update its {up,down}load rate), it adds the transferred number of bytes to
+    // the matching field below, and every second torrent resets this field to 0.
+    // Thus, this gives a real time view of the up/download rates, suitable for exposing 
+    // it to user, but not intended for internal component as running averages are more 
+    // suitable there.
+    int upload_rate = 0;
+    int download_rate = 0;
+
+    // Before torrent resets the above two fields, it checks whether they have surpassed
+    // the current peak values, and if so, sets these fields to that.
+    int peak_upload_rate = 0;
+    int peak_download_rate = 0;
+
     seconds total_seed_time;
     seconds total_leech_time;
     time_point download_started_time;
@@ -85,6 +103,8 @@ struct torrent_info : public stats
         // If torrent is continued from a previous session, its directory structure and
         // files download before must be verified.
         verifying_files,
+        // Writing resume data to disk.
+        saving_state,
         // Torrent is announcing itself to one or several trackers and is waiting for
         // a response.
         announcing,

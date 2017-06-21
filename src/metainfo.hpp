@@ -27,6 +27,9 @@ struct metainfo
 
     // http://bittorrent.org/beps/bep_0012.html
     // If this is not empty, only this list will be used.
+    // The protocol defines this as a list of lists, each representing a tracker, but
+    // for better memory layout, a flat list is used and each tracker_entry denotes the
+    // tier to which it belongs.
     std::vector<tracker_entry> announce_list;
 
     // A position in this vector corresponds to the file(s) specified in metainfo. This

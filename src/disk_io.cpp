@@ -1,8 +1,8 @@
 #include "torrent_info.hpp"
 #include "file_info.hpp"
 #include "settings.hpp"
-#include "disk_io.hpp"
 #include "bencode.hpp"
+#include "disk_io.hpp"
 
 #include <cmath>
 #include <map>
@@ -34,7 +34,7 @@ void disk_io::allocate_torrent(
     std::shared_ptr<torrent_info> info, string_view piece_hashes,
     std::function<void(const std::error_code&, torrent_storage_handle)> handler)
 {
-    //m_torrents.emplace(info->id, torrent_storage(info, piece_hashes));
+    m_torrents.emplace(info->id, torrent_storage(info, piece_hashes));
 }
 
 void disk_io::move_torrent(const torrent_id_t torrent, std::string new_path,
@@ -75,7 +75,8 @@ void disk_io::load_all_torrent_resume_data(
 {
 }
 
-void disk_io::check_storage_integrity(std::function<void(const std::error_code&)> handler)
+void disk_io::check_storage_integrity(const torrent_id_t torrent, bitfield pieces,
+    std::function<void(const std::error_code&, bitfield)> handler)
 {
 }
 

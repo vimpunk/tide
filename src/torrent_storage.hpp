@@ -18,6 +18,8 @@
 
 namespace tide {
 
+class bitfield;
+
 /**
  * Denotes where in the file the requested block is (offset) and how much of block
  * is in file (length).
@@ -36,7 +38,8 @@ struct file_slice
  * All operations run synchronously, i.e. in the caller's thread. Therefore all methods
  * should be executed on a separate disk thread, such as in disk_io.
  *
- * NOTE: torrent_storage may not outlive its corresponding torrent instance.
+ * NOTE: for now this is not thread-safe but we might want to prevent multiple threads
+ * accessing the same files. TODO
  */
 class torrent_storage
 {
@@ -44,11 +47,9 @@ class torrent_storage
     {
         file storage;
 
-        // If all files were regarded as a single continous byte stream, this file's
-        // first byte would be at this offset in the stream. This is used find the files
-        // that map to a piece.
-        // TODO perhaps rename to stream_offset to better illustrate this
-        int64_t offset;
+        // The offset of this file in the torrent, i.e. the offset in all files 
+        // conceptually concatenated in one contiguous byte array.
+        int64_t torrent_offset;
 
         // The range of pieces [first, last] that are covered by this file, even if
         // only partially.
@@ -67,25 +68,18 @@ class torrent_storage
     // on disk, i.e. when they are first accessed.
     std::vector<file_entry> m_files;
 
-    // Relevant info (such as piece length, wanted files etc) about storage's
-    // corresponding torrent. Fields currently used:
-    // files
-    // TODO consider putting these in a torrent_storage_args fields so as not to
-    // refer to torrent_info to avoid potential race conditions
-    std::shared_ptr<torrent_info> m_info;
-
-    // The expected hashes of all pieces, represented as a single block of memory for
-    // optimal storage (this is a direct view into the original metainfo's encoded source
-    // buffer). To retrieve a piece's hash:
-    // string_view(m_piece_hashes.data() + piece_index * m_info->piece_length, 20)
-    // NOTE: the metainfo into which this points must be kept alive.
-    string_view m_piece_hashes;
-
     // This is the file where torrent resume data is stored.
     file m_resume_data;
 
-    // This is an absolute path.
-    path m_save_path;
+    // The expected hashes of all pieces, represented as a single block of memory for
+    // optimal storage. To retrieve a piece's hash:
+    // string_view(m_piece_hashes.data() + piece_index * m_piece_length, 20)
+    std::string m_piece_hashes;
+
+    // This is an absolute path to the root directory in which torrent is saved. If
+    // torrent is multi-file, the root directory is save path / torrent name, otherwise
+    // it's just save path.
+    path m_root_path;
 
     // The name of the root directory if this is a multi-file torrent.
     std::string m_name;
@@ -102,25 +96,23 @@ class torrent_storage
 
 public:
 
-    torrent_storage(std::shared_ptr<torrent_info> info,
-        string_view piece_hashes, std::string resume_data_path);
-
     /**
-     * This is the name of the torrent which, if the torrent has multiple files, is also
-     * the root directory's name.
+     * Initializes internal file entries, and if torrent is multi-file, establishes
+     * the final directory structure (but does not allocate any files).
      */
-    const std::string& name() const noexcept { return m_name; }
+    torrent_storage(std::shared_ptr<torrent_info> info,
+        string_view piece_hashes, path resume_data_path);
 
     /**
      * These return the root path of the torrent, which is the file itself for single
      * file torrents.
      */
-    const path& save_path() const noexcept { return m_save_path; }
+    const path& root_path() const noexcept { return m_root_path; }
 
     /**
      * Returns the total number of bytes of all files we'll have once all the wanted
      * files are downloaded (that is, if we're not downloading all files, then this
-     * value won't match the summed lengths of all files in metainfo.
+     * value won't match the summed lengths of all files in metainfo).
      */
     int64_t size_to_download() const noexcept { return m_size_to_download; }
 
@@ -137,6 +129,7 @@ public:
      * inclusive, i.e. the valid files are in the range [interval.begin, interval.end).
      */
     interval files_containing_piece(const piece_index_t piece) const noexcept;
+    interval files_containing_pieces(const interval& pieces) const noexcept;
 
     /**
      * Returns where in file block resides. The return value is invalid if both
@@ -159,14 +152,29 @@ public:
     void erase_file(const file_index_t file, std::error_code& error);
 
     /**
-     * The torrent's current path, stored in torrent's torrent_info, must not be changed
-     * from anywhere but here. If this operation is sucessful, the torrent_info.save_path
-     * is updated to the new path.
+     * Moves the entire download, that is, if torrent is multi-file, moves the root
+     * directory and all its nested entries to the new path. The new root directory
+     * will be at path / torrent name.
      */
-    void move_file(path path, std::error_code& error);
+    void move(path path, std::error_code& error);
 
     bmap read_resume_data(std::error_code& error);
     void write_resume_data(const bmap_encoder& resume_data, std::error_code& error);
+
+    /**
+     * Hashes every downloaded piece and compares them to their expected values, if they
+     * exist at all. If any errors occurred, error will be set to the corresponding
+     * disk_io_errc. If any pieces are missing (but otherwise no storage error occurred),
+     * those pieces will be erased from the pieces bitfield. pieces.size() must be the
+     * same as m_num_pieces.
+     *
+     * NOTE: this may be a very expensive operation, and in case of large/many files it
+     * should be parallelized using the second overload, partitioning the number of
+     * pieces as necessary.
+     */
+    void check_storage_integrity(bitfield& pieces, std::error_code& error);
+    void check_storage_integrity(bitfield& pieces, int first_piece,
+        int num_pieces_to_check, std::error_code& error);
 
     /**
      * Returns a list of memory mapped objects that fully cover the specified portion
@@ -187,7 +195,7 @@ public:
      */
 
     /**
-     * Blocking scatter-gather IO implemented using syscalls.
+     * Blocking scatter-gather IO.
      *
      * info specifies which piece, at which offset in the piece and how much in the
      * piece we should read from disk/write to buffer. Though buffer size number of
@@ -200,13 +208,15 @@ public:
      * In the case of reading, a file is opened if it's not open, but if it's not
      * allocated, the operation ends in an error.
      *
-     * NOTE: the number of bytes that have been read/written are trimmed from the iovec
-     * buffers view. Thus it should not be used to refer to the original/resulting data
-     * after this function.
+     * NOTE: the number of bytes that have been read/written are trimmed from the iovecs
+     * in the buffers view. Thus it should not be used to refer to the original/resulting 
+     * data after this function.
      */
-    void read(view<iovec>& buffers, const block_info& info, std::error_code& error);
+    void read(iovec buffer, const block_info& info, std::error_code& error);
+    void read(view<iovec> buffers, const block_info& info, std::error_code& error);
     void read(std::vector<iovec> buffers, const block_info& info, std::error_code& error);
-    void write(view<iovec>& buffers, const block_info& info, std::error_code& error);
+    void write(iovec buffer, const block_info& info, std::error_code& error);
+    void write(view<iovec> buffers, const block_info& info, std::error_code& error);
     void write(std::vector<iovec> buffers, const block_info& info, std::error_code& error);
 
 private:
@@ -226,8 +236,6 @@ private:
      * NOTE: muste be called after m_files has been initialized.
      */
     void create_directory_tree();
-    void create_directory(const path& path, std::error_code& error);
-    void create_directories(const path& path, std::error_code& error);
 
     /**
      * The first time we write to a file, it's neither opened nor allocated, so this
@@ -245,7 +253,7 @@ private:
 
     /**
      * Both reading from, writing to and mapping files (the portions of them that
-     * correspond to the block as described by info) involve the same plumbing
+     * corresponds to the block as described by info) involve the same plumbing
      * to keep track of where in the file we want to do the io operation, so this
      * function serves as an abstraction around the common parts.
      *
@@ -260,20 +268,20 @@ private:
      * )
      */
     template<typename IOFunction> void do_file_io(
-        IOFunction io_fn, const block_info& info, std::error_code& error);
+        IOFunction io_fn, const block_info& block, std::error_code& error);
 
     /**
      * Returns the position where in file offset, which refers to the offset in
      * all files combined, is and how much of length is contained in file.
      */
     file_slice get_file_slice(const file_entry& file,
-        int64_t offset, int64_t length) const noexcept;
+        int64_t torrent_offset, int64_t length) const noexcept;
 
     /** Returns a range of files that contain some portion of the block or piece. */
     view<file_entry> files_containing_block(const block_info& block);
     //view<file_entry> files_containing_piece(const piece_index_t piece);
 
-    bool is_valid_file_index(const file_index_t index) const noexcept;
+    bool is_file_index_valid(const file_index_t index) const noexcept;
 };
 
 } // namespace tide

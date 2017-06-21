@@ -30,7 +30,7 @@ template<int InvertedGain> class sliding_average
 
 public:
 
-    void add_sample(int s) noexcept
+    void update(int s) noexcept
     {
         // to avoid integer truncation samples are multiplied by 64, and when requesting
         // the mean, 32 is added to it before dividing back by 64 to the actual value

@@ -7,11 +7,11 @@
 #include "throughput_rate.hpp"
 #include "sliding_average.hpp"
 #include "message_parser.hpp"
-#include "bitfield.hpp"
 #include "send_buffer.hpp"
 #include "disk_buffer.hpp"
 #include "block_info.hpp"
 #include "flag_set.hpp"
+#include "bitfield.hpp"
 #include "socket.hpp"
 #include "units.hpp"
 #include "stats.hpp"
@@ -296,6 +296,25 @@ private:
     // which is constantly updated but copies for stat aggregation are made on demand.
     info m_info;
 
+    // These values are weighed running averages, the last 20 seconds having the largest
+    // weight. These are strictly the throughput rates of piece byte transfers and are
+    // used to compare a peer's performance against another to determine which to unchoke.
+    throughput_rate<20> m_upload_rate;
+    throughput_rate<20> m_download_rate;
+
+    // This is the average network round-trip-time (in milliseconds) between issuing a
+    // request and receiving a block (note that it doesn't have to be the same block
+    // since peers are not required to serve our requests in order, so this is more of
+    // a general approximation).
+    sliding_average<20> m_avg_request_rtt;
+
+    // We measure the average time it takes (in milliseconds) to do disk jobs as this
+    // affects the value that is picked for a peer's ideal request queue size (counting
+    // disk latency is part of a requests's full round trip time, though it has a lower
+    // weight as disk_io may buffer block before writing it to disk, meaning the
+    // callbacks will be invoked with practically zero latency).
+    sliding_average<20> m_avg_disk_write_time;
+
     // This is only used when connecting to the peer. If we couldn't connect by the time
     // this timer expires, the connection is aborted.
     deadline_timer m_connect_timeout_timer;
@@ -439,17 +458,19 @@ public:
         std::vector<piece_index_t> piece_downloads;
     };
 
+    bool is_connecting() const noexcept;
+    bool is_handshaking() const noexcept;
+    bool is_disconnecting() const noexcept;
+    bool is_disconnected() const noexcept;
+
     /**
      * When peer_session is stopped gracefully, it transitions from connected to
      * disconnecting, then finally to disconnected. If it's aborted, it transitions
      * from connected to disconnected. If one only wishes to know whether peer_session
      * is effectively finished (disconnecting or disconnected), use is_stopped.
      */
-    bool is_connecting() const noexcept;
-    bool is_disconnecting() const noexcept;
-    bool is_disconnected() const noexcept;
     bool is_stopped() const noexcept;
-    bool is_handshaking() const noexcept;
+
     bool am_choked() const noexcept;
     bool am_interested() const noexcept;
     bool is_peer_choked() const noexcept;
@@ -667,6 +688,13 @@ private:
     void handle_illicit_bitfield();
     void handle_unknown_message();
 
+    /**
+     * If we're expecting a block and message parser has half finished messages, we
+     * test whether it's a block, and if it is, try to extract information about it.
+     * See info::in_transit_block comment.
+     */
+    void probe_in_transit_block() noexcept;
+
     // ----------
     // -- disk --
     // ----------
@@ -698,10 +726,10 @@ private:
 
     /**
      * This is used by public sender methods (choke_peer, announce_new_piece etc) to
-     * see if we are in a state where we can send messages (not connecting or 
-     * disconnected).
+     * see if we are in a state where we can send messages other than a handshake (not 
+     * connecting, handshaking, disconnecting or disconnected).
      */
-    bool is_ready_to_send() const noexcept;
+    bool is_read_for_message_exchange() const noexcept;
 
     /**
      * Each of the below methods appends its message to m_send_buffer and calls send
@@ -929,12 +957,12 @@ inline const tcp::endpoint& peer_session::remote_endpoint() const noexcept
 
 inline int64_t peer_session::download_rate() const noexcept
 {
-    return m_info.download_rate.bytes_per_second();
+    return m_download_rate.bytes_per_second();
 }
 
 inline int64_t peer_session::upload_rate() const noexcept
 {
-    return m_info.upload_rate.bytes_per_second();
+    return m_upload_rate.bytes_per_second();
 }
 
 } // namespace tide

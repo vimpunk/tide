@@ -13,6 +13,7 @@
 #include "path.hpp"
 #include "sha1_hasher.hpp"
 #include "bdecode.hpp"
+#include "bitfield.hpp"
 
 #include <system_error>
 #include <unordered_map>
@@ -69,6 +70,17 @@ public:
         milliseconds total_write_time;
         milliseconds total_read_time;
         milliseconds total_hash_time;
+
+        info()
+            : avg_wait_time(0)
+            , avg_write_time(0)
+            , avg_read_time(0)
+            , avg_hash_time(0)
+            , total_job_time(0)
+            , total_write_time(0)
+            , total_read_time(0)
+            , total_hash_time(0)
+        {}
     };
 
 private:
@@ -103,7 +115,7 @@ private:
         // This is always the first byte of the first unhashed block (or one past the
         // last hashed block's last byte). This is used to check if we can hash blocks
         // since they must passed to m_hasher.update() in order.
-        int first_unhashed_offset = 0;
+        int unhashed_offset = 0;
 
         torrent_id_t torrent;
         piece_index_t piece_index;
@@ -176,9 +188,11 @@ public:
         std::function<void(const std::error_code&, std::vector<bmap>)> handler);
 
     /**
-     * Verifies that all currently downloaded torrents' files are where they should be.
+     * Verifies that all pieces downloaded in torrent exist and are valid by hashing
+     * each piece in the downloaded files and comparing them to their expected values.
      */
-    void check_storage_integrity(std::function<void(const std::error_code&)> handler);
+    void check_storage_integrity(const torrent_id_t torrent, bitfield pieces,
+        std::function<void(const std::error_code&, bitfield)> handler);
 
     /**
      * This can be used to hash any generic data, but for hashing pieces/blocks, use

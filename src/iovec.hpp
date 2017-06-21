@@ -13,7 +13,7 @@
 
 struct iovec
 {
-    void *iov_base; /* Starting address. */
+    void* iov_base; /* Starting address. */
     size_t iov_len; /* Number of bytes to transfer. */
 };
 
@@ -22,14 +22,15 @@ struct iovec
 #endif // _WIN32
 
 namespace tide {
-namespace util
-{
+namespace util {
+
     /** NOTE: if n is larger than iov.iov_len, using the iovec after this function is UB. */
     inline void trim_iovec_front(iovec& iov, const int n) noexcept
     {
         iov.iov_base = reinterpret_cast<char*>(iov.iov_base) + n;
         iov.iov_len -= n;
     }
+
 } // namespace util
 } // namespace tide
 

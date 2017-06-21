@@ -14,25 +14,6 @@ namespace tide {
  */
 struct stats
 {
-    // These values are weighed running averages, the last 20 seconds having the largest
-    // weight. These are strictly the throughput rates of piece byte transfers and are
-    // used to compare a peer's performance agains another to determine which to unchoke.
-    throughput_rate<20> upload_rate;
-    throughput_rate<20> download_rate;
-
-    // This is the average network round-trip-time (in milliseconds) between issuing a
-    // request and receiving a block (note that it doesn't have to be the same block
-    // since peers are not required to serve our requests in order, so this is more of
-    // a general approximation).
-    sliding_average<20> avg_request_rtt;
-
-    // We measure the average time it takes (in milliseconds) to do disk jobs as this
-    // affects the value that is picked for a peer's ideal request queue size (counting
-    // disk latency is part of a requests's full round trip time, though it has a lower
-    // weight as disk_io may buffer block before writing it to disk, meaning the
-    // callbacks will be invoked with practically zero latency).
-    sliding_average<20> avg_disk_write_time;
-
     // The total number of piece bytes exchanged. Does not include protocol overhead
     // (i.e. neither BitTorrent protocol and TCP/IP protocol).
     // Note that it also includes pieces that later turned out to be invalid and had
@@ -53,6 +34,18 @@ struct stats
     // If we receive a piece that we already have, this is incremented by its length.
     int64_t total_wasted_bytes = 0;
 
+    int total_bytes_written_to_disk = 0;
+    int total_bytes_read_from_disk = 0;
+
+    // The number of bytes that written or are waiting to be written to and read
+    // from disk.
+    int num_pending_disk_write_bytes = 0;
+    int num_pending_disk_read_bytes = 0;
+
+    // The number of piece bytes we're expecting to receive. This is decremented by the
+    // block's length that was received, or if requests got cancelled.
+    int num_outstanding_bytes = 0;
+
     // The number of corrupt pieces that didn't pass the hash test.
     int num_hash_fails = 0;
 
@@ -65,18 +58,6 @@ struct stats
     int num_unwanted_blocks = 0;
     int num_disk_io_failures = 0;
     int num_timed_out_requests = 0;
-
-    int total_bytes_written_to_disk = 0;
-    int total_bytes_read_from_disk = 0;
-
-    // The number of bytes that written or are waiting to be written to and read
-    // from disk.
-    int num_pending_disk_write_bytes = 0;
-    int num_pending_disk_read_bytes = 0;
-
-    // The number of piece bytes we're expecting to receive. This is decremented by the
-    // block's length that was received, or if requests got cancelled.
-    int num_outstanding_bytes = 0;
 
     // The number of requests that peers hasn't served yet.
     //int download_queue_size = 0;

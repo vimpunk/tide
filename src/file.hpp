@@ -4,12 +4,12 @@
 #include "flag_set.hpp"
 #include "iovec.hpp"
 #include "view.hpp"
+#include "time.hpp"
 #include "path.hpp"
 
 #include <system_error>
 #include <cstdint>
 
-// TODO move as much as possible from here to the source file
 #ifdef _WIN32
 # ifndef WIN32_LEAN_AND_MEAN
 #  define WIN32_LEAN_AND_MEAN
@@ -25,10 +25,52 @@
 #endif // _WIN32
 
 namespace tide {
+namespace fs { // filesystem utilities
 
-// TODO
-//struct mmap_source {};
-//struct mmap_sink {};
+struct file_status
+{
+    enum
+    {
+#ifdef _WIN32
+        // TODO
+        fifo,
+        character_device,
+        directory,
+        regular_file,
+#else // _WIN32
+        socket = 0140000,
+        symbolic_link = 0120000,
+        regular_file = 0100000,
+        block_device = 0060000,
+        directory = 0040000,
+        character_device = 0020000,
+        fifo = 001000
+#endif // _WIN32
+    };
+
+    int64_t length;
+    int mode;
+    time_point last_access_time;
+    time_point last_modification_time;
+    time_point last_status_change_time;
+};
+
+file_status status(const path& path, std::error_code& error);
+
+bool exists(const path& path);
+bool exists(const path& path, std::error_code& error);
+bool is_directory(const path& path, std::error_code& error);
+
+int64_t file_length(const path& path, std::error_code& error);
+
+void create_directory(const path& path, std::error_code& error);
+void create_directories(const path& path, std::error_code& error);
+
+/** On Linux open file descriptors for old_path are unaffected. TODO check on Windows. */
+void move(const path& old_path, const path& new_path, std::error_code& error);
+void rename(const path& old_path, const path& new_path, std::error_code& error);
+
+} // namespace fs
 
 // TODO currently only linux is supported
 // TODO add optimization where user can tell file that only page aligned 16KiB blocks
@@ -39,25 +81,24 @@ namespace tide {
 // be issues with syncing to disk but look into this)
 struct file
 {
-    // TODO use flag_set here for safety
     enum open_mode : uint8_t
     {
-        read_only     = 0,
-        write_only    = 1,
-        read_write    = 2,
+        read_only,
+        write_only,
+        read_write,
         // Don't update the access timestamps, which should improve performance.
-        no_atime      = 4,
+        no_atime,
         // Tell OS not to read ahead.
-        random        = 8,
+        random,
         // Tell OS to read ahead aggressively.
-        sequential    = 16, // TODO currently unimplemented
+        sequential, // TODO currently unimplemented
         // Don't allow other process to access while we're working with it.
-        lock_file     = 32, // TODO currently unimplemented
+        lock_file, // TODO currently unimplemented
         // Don't put file into the OS' page cache.
-        no_os_cache   = 64,
+        no_os_cache,
         // When creating the file, set the executabe attribute.
-        executable    = 128
-        //max
+        executable,
+        max
     };
 
 #ifdef _WIN32
@@ -65,27 +106,27 @@ struct file
 #else
     using handle_type = int;
 #endif
+    using open_mode_flags = flag_set<open_mode, open_mode::max>;
 
 private:
 
     handle_type m_file_handle = INVALID_HANDLE_VALUE;
     path m_absolute_path;
     bool m_is_allocated = false;
-    uint8_t m_open_mode;
+    open_mode_flags m_open_mode;
     int64_t m_length;
-    //flag_set<open_mode, open_mode::max> m_open_mode;
 
 public:
 
     /**
-     * Default constructed file is invalid.
+     * Default constructed file is invalid (i.e. its handler is invalid).
      *
      * Sets the attributes of the file but does not open or initialize its storage.
      * This is to allow on demand execution of those functions, so call open() and then
      * allocate() separately, in this order.
      */
     file() = default;
-    file(path path, int64_t length, uint8_t open_mode);
+    file(path path, int64_t length, open_mode_flags open_mode);
     file(const file&) = delete;
     file& operator=(const file&) = delete;
     file(file&& other) = default;
@@ -101,20 +142,23 @@ public:
      * all sync_with_disk if needed.
      */
     void open(std::error_code& error);
-    void open(uint8_t open_mode, std::error_code& error);
+    void open(open_mode_flags open_mode, std::error_code& error);
     void close();
 
     /**
-     * This should be called when torrent's storage has been relocated. This merely
-     * updates the path.
+     * This should be called when the directory in which this file is located has been
+     * moved, because the internal path member needs to be updated to match file's path
+     * in the filesystem. file_path is an absolute path to the new location of the file.
      */
-    void set_path(path path);
+    void on_parent_moved(path file_path);
 
     /**
      * Instructs the OS to allocate length number of bytes on the hardware for this
-     * file, if file hasn't been allocated the correct size yet.
+     * file, if file hasn't been allocated the correct size yet. If the reallocation
+     * caused it to shrink, the truncated data is lost, but the rest is the same as
+     * before, and if file grew, the new bytes are 0.
      *
-     * NOTE: this must be called before the first time we try to do any operation on
+     * NOTE: this must be called before the first time any operation is done on
      * file and the file must already be opened.
      */
     void allocate(std::error_code& error);
@@ -127,12 +171,17 @@ public:
      * NOTE: file must be closed before issueing this call.
      */
     void erase(std::error_code& error);
+    void move(const path& new_path, std::error_code& error);
 
     int64_t size() const noexcept;
     int64_t length() const noexcept;
-    path absolute_path() const noexcept;
+
+    path absolute_path() const;
+    std::string filename() const;
+
     bool is_open() const noexcept;
     bool is_read_only() const noexcept;
+    bool is_write_only() const noexcept;
     bool is_allocated() const noexcept;
 
     /**
@@ -148,16 +197,17 @@ public:
      * An exception is thrown if file_offset and/or length are invalid. Any other IO
      * errors are reported via error. In both cases the returned mmap object is invalid/
      * uninitialized.
-    mmap_source create_mmap_source(
-        const int64_t file_offset, const int length, std::error_code& error);
-    mmap_sink create_mmap_sink(
-        const int64_t file_offset, const int length, std::error_code& error);
+    mmap_source create_mmap_source(const int64_t file_offset,
+        const int length, std::error_code& error);
+    mmap_sink create_mmap_sink(const int64_t file_offset,
+        const int length, std::error_code& error);
      */
 
     /**
      * Reads or writes a single buffer and returns the number of bytes read/written, or
      * 0 if no reading/writing occured (whether due to an error or EOF is not specified,
      * as details can be retrieved from error).
+     * The number of bytes written is min(length() - file_offset, buffer.length()).
      *
      * An exception is thrown if file_offset is invalid.
      */
@@ -171,32 +221,31 @@ public:
      * be provided which are treated as a single contiguous buffer.
      *
      * The number of bytes transferred to or from disk is guaranteed to be
-     * min(num_bytes_in_buffers, file.length()), as the syscalls the implementation uses
-     * do not usually guarantee the transfer of the requested number of bytes, but these
-     * operations are repeated until succeeding or until an error occurs.
+     * min(num_bytes_in_buffers, file.length() - file_offset), as the syscalls the 
+     * implementation uses don't usually guarantee the transfer of the requested number 
+     * of bytes, but these operations are repeated until succeeding or until an error 
+     * occurs.
      *
      * The number of bytes that were successfully read/written are returned, or 0 if no
      * reading/writing occured (whether due to an error or EOF is not specified, as
      * details can be retrieved from error).
      *
-     * For writing, if the no_disk_cache flag from open_mode is set, changes are
-     * immediately written to disk, i.e. OS is instructed to flush the file's contents
-     * from its page cache to disk. Otherwise this should be done manually with
-     * sync_with_disk.
+     * For writing, if the open_mode_t::no_disk_cache flag is set, changes are
+     * immediately written to disk, that is, the OS is instructed to flush the file's 
+     * contents from its page cache to disk. Otherwise this should be done manually with
+     * sync_with_disk in order to guarantee that changes are written to disk.
      *
      * An exception is thrown if file_offset is invalid.
-     TODO consider only asserting the input values instead of throwing as this is a
-     low-level class not used by anyone else
      * Any other IO errors are reported via error.
      *
      * If an error occurs while reading, the contents of the destination buffer is
      * undetermined.
      *
      * NOTE: the number of bytes that have been read/written are trimmed from the iovec
-     * buffers view. (It effectively advances the byte pointer/cursor, which can be
-     * useful when buffers is meant to be written to/filled with by the contents of
-     * several consecutive files, so when these functions return, the buffers view can
-     * just be passed to the next file, starting at the correct file_offset.)
+     * buffers view. It's effectively used as a byte pointer/cursor that is advanced
+     * by the number of bytes transferred, which can be useful when buffers is meant to
+     * be written to/filled with by the contents of several consecutive files, so when 
+     * these functions return, the buffers view can just be passed to the next file.
      */
     int read(view<iovec>& buffers, const int64_t file_offset, std::error_code& error);
     int write(view<iovec>& buffers, const int64_t file_offset, std::error_code& error);
@@ -246,48 +295,32 @@ private:
         int64_t file_offset, std::error_code& error);
 };
 
-/** This is a cross platform mapping of stat and the windows equivalent. *
-struct file_status
+namespace util {
+
+/**
+ * Trims the front of buffers by num_to_trim bytes by removing the buffers that were
+ * fully used and trimming the last buffer that was used by the number of bytes that
+ * were extracted or written to it, like so:
+ *
+ * remove these two buffers
+ * |      |      num_to_trim
+ * v      v      V
+ * ====|=====|===-----|---
+ *             ^ and trim this buffer's front
+ */
+void trim_buffers_front(view<iovec>& buffers, int num_to_trim) noexcept;
+
+/**
+ * Assigns errno on UNIX and GetLastError() on Windows to error after a failed
+ * operation.
+ */
+void assign_errno(std::error_code& error) noexcept;
+
+} // namespace util
+
+inline void file::on_parent_moved(path file_path)
 {
-    int device_id;
-    int inode_number;
-    int mode;
-    int num_hardlinks;
-    int uid;
-    int gid;
-    int64_t length;
-    int block_length;
-    int num_blocks;
-    seconds last_access_time;
-    seconds last_modification_time;
-    seconds last_status_change_time;
-};
-
-file_status status(const path& path, std::error_code& error);
-*/
-
-bool exists(const path& path, std::error_code& error);
-
-namespace util
-{
-    /**
-     * Trims the front of buffers by num_to_trim bytes by removing the buffers that were
-     * fully used and trimming the last buffer that was used by the number of bytes that
-     * were extracted or written to it, like so:
-     *
-     * remove these two buffers
-     * |      |      num_to_trim
-     * v      v      V
-     * ====|=====|===-----|---
-     *             ^ and trim this buffer's front
-     */
-    void trim_buffers_front(view<iovec>& buffers, int num_to_trim) noexcept;
-
-    /**
-     * Assigns errno on UNIX and GetLastError() on Windows to error after a failed
-     * operation.
-     */
-    void assign_errno(std::error_code& error) noexcept;
+    m_absolute_path = file_path;
 }
 
 inline int64_t file::size() const noexcept
@@ -300,9 +333,14 @@ inline int64_t file::length() const noexcept
     return m_length;
 }
 
-inline path file::absolute_path() const noexcept
+inline path file::absolute_path() const
 {
     return m_absolute_path;
+}
+
+inline std::string filename() const
+{
+    m_absolute_path.filename().native();
 }
 
 inline bool file::is_open() const noexcept
@@ -312,7 +350,12 @@ inline bool file::is_open() const noexcept
 
 inline bool file::is_read_only() const noexcept
 {
-    return m_open_mode & read_only;
+    return m_open_mode[read_only];
+}
+
+inline bool file::is_write_only() const noexcept
+{
+    return m_open_mode[write_only];
 }
 
 inline bool file::is_allocated() const noexcept

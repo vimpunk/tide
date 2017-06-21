@@ -13,6 +13,8 @@
 #include <memory>
 #include <vector>
 
+// TODO move as much as possible to source
+
 namespace tide {
 
 /** All the possible bencoded types. */

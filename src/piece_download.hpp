@@ -123,6 +123,8 @@ public:
      */
     std::vector<peer_id_t> peers() const;
 
+    const std::vector<bool>& downloaded_blocks() const;
+
     /**
      * When a part of the piece is received, it must be registered. The completion
      * handler is invoked in post_hash_result, which should be called when the
@@ -130,11 +132,8 @@ public:
      * single entity that saves the final block, so it will perform the hashing, so it
      * must propagate the results to other participants of this download.
      */
-    void got_block(
-        const peer_id_t& peer,
-        const block_info& block,
-        completion_handler completion_handler
-    );
+    void got_block(const peer_id_t& peer, const block_info& block,
+        completion_handler completion_handler);
 
     /**
      * This should be called once the piece is complete and it has been hashed. It calls
@@ -179,6 +178,8 @@ public:
     void remove_peer(const peer_id_t& peer);
 
     /** Returns n or less blocks to request. */
+    // TODO make user request blocks one by one so we don't have to allocate a vector
+    // for this
     std::vector<block_info> make_request_queue(const int n);
 
 private:
@@ -217,6 +218,11 @@ inline int piece_download::num_blocks_left() const noexcept
 inline piece_index_t piece_download::piece_index() const noexcept
 {
     return m_index;
+}
+
+inline const std::vector<bool>& piece_download::downloaded_blocks() const
+{
+    return m_completion;
 }
 
 } // namespace tide

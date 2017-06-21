@@ -96,7 +96,7 @@ private:
             const int full_second_num_bytes = m_num_bytes_left / full_elapsed_s;
             for(auto i = 0; i < full_elapsed_s; ++i)
             {
-                m_rate.add_sample(full_second_num_bytes);
+                m_rate.update(full_second_num_bytes);
                 m_num_bytes_left -= full_second_num_bytes;
             }
             // updates happen at full seconds and since the bytes left over here are

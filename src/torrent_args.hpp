@@ -28,8 +28,8 @@ struct torrent_args
     // highest to lowest priority. By default no file has priority over the other, the
     // piece picker picks pieces that are the rarest (or it's in sequential mode, in
     // which case this list is still taken into consideration). This has the same effect
-    // as calling torrent::prioritize_file() with the specified file.
-    std::vector<file_index_t> file_priorities;
+    // as calling torrent::prioritize_file() for each file index in this list.
+    std::vector<file_index_t> priority_files;
 
     // This must be specified, and must be an absolute path.
     path save_path;

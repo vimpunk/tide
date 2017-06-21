@@ -35,6 +35,7 @@ struct engine_settings
     bool discard_piece_picker_on_completion = true;
 
     // TODO desc.
+    // TODO maybe this is a per torrent setting?
     bool prefer_udp_trackers = true;
 
     // The initial port to which the torrent engine will attempt to bind. If met with
@@ -121,7 +122,7 @@ struct disk_io_settings
 
     // All metadata of the application (torrent states, preferences etc) are saved here.
     // This must be specified.
-    path app_metadata_path;
+    path resume_data_path;
 };
 
 /** These are the (global) default settings, but each torrent may specialize this. */

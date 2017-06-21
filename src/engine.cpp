@@ -136,7 +136,8 @@ std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
     trackers.reserve(metainfo.announce_list.size() + is_announce_distinct ? 1 : 0);
     auto add_tracker = [this, &trackers](const metainfo::tracker_entry& tracker)
     {
-        // FIXME TODO shit, tracker's url and the url in metainfo are not the same
+        // FIXME TODO shit, tracker's url and the url in metainfo are not the same, as
+        // the protocol identifier is stripped from url before being passed to tracker
         tracker_entry entry;
         entry.tier = tracker.tier;
         auto it = std::find_if(m_trackers.begin(), m_trackers.end(),

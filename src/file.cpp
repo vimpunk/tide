@@ -3,8 +3,6 @@
 
 #include <cmath>
 
-#include <boost/filesystem/operations.hpp>
-
 #ifdef _WIN32
 // emulate UNIX syscalls on windows so we can use the same api
 // TODO
@@ -29,8 +27,168 @@ int pwritev(handle_type file_handle, iovec* buffers, int iovec_count, int64_t fi
 #endif // _WIN32
 
 namespace tide {
+namespace fs {
 
-file::file(path path, int64_t length, uint8_t open_mode)
+file_status status(const path& path, std::error_code& error)
+{
+    error.clear();
+    file_status status;
+#ifdef _WIN32
+    // TODO
+#else // _WIN32
+    struct stat s;
+    if(stat(path.c_str(), &s) != 0)
+    {
+        util::assign_errno(error);
+        return {};
+    }
+
+    /*
+    status.devide_id = s.st_dev;
+    status.inode_number = s.st_ino;
+    status.mode = s.st_mode;
+    status.num_hardlinks = s.st_nlink;
+    status.uid = s.st_uid;
+    status.gid = s.st_gid;
+    status.block_length = s.st_blksize;
+    status.num_blocks = s.st_blocks;
+    */
+    status.length = s.st_size;
+    status.last_access_time = time_point(duration(s.st_atime));
+    status.last_modification_time = time_point(duration(s.st_mtime));
+    status.last_status_change_time = time_point(duration(s.st_ctime));
+    status.mode = (S_ISSOCK(s.st_mode) ? file_status::socket : 0)
+                | (S_ISLNK(s.st_mode) ? file_status::symbolic_link : 0)
+                | (S_ISREG(s.st_mode) ? file_status::regular_file : 0)
+                | (S_ISBLK(s.st_mode) ? file_status::block_device : 0)
+                | (S_ISDIR(s.st_mode) ? file_status::directory : 0)
+                | (S_ISCHR(s.st_mode) ? file_status::character_device : 0)
+                | (S_ISFIFO(s.st_mode) ? file_status::fifo : 0);
+#endif // _WIN32
+    return status;
+}
+
+bool exists(const path& path)
+{
+    std::error_code ec;
+    return exists(path, ec);
+}
+
+bool exists(const path& path, std::error_code& error)
+{
+    error.clear();
+    status(path, error);
+    if(error)
+    {
+        if(error == std::errc::no_such_file_or_directory)
+        {
+            // this is not an error as this is exactly what the function tests against
+            error.clear();
+        }
+        return false;
+    }
+    return true;
+}
+
+int64_t file_length(const path& path, std::error_code& error)
+{
+    file_status s = status(path, error);
+    if(error)
+    {
+        return 0;
+    }
+    return s.length;
+}
+
+bool is_directory(const path& path, std::error_code& error)
+{
+    error.clear();
+    file_status s = status(path, error);
+    return !error && (s.mode & file_status::directory);
+}
+
+void create_directory(const path& path, std::error_code& error)
+{
+    error.clear();
+#ifdef _WIN32
+    // TODO probably use CreateDirectoryA instead for unicode support
+    if(CreateDirectory(path.c_str(), 0) == 0
+       && GetLastError() != ERROR_ALREADY_EXISTS)
+    {
+        util::assign_errno(error);
+    }
+#else
+    int mode = S_IRWXU | S_IRWXG | S_IRWXO;
+    if((mkdir(path.c_str(), mode) != 0) && (errno != EEXIST))
+    {
+        util::assign_errno(error);
+    }
+#endif
+}
+
+// this is mostly a port of the function of the same name in boost::filesystem
+// because boost::system::error_code does not interop with its std:: equivalent
+void create_directories(const path& p, std::error_code& error)
+{
+    error.clear();
+    if(p.filename_is_dot() || p.filename_is_dot_dot())
+    {
+        create_directories(p.parent_path(), error);
+        return;
+    }
+
+    path parent = p.parent_path();
+    if(!parent.empty())
+    {
+        create_directories(parent, error);
+    }
+
+    if(!exists(p))
+    {
+        create_directory(p, error);
+    }
+}
+
+void move(const path& old_path, const path& new_path, std::error_code& error)
+{
+    error.clear();
+    if(old_path == new_path) { return; }
+
+    // TODO decide whether to create directory hierarchy or exit with error here
+    path parent = new_path.parent_path();
+    if(!parent.empty())
+    {
+        create_directories(parent, error);
+        if(error) { return; }
+    }
+
+#ifdef _WIN32
+    if(MoveFile(old_path.c_str(), new_path.c_str()) == 0)
+    {
+        util::assign_errno(error);
+        return;
+    }
+#else // _WIN32
+    if(rename(old_path.c_str(), new_path.c_str()) != 0)
+    {
+        util::assign_errno(error);
+        return;
+    }
+#endif // _WIN32
+}
+
+void rename(const path& old_path, const path& new_path, std::error_code& error)
+{
+    move(old_path, new_path, error);
+}
+
+} // namespace fs
+
+// ----------
+// -- file --
+// ----------
+
+file::file(path path, int64_t length, open_mode_flags open_mode)
     : m_absolute_path(std::move(path))
     , m_length(length)
     , m_open_mode(open_mode)
@@ -48,7 +206,6 @@ void file::allocate(std::error_code& error)
 
 void file::reallocate(const int64_t length, std::error_code& error)
 {
-    error.clear();
     verify_handle(error);
     // only (re)allocate if we're not allocated, or if we are if the requested length
     // to allocate is not equal to the currently allocated amount
@@ -143,12 +300,21 @@ void file::erase(std::error_code& error)
 #endif // _WIN32
 }
 
+void file::move(const path& new_path, std::error_code& error)
+{
+    fs::move(m_absolute_path, new_path, error);
+    if(!error)
+    {
+        m_absolute_path = new_path;
+    }
+}
+
 void file::open(std::error_code& error)
 {
     return open(m_open_mode, error);
 }
 
-void file::open(uint8_t open_mode, std::error_code& error)
+void file::open(open_mode_flags open_mode, std::error_code& error)
 {
     error.clear();
     if(is_open())
@@ -168,7 +334,7 @@ void file::open(uint8_t open_mode, std::error_code& error)
     int permissions = S_IRUSR | S_IWUSR  // user: read, write (00600)
                     | S_IRGRP | S_IWGRP  // group: read, write (00060)
                     | S_IROTH | S_IWOTH; // other: read, write (00006)
-    if(open_mode & executable)
+    if(open_mode[executable])
     {
         // give executable permission for all groups
         permissions |= S_IXUSR | S_IXGRP | S_IXOTH;
@@ -176,37 +342,36 @@ void file::open(uint8_t open_mode, std::error_code& error)
 
     // the final open mode flag that is passed to open(2)
     int mode = 0;
-
 # ifdef O_NOATIME
-    mode |= ((open_mode & no_atime) ? O_NOATIME : 0);
+    mode |= (open_mode[no_atime] ? O_NOATIME : 0);
 # endif // O_NOATIME
 
 # ifdef O_SYNC
-    mode |= ((open_mode & no_os_cache) ? O_SYNC : 0);
+    mode |= (open_mode[no_os_cache] ? O_SYNC : 0);
 # endif // O_SYNC
 
-    switch(open_mode & (read_only | write_only | read_write))
+    if(open_mode[read_write])
     {
-    case read_write:
         mode |= O_RDWR | O_CREAT;
-        break;
-    case write_only:
+    }
+    else if(open_mode[read_only])
+    {
+        mode |= O_RDONLY;
+    }
+    else if(open_mode[write_only])
+    {
         mode |= O_WRONLY | O_CREAT;
-        break;
-    case read_only:
-        mode |= O_RDONLY | O_CREAT;
-        break;
-    };
+    }
 
     m_file_handle = ::open(m_absolute_path.c_str(), mode, permissions);
 
     if(m_file_handle == INVALID_HANDLE_VALUE
-       && (open_mode & no_atime)
+       && open_mode[no_atime]
        && errno == EPERM)
     {
         // O_NOATIME is not allowed for files we don't own, so try again without it
         mode &= ~O_NOATIME;
-        open_mode &= ~no_atime;
+        open_mode.unset(no_atime);
         m_file_handle = ::open(m_absolute_path.c_str(), mode, permissions);
     }
 
@@ -253,8 +418,7 @@ int file::read(view<uint8_t> buffer, const int64_t file_offset, std::error_code&
     check_read_preconditions(file_offset, error);
     if(!error)
     {
-        const int num_read = pread(
-            m_file_handle,
+        const int num_read = pread(m_file_handle,
             reinterpret_cast<void*>(buffer.data()),
             std::min(buffer.length(), length() - buffer.length()),
             file_offset);
@@ -280,8 +444,7 @@ int file::write(view<uint8_t> buffer, const int64_t file_offset, std::error_code
     check_write_preconditions(file_offset, error);
     if(!error)
     {
-        num_written = pwrite(
-            m_file_handle,
+        num_written = pwrite(m_file_handle,
             reinterpret_cast<void*>(buffer.data()),
             std::min(buffer.length(), length() - buffer.length()),
             file_offset);
@@ -319,7 +482,12 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
         return 0;
     }
 
-    // TODO this is an ugly hack, try to find a better way
+    // TODO this is an ugly hack, try to find a better way as it's error prone and
+    // difficult to maintain
+    // an alternative would be to just copy input buffers into a deque and modify that
+    // or let caller promise not to supply a larger file and refuse to write if buffers
+    // has more bytes than we can write to file, by setting error
+
     // pwritev unfortunately extends the file if the input buffer is larger than the
     // file's size, so we must trim buffers' back by finding the last buffer to keep and
     // trimming everything after it, like so:
@@ -329,25 +497,27 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
     //
     // trim everything after file_end, but save this partial buffer because it will
     // ruin the caller's iovec
-    const int file_length_left = length() - file_offset;
+    const int adjusted_file_length = length() - file_offset;
     int buff_offset = 0;
     auto it = buffers.begin();
     const auto end = buffers.end();
-    while(it != end)
+    // if buffers has more bytes than adjusted_file_length, then find the last buffer
+    // that is used for writing
+    for(; it != end; ++it)
     {
         const int buff_end = buff_offset + it->iov_len;
-        if((file_length_left >= buff_offset) && (file_length_left < buff_end))
+        if((adjusted_file_length >= buff_offset) && (adjusted_file_length <= buff_end))
         {
             break;
         }
         buff_offset = buff_end;
-        ++it;
     }
 
     int num_written = 0;
     if(it != end)
     {
-        // we were stopped from iterating all the way through, buffer is larger than file
+        // we were stopped from iterating all the way through, so buffers has more bytes
+        // than file
         // -1 because we don't want to trim off buffer pointed to by 'it'
         const int num_buffs_to_trim = end - it - 1;
         buffers.trim_back(num_buffs_to_trim);
@@ -356,7 +526,7 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
         // after we're done writing should begin one past the last byte written, and not
         // stop there)
         // now trim the excess bytes in the partial buffer
-        const int num_bytes_to_trim = buff_offset + it->iov_len - file_length_left;
+        const int num_bytes_to_trim = buff_offset + it->iov_len - adjusted_file_length;
         it->iov_len -= num_bytes_to_trim;
 
         num_written = positional_vector_io(
@@ -369,12 +539,27 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
             file_offset,
             error);
 
-        // now we need to restore the last buffer that could be exhausted, like so:
-        // |xxxx---|
-        //      ^-file_end
-        // up until file_end everygthing was trimmed, so restore the rest of the buffer
-        // after file_end by the same amount that was trimmed from it
-        buffers.front().iov_len += num_bytes_to_trim;
+        if(num_bytes_to_trim > 0)
+        {
+            // since buffers was trimmed to have as many bytes as can be written to
+            // file, and since positional_vector_io trims off from the front of buffers 
+            // the number of bytes written, the result is an empty buffers sequence
+            // (i.e. buffers.size() == 0), so we need to get back the last buffer by 
+            // decrementing the internal pointer in buffers, unless the last buffer was 
+            // fully drained, i.e. num_bytes_to_trim is 0, which means we don't need to 
+            // restore this buffer
+            assert(buffers.is_empty());
+            buffers = view<iovec>(buffers.data() - 1, 1);
+            assert(buffers.size() == 1);
+
+            // now that we have the last buffer back from which we wrote, we need to 
+            // restore it, like so:
+            // |xxxx---|
+            //      ^-file_end
+            // up until file_end everything was trimmed, so restore the rest of the
+            // buffer after file_end by the same amount that was trimmed from it
+            buffers.back().iov_len += num_bytes_to_trim;
+        }
         // and by "attaching" back the full buffers we trimmed off before writing
         buffers = view<iovec>(buffers.data(), buffers.size() + num_buffs_to_trim);
     }
@@ -391,7 +576,7 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
             error);
     }
 
-    if(!error && (m_open_mode & no_os_cache))
+    if(!error && m_open_mode[no_os_cache])
     {
         sync_with_disk(error);
     }
@@ -411,9 +596,8 @@ int file::repeated_positional_io(PIOFunction pio_fn, view<iovec>& buffers,
         while(buffer.iov_len > 0)
         {
             const int num_to_transfer = std::min(file_length_left, int(buffer.iov_len));
-            const int num_transferred = pio_fn(
-                buffer.iov_base, file_offset, num_to_transfer
-            );
+            const int num_transferred = pio_fn(buffer.iov_base,
+                file_offset, num_to_transfer);
             if(num_transferred < 0)
             {
                 util::assign_errno(error);
@@ -445,9 +629,6 @@ int file::positional_vector_io(PVIOFunction pvio_fn, view<iovec>& buffers,
     // transferred
     while(!buffers.is_empty() && (file_length_left > 0))
     {
-        // it's OK not to truncate the buffers list if the total number of bytes are
-        // more than file capacity left, since preadv/pwritev will stop as soon as
-        // there is insufficient data left in file
         const int num_transferred = pvio_fn(buffers, file_offset);
         if(num_transferred < 0)
         {
@@ -486,7 +667,6 @@ void file::sync_with_disk(std::error_code& error)
 inline void file::check_read_preconditions(
     const int64_t file_offset, std::error_code& error) const noexcept
 {
-    error.clear();
     verify_file_offset(file_offset);
     verify_handle(error);
     if(error)
@@ -502,7 +682,6 @@ inline void file::check_read_preconditions(
 inline void file::check_write_preconditions(
     const int64_t file_offset, std::error_code& error) const noexcept
 {
-    error.clear();
     verify_file_offset(file_offset);
     verify_handle(error);
     if(error)
@@ -521,9 +700,10 @@ inline void file::check_write_preconditions(
 
 inline void file::verify_handle(std::error_code& error) const
 {
+    error.clear();
     if(!is_open())
     {
-        error.assign(INVALID_HANDLE_VALUE, std::system_category());
+        error = std::make_error_code(std::errc::bad_file_descriptor);
     }
 }
 
@@ -535,59 +715,35 @@ inline void file::verify_file_offset(const int64_t file_offset) const
     }
 }
 
-/*
-file_status status(const path& path, std::error_code& error)
+namespace util {
+
+void trim_buffers_front(view<iovec>& buffers, int num_to_trim) noexcept
 {
-#ifdef _WIN32
-#else // _WIN32
-    struct stat stat;
-    if(stat(path.c_str(), &stat) != 0)
+    while(num_to_trim > 0)
     {
-        util::assign_errno(error);
-        return;
+        const int buff_len = buffers.front().iov_len;
+        if(buff_len > num_to_trim)
+        {
+            break;
+        }
+        num_to_trim -= buff_len;
+        buffers.trim_front(1);
     }
-
-    file_status status;
-    //status.devide_id = 
-#endif // _WIN32
-}
-*/
-
-bool exists(const path& path, std::error_code& error)
-{
-    // TODO roll own
-    return boost::filesystem::exists(path);
+    if(num_to_trim > 0)
+    {
+        assert(num_to_trim < buffers.front().iov_len);
+        trim_iovec_front(buffers.front(), num_to_trim);
+    }
 }
 
-namespace util
+void assign_errno(std::error_code& error) noexcept
 {
-    void trim_buffers_front(view<iovec>& buffers, int num_to_trim) noexcept
-    {
-        while(num_to_trim > 0)
-        {
-            const int buff_len = buffers.front().iov_len;
-            if(buff_len > num_to_trim)
-            {
-                break;
-            }
-            num_to_trim -= buff_len;
-            buffers.trim_front(1);
-        }
-        if(num_to_trim > 0)
-        {
-            assert(num_to_trim <= buffers.front().iov_len);
-            trim_iovec_front(buffers.front(), num_to_trim);
-        }
-    }
-
-    void assign_errno(std::error_code& error) noexcept
-    {
 #ifdef _WIN32
-        error.assign(GetLastError(), std::system_category());
+    error.assign(GetLastError(), std::system_category());
 #else
-        error.assign(errno, std::system_category());
+    error.assign(errno, std::system_category());
 #endif
-    }
 }
 
+} // namespace util
 } // namespace tide

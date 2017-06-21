@@ -467,6 +467,9 @@ private:
     template<typename Request, typename Function>
     void execute_request(Request& request, Function f);
 
+    /** Creates a random transaction id. */
+    static int create_transaction_id();
+
     /** Determines whether it is time to establish connection to tracker again. */
     bool must_connect() const noexcept;
 
@@ -484,9 +487,8 @@ private:
     void send_message(Request& request, const size_t num_bytes_to_send);
 
     /** Checks errors and makes sure the entire send buffer was transmitted. */
-    void on_message_sent(
-        request& request, const std::error_code& error, const size_t num_bytes_sent
-    );
+    void on_message_sent(request& request,
+        const std::error_code& error, const size_t num_bytes_sent);
 
     void receive_message();
 
@@ -536,9 +538,6 @@ private:
      * this error (e.g. wrong transaction_id -- which request's handler to call?).
      */
     void on_global_error(const std::error_code& error);
-
-    /** Creates a random transaction id. */
-    static int create_transaction_id();
 };
 
 /**
@@ -556,9 +555,6 @@ struct tracker_entry
     bool has_sent_started = false;
     bool has_sent_completed = false;
     bool has_sent_stopped = false;
-
-    // True when we're either scraping or announcing to tracker.
-    //bool is_busy = false;
 
     // If torrent's metainfo file supports the announce-list extension, then trackers
     // are grouped in tiers, and the announce-list is a list of these tiers. This field

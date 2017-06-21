@@ -124,8 +124,7 @@ udp_tracker::udp_tracker(const std::string& url,
     , m_socket(ios)
     , m_resolver(ios)
 {
-    m_resolver.async_resolve(
-        udp::resolver::query(udp::v4(), util::extract_host(url), ""),
+    m_resolver.async_resolve(udp::resolver::query(udp::v4(), util::extract_host(url), ""),
         [this](const std::error_code& error, udp::resolver::iterator it)
         { on_host_resolved(error, it); });
 }
@@ -217,6 +216,12 @@ Request& udp_tracker::create_request_entry(Params params, Handler handler)
         tid, std::make_unique<Request>(tid, std::move(params), std::move(handler))
     ).first->second;
     return static_cast<Request&>(request);
+}
+
+inline int udp_tracker::create_transaction_id()
+{
+    static int r = 0;
+    return ++r;
 }
 
 template<typename Request, typename Function>
@@ -689,12 +694,6 @@ inline void udp_tracker::handle_timeout(const std::error_code& error)
     // response is received within 60 seconds, stop retrying
     // TODO get tracker's ip address or some identifier but endpoint doesn't have to_str
     //log(log_event::timeout, "tracker (%s) timed out", );
-}
-
-inline int udp_tracker::create_transaction_id()
-{
-    static int r = 0;
-    return ++r;
 }
 
 // -----------------------------
