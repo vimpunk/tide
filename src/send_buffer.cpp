@@ -15,11 +15,11 @@ void send_buffer::append(std::vector<uint8_t> bytes)
 void send_buffer::append(const block_source& block)
 {
     assert(block.length > 0 && "tried to add empty block to send_buffer");
-    for(const auto& chunk : block.chunks)
+    for(const auto& buffer : block.buffers)
     {
-        m_size += chunk.length();
+        m_size += buffer.size();
         m_buffers.emplace_back(
-            std::make_unique<disk_buffer_holder<block_source::chunk_type>>(chunk));
+            std::make_unique<disk_buffer_holder<source_buffer>>(buffer));
     }
 }
 

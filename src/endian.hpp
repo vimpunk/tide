@@ -1,5 +1,5 @@
-#ifndef TORRENT_ENDIAN_HEADER
-#define TORRENT_ENDIAN_HEADER
+#ifndef TIDE_ENDIAN_HEADER
+#define TIDE_ENDIAN_HEADER
 
 #include <cstdint>
 #include <boost/detail/endian.hpp>
@@ -162,4 +162,4 @@ namespace tide { namespace endian
 } // namespace endian
 } // namespace tide
 
-#endif // TORRENT_ENDIAN_HEADER
+#endif // TIDE_ENDIAN_HEADER

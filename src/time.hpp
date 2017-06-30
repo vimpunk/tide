@@ -1,5 +1,5 @@
-#ifndef TORRENT_TIME_HEADER
-#define TORRENT_TIME_HEADER
+#ifndef TIDE_TIME_HEADER
+#define TIDE_TIME_HEADER
 
 #include <chrono>
 
@@ -76,4 +76,4 @@ void start_timer(deadline_timer& timer, const Duration& expires_in, Handler hand
 
 } // namespace tide
 
-#endif // TORRENT_TIME_HEADER
+#endif // TIDE_TIME_HEADER

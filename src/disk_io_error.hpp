@@ -1,5 +1,5 @@
-#ifndef TORRENT_DISK_IO_ERROR_HEADER
-#define TORRENT_DISK_IO_ERROR_HEADER
+#ifndef TIDE_DISK_IO_ERROR_HEADER
+#define TIDE_DISK_IO_ERROR_HEADER
 
 #include <system_error>
 #include <string>
@@ -50,4 +50,4 @@ namespace std
 // for more info:
 // http://blog.think-async.com/2010/04/system-error-support-in-c0x-part-4.html
 
-#endif // TORRENT_DISK_IO_ERROR_HEADER
+#endif // TIDE_DISK_IO_ERROR_HEADER

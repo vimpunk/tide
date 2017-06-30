@@ -1,5 +1,5 @@
-#ifndef TORRENT_PEER_ENTRY_HEADER
-#define TORRENT_PEER_ENTRY_HEADER
+#ifndef TIDE_PEER_ENTRY_HEADER
+#define TIDE_PEER_ENTRY_HEADER
 
 #include "units.hpp"
 #include "socket.hpp"
@@ -30,4 +30,4 @@ struct peer_entry
 
 } // namespace tide
 
-#endif // TORRENT_PEER_ENTRY_HEADER
+#endif // TIDE_PEER_ENTRY_HEADER

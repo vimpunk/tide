@@ -1,8 +1,8 @@
-#ifndef TORRENT_BLOCK_DISK_BUFFER_HEADER
-#define TORRENT_BLOCK_DISK_BUFFER_HEADER
+#ifndef TIDE_BLOCK_DISK_BUFFER_HEADER
+#define TIDE_BLOCK_DISK_BUFFER_HEADER
 
+#include "disk_buffer.hpp"
 #include "block_info.hpp"
-#include "mmap/mmap.hpp"
 
 #include <vector>
 
@@ -21,25 +21,25 @@ namespace tide {
  */
 struct block_source : public block_info
 {
-    using chunk_type = mmap_source;
-
-    std::vector<chunk_type> chunks;
+    std::vector<source_buffer> buffers;
 
     block_source() = default;
-    block_source(block_info info, std::vector<chunk_type>&& mmaps)
+
+    block_source(block_info info, std::vector<source_buffer> buffers_)
         : block_info(std::move(info))
-        , chunks(std::move(mmaps))
+        , buffers(std::move(buffers_))
     {}
+
+    block_source(block_info info, source_buffer buffer)
+        : block_info(std::move(info))
+    {
+        buffers.emplace_back(std::move(buffer));
+    }
 };
 
-/**
- * [WIP] This is not yet implemented but it is planned.
- *
- * This will be used to provde a writable buffer that maps directly to the file, to
- * avoid intermediate copies of the block to be written.
- */
-struct block_sink : public block_info {};
+// TODO make a specialization for when only a single buffer is used to represent block
+// to avoid all the vector allocations
 
 } // namespace tide
 
-#endif // TORRENT_BLOCK_DISK_BUFFER_HEADER
+#endif // TIDE_BLOCK_DISK_BUFFER_HEADER

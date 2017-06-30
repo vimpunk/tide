@@ -1,5 +1,5 @@
-#ifndef TORRENT_TORRENT_HEADER
-#define TORRENT_TORRENT_HEADER
+#ifndef TIDE_TORRENT_HEADER
+#define TIDE_TORRENT_HEADER
 
 #include "torrent_storage_handle.hpp"
 #include "torrent_handle.hpp"
@@ -133,13 +133,13 @@ class torrent : public std::enable_shared_from_this<torrent>
     // to the choke algorithms peer score and unchokes the top max_upload_slots number
     // of peers, and chokes the rest, but every thirty seconds the optimistic_unchoke
     // algorithm is run.
-    // However, if torrent is paused or there are no peers, the update cycle does not
+    // However, if torrent is stopped or there are no peers, the update cycle does not
     // run, because there isn't anything that needs to be updated. As soon as it's 
     // continued and connects to peers, it is reinstated.
     deadline_timer m_update_timer;
 
     // The announce cycle runs separately, because even if we aren't connected to any
-    // peers (though if torrent is paused, this doesn't run either), we periodically
+    // peers (though if torrent is stopped, this doesn't run either), we periodically
     // contact tracker in hopes of acquiring peers.
     deadline_timer m_announce_timer;
 
@@ -338,6 +338,12 @@ private:
      */
     void update(const std::error_code& error = std::error_code());
 
+    /** Checks whether the current number of connected peers is below some threshold. */
+    bool should_connect_peers() const noexcept;
+
+    /** Checks whether we need to request peers from tracker. */
+    bool needs_peers() const noexcept;
+
     /**
      * This is called when all pieces that user wanted to download have been downloaded.
      * Torrent becomes a seeder now, even if it doesn't have 100% of the torrent.
@@ -378,8 +384,6 @@ private:
     // -------------
     // -- tracker --
     // -------------
-
-    bool wants_peers() const noexcept;
 
     /**
      * If event is `none` or `started`, we announe to a single most suitable tracker,
@@ -441,7 +445,7 @@ private:
      * unchoked peers that may download from us, is capped. We must also avoid choking
      * and unchoking too quickly (fibrilating), to give peers a chance to prove their
      * worth. Thus the choking algorithm is run every 10 seconds, and unchokes
-     * max_upload_slots number of peers, as configured in settings.
+     * min(settings::max_upload_slots, m_peer_sessions.size()) number of peers.
      */
     void unchoke();
 
@@ -450,7 +454,10 @@ private:
      * we're leeching), or better download performance (when we're seeding) than our
      * current unchoked peers, a random peer is picked every 30 seconds (this should
      * give them sufficient time for us to gauage their performance), however, newly
-     * connected peers are three times more likely to be picked as other peers.
+     * connected peers are three times more likely to be picked as other peers. This
+     * is to ensure that new peers have something to share and to cultivate a greater
+     * spread of pieces among all peers so more peers can participate in the upload
+     * (otherwise only the four best uploaders would be uploading to each other).
      */
     void optimistic_unchoke();
 
@@ -515,4 +522,4 @@ inline torrent_storage_handle torrent::get_storage_handle() noexcept
 
 } // namespace tide
 
-#endif // TORRENT_TORRENT_HEADER
+#endif // TIDE_TORRENT_HEADER

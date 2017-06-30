@@ -25,7 +25,7 @@
 /*
 // TODO make logging compilation dependent, and move this into the logger header
 // this invokes each class' log method
-#ifdef TORRENT_LOG
+#ifdef TIDE_LOG
 # define LOG(m) do log(m); while(0)
 #else
 # define LOG(m)
@@ -847,7 +847,7 @@ inline void peer_session::handle_messages()
     }
     if(m_message_parser.has_message() && (m_info.state == state_t::bitfield_exchange))
     {
-        if(m_message_parser.type() == message_t::bitfield_)
+        if(m_message_parser.type() == message_type::bitfield)
         {
             handle_bitfield();
             // error in peer's bitfield
@@ -863,16 +863,16 @@ inline void peer_session::handle_messages()
         {
         // bitfield messages may only be sent after the handshake, in the bitfield
         // exchange state in state_t
-        case message_t::bitfield_: handle_illicit_bitfield(); break;
-        case message_t::keep_alive: handle_keep_alive(); break;
-        case message_t::choke: handle_choke(); break;
-        case message_t::unchoke: handle_unchoke(); break;
-        case message_t::interested: handle_interested(); break;
-        case message_t::not_interested: handle_not_interested(); break;
-        case message_t::have: handle_have(); break;
-        case message_t::request: handle_request(); break;
-        case message_t::block: handle_block(); break;
-        case message_t::cancel: handle_cancel(); break;
+        case message_type::bitfield: handle_illicit_bitfield(); break;
+        case message_type::keep_alive: handle_keep_alive(); break;
+        case message_type::choke: handle_choke(); break;
+        case message_type::unchoke: handle_unchoke(); break;
+        case message_type::interested: handle_interested(); break;
+        case message_type::not_interested: handle_not_interested(); break;
+        case message_type::have: handle_have(); break;
+        case message_type::request: handle_request(); break;
+        case message_type::block: handle_block(); break;
+        case message_type::cancel: handle_cancel(); break;
         default: handle_unknown_message();
         }
     }
@@ -886,8 +886,8 @@ inline void peer_session::probe_in_transit_block() noexcept
     const_view<uint8_t> bytes = m_message_parser.peek_raw();
     if(bytes.length() >= 5)
     {
-        const message_t type = static_cast<message_t>(bytes[4]);
-        if((type == message_t::block) && (bytes.length() >= 17))
+        const int type = bytes[4];
+        if((type == message_type::block) && (bytes.length() >= 17))
         {
             // trim off the first 5 bytes (msg_len(4) + msg_type(1))
             m_info.in_transit_block = parse_block_info(bytes.subview(5));
@@ -1340,7 +1340,7 @@ void peer_session::handle_block()
         download.got_block(m_info.peer_id, block_info,
             [this, &download](const bool is_piece_good)
             { on_piece_hashed(download, is_piece_good); });
-        disk_buffer block = m_disk_io.get_write_buffer();
+        disk_buffer block = m_disk_io.get_disk_buffer();
         assert(block);
         // exclude the block header (index and offset, both 4 bytes)
         std::copy(msg.data.begin() + 8, msg.data.end(), block.data());
@@ -1442,6 +1442,7 @@ inline void peer_session::update_download_stats(const int num_bytes)
     m_torrent_info->total_downloaded_piece_bytes += num_bytes;
     m_torrent_info->download_rate += num_bytes;
     m_download_rate.update(num_bytes);
+    m_num_downloaded_piece_bytes += num_bytes;
     log(log_event::request, "download rate: %i bytes/s",
         m_download_rate.bytes_per_second());
 }
@@ -1668,6 +1669,7 @@ void peer_session::on_block_read(const std::error_code& error, const block_sourc
     m_torrent_info->num_pending_disk_read_bytes -= block.length;
     m_torrent_info->upload_rate += block.length;
     m_upload_rate.update(block.length);
+    m_num_downloaded_piece_bytes += num_bytes;
 
     log(log_event::disk,
         "read block from disk (piece: %i, offset: %i, length: %i) -- "
@@ -1758,7 +1760,7 @@ void peer_session::send_bitfield()
     const int msg_size = 1 + my_pieces.data().size();
     m_send_buffer.append(payload(4 + msg_size)
         .i32(msg_size)
-        .i8(message_t::bitfield_)
+        .i8(message_type::bitfield)
         .buffer(my_pieces.data()));
     send();
     log(log_event::outgoing, "BITFIELD (%s)",
@@ -1781,7 +1783,7 @@ void peer_session::send_keep_alive()
 // -------------
 void peer_session::send_choke()
 {
-    static constexpr uint8_t payload[] = { 0,0,0,1, message_t::choke };
+    static constexpr uint8_t payload[] = { 0,0,0,1, message_type::choke };
     m_send_buffer.append(payload);
     m_info.is_peer_choked = true;
     m_info.last_outgoing_choke_time = cached_clock::now();
@@ -1794,7 +1796,7 @@ void peer_session::send_choke()
 // ---------------
 void peer_session::send_unchoke()
 {
-    static constexpr uint8_t payload[] = { 0,0,0,1, message_t::unchoke };
+    static constexpr uint8_t payload[] = { 0,0,0,1, message_type::unchoke };
     m_send_buffer.append(payload);
     m_info.is_peer_choked = false;
     m_info.last_outgoing_unchoke_time = cached_clock::now();
@@ -1807,7 +1809,7 @@ void peer_session::send_unchoke()
 // ------------------
 void peer_session::send_interested()
 {
-    static constexpr uint8_t payload[] = { 0,0,0,1, message_t::interested };
+    static constexpr uint8_t payload[] = { 0,0,0,1, message_type::interested };
     m_send_buffer.append(payload);
     m_info.am_interested = true;
     m_info.last_outgoing_interest_time = cached_clock::now();
@@ -1820,7 +1822,7 @@ void peer_session::send_interested()
 // ----------------------
 void peer_session::send_not_interested()
 {
-    static constexpr uint8_t payload[] = { 0,0,0,1, message_t::not_interested };
+    static constexpr uint8_t payload[] = { 0,0,0,1, message_type::not_interested };
     m_send_buffer.append(payload);
     m_info.am_interested = false;
     m_op_state.unset(op_t::slow_start);
@@ -1836,7 +1838,7 @@ inline void peer_session::send_have(const piece_index_t piece)
 {
     m_send_buffer.append(fixed_payload<4 + 5>()
         .i32(5)
-        .i8(message_t::have)
+        .i8(message_type::have)
         .i32(piece));
     send();
     log(log_event::outgoing, "HAVE (piece: %i)", piece);
@@ -1852,7 +1854,7 @@ void peer_session::send_request(const block_info& block)
 {
     m_send_buffer.append(fixed_payload<4 + 13>()
         .i32(13)
-        .i8(message_t::request)
+        .i8(message_type::request)
         .i32(block.index)
         .i32(block.offset)
         .i32(block.length));
@@ -1888,7 +1890,7 @@ void peer_session::send_requests()
         // above functions
         const pending_block& block = m_sent_requests[i];
         requests.i32(13)
-                .i8(message_t::request)
+                .i8(message_type::request)
                 .i32(block.index)
                 .i32(block.offset)
                 .i32(block.length);
@@ -2058,12 +2060,12 @@ void peer_session::send_block(const block_source& block)
     const int msg_size = 1 + 2 * 4 + block.length;
     payload payload(4 + msg_size);
     payload.i32(msg_size)
-           .i8(message_t::block)
+           .i8(message_type::block)
            .i32(block.index)
            .i32(block.offset);
-    for(const auto& chunk : block.chunks)
+    for(const auto& buffer : block.buffers)
     {
-        payload.buffer(chunk);
+        payload.buffer(buffer);
     }
     m_send_buffer.append(std::move(payload));
 
@@ -2095,7 +2097,7 @@ void peer_session::send_cancel(const block_info& block)
     {
         m_send_buffer.append(fixed_payload<4 + 13>()
             .i32(13)
-            .i8(message_t::cancel)
+            .i8(message_type::cancel)
             .i32(block.index)
             .i32(block.offset)
             .i32(block.length));
@@ -2112,7 +2114,7 @@ void peer_session::send_port(const int port)
 {
     m_send_buffer.append(fixed_payload<4 + 3>()
         .i32(3)
-        .i8(message_t::port)
+        .i8(message_type::port)
         .i16(port));
     send();
     log(log_event::outgoing, "PORT (%i)", port);

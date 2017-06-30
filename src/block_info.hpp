@@ -1,5 +1,5 @@
-#ifndef TORRENT_BLOCK_INFO_HEADER
-#define TORRENT_BLOCK_INFO_HEADER
+#ifndef TIDE_BLOCK_INFO_HEADER
+#define TIDE_BLOCK_INFO_HEADER
 
 #include "units.hpp"
 
@@ -124,4 +124,4 @@ namespace std
     };
 } // namespace std
 
-#endif // TORRENT_BLOCK_INFO_HEADER
+#endif // TIDE_BLOCK_INFO_HEADER

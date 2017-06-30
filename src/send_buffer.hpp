@@ -1,7 +1,7 @@
-#ifndef TORRENT_SEND_BUFFER_HEADER
-#define TORRENT_SEND_BUFFER_HEADER
+#ifndef TIDE_SEND_BUFFER_HEADER
+#define TIDE_SEND_BUFFER_HEADER
 
-#include "block_disk_buffer.hpp"
+#include "block_source.hpp"
 #include "payload.hpp"
 
 #include <algorithm>
@@ -159,4 +159,4 @@ void send_buffer::append(const uint8_t (&bytes)[N])
 
 } // namespace tide
 
-#endif // TORRENT_SEND_BUFFER_HEADER
+#endif // TIDE_SEND_BUFFER_HEADER

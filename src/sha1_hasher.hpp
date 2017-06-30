@@ -1,5 +1,5 @@
-#ifndef TORRENT_SHA1_HASHER_HEADER
-#define TORRENT_SHA1_HASHER_HEADER
+#ifndef TIDE_SHA1_HASHER_HEADER
+#define TIDE_SHA1_HASHER_HEADER
 
 #include "units.hpp"
 #include "view.hpp"
@@ -75,4 +75,4 @@ static sha1_hash create_sha1_digest(const Buffer& buffer)
 
 } // namespace tide
 
-#endif // TORRENT_SHA1_HASHER_HEADER
+#endif // TIDE_SHA1_HASHER_HEADER

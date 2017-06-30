@@ -1,12 +1,12 @@
-#ifndef TORRENT_PEER_SESSION_HEADER
-#define TORRENT_PEER_SESSION_HEADER
+#ifndef TIDE_PEER_SESSION_HEADER
+#define TIDE_PEER_SESSION_HEADER
 
 #include "torrent_disk_io_frontend.hpp"
 #include "peer_session_error.hpp"
-#include "block_disk_buffer.hpp"
 #include "throughput_rate.hpp"
 #include "sliding_average.hpp"
 #include "message_parser.hpp"
+#include "block_source.hpp"
 #include "send_buffer.hpp"
 #include "disk_buffer.hpp"
 #include "block_info.hpp"
@@ -104,10 +104,6 @@ private:
 
     flag_set<op_t, op_t::max> m_op_state;
 
-    // For now socket is tcp only but this will be a generic stream socket (hence the 
-    // pointer), which then may be tcp, udp, ssl<tcp>, socks5 etc
-    std::unique_ptr<tcp::socket> m_socket;
-
     // We try to fill up the send buffer as much as possible before draining it to
     // socket to minimize the number of context switches (syscalls) by writing to the
     // socket.
@@ -115,6 +111,10 @@ private:
 
     // We receive from socket directly into message_parser's internal buffer.
     message_parser m_message_parser;
+
+    // For now socket is tcp only but this will be a generic stream socket (hence the 
+    // pointer), which then may be tcp, udp, ssl<tcp>, socks5 etc
+    std::unique_ptr<tcp::socket> m_socket;
 
     // We may be rate limited so we must always request upload and download bandwidth
     // quota before proceeding to do either of those functions.
@@ -296,6 +296,11 @@ private:
     // which is constantly updated but copies for stat aggregation are made on demand.
     info m_info;
 
+    // These fields are used when the exact number of bytes downloaded are requested
+    // between calls, instead of a weighed average (see below).
+    mutable int m_num_uploaded_piece_bytes = 0;
+    mutable int m_num_downloaded_piece_bytes = 0;
+
     // These values are weighed running averages, the last 20 seconds having the largest
     // weight. These are strictly the throughput rates of piece byte transfers and are
     // used to compare a peer's performance against another to determine which to unchoke.
@@ -460,6 +465,7 @@ public:
 
     bool is_connecting() const noexcept;
     bool is_handshaking() const noexcept;
+    bool is_connected() const noexcept;
     bool is_disconnecting() const noexcept;
     bool is_disconnected() const noexcept;
 
@@ -495,8 +501,16 @@ public:
     const tcp::endpoint& local_endpoint() const noexcept;
     const tcp::endpoint& remote_endpoint() const noexcept;
 
-    int64_t download_rate() const noexcept;
-    int64_t upload_rate() const noexcept;
+    int upload_rate() const noexcept;
+    int download_rate() const noexcept;
+
+    /**
+     * Returns how many bytes were transferred since the last time the function was
+     * called and resets the value. This is used for deciding which peers to unchoke.
+     * (A round is the interval between two calls to the same function.)
+     */
+    int num_bytes_uploaded_this_round() const noexcept;
+    int num_bytes_downloaded_this_round() const noexcept;
 
     /** Sends a choke message and drops serving all pending requests made by peer. */
     void choke_peer();
@@ -854,22 +868,27 @@ private:
 
 inline bool peer_session::is_connecting() const noexcept
 {
-    return m_info.state == state_t::connecting;
+    return state() == state_t::connecting;
 }
 
 inline bool peer_session::is_handshaking() const noexcept
 {
-    return m_info.state == state_t::handshaking;
+    return state() == state_t::handshaking;
+}
+
+inline bool peer_session::is_connected() const noexcept
+{
+    return state() == state_t::connected;
 }
 
 inline bool peer_session::is_disconnecting() const noexcept
 {
-    return m_info.state == state_t::disconnecting;
+    return state() == state_t::disconnecting;
 }
 
 inline bool peer_session::is_disconnected() const noexcept
 {
-    return m_info.state == state_t::disconnected;
+    return state() == state_t::disconnected;
 }
 
 inline bool peer_session::is_stopped() const noexcept
@@ -955,16 +974,30 @@ inline const tcp::endpoint& peer_session::remote_endpoint() const noexcept
     return m_info.remote_endpoint;
 }
 
-inline int64_t peer_session::download_rate() const noexcept
+inline int peer_session::num_bytes_uploaded_this_round() noexcept
+{
+    const auto n = m_num_uploaded_piece_bytes;
+    m_num_uploaded_piece_bytes = 0;
+    return n;
+}
+
+inline int peer_session::num_bytes_downloaded_this_round() noexcept
+{
+    const auto n = m_num_downloaded_piece_bytes;
+    m_num_downloaded_piece_bytes = 0;
+    return n;
+}
+
+inline int peer_session::download_rate() const noexcept
 {
     return m_download_rate.bytes_per_second();
 }
 
-inline int64_t peer_session::upload_rate() const noexcept
+inline int peer_session::upload_rate() const noexcept
 {
     return m_upload_rate.bytes_per_second();
 }
 
 } // namespace tide
 
-#endif // TORRENT_PEER_SESSION_HEADER
+#endif // TIDE_PEER_SESSION_HEADER

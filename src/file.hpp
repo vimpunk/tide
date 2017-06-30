@@ -1,5 +1,5 @@
-#ifndef TORRENT_FILE_HEADER
-#define TORRENT_FILE_HEADER
+#ifndef TIDE_FILE_HEADER
+#define TIDE_FILE_HEADER
 
 #include "flag_set.hpp"
 #include "iovec.hpp"
@@ -338,7 +338,7 @@ inline path file::absolute_path() const
     return m_absolute_path;
 }
 
-inline std::string filename() const
+inline std::string file::filename() const
 {
     m_absolute_path.filename().native();
 }
@@ -365,4 +365,4 @@ inline bool file::is_allocated() const noexcept
 
 } // namespace tide
 
-#endif // TORRENT_FILE_HEADER
+#endif // TIDE_FILE_HEADER

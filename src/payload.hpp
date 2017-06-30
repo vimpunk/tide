@@ -1,5 +1,5 @@
-#ifndef TORRENT_PAYLOAD_HEADER
-#define TORRENT_PAYLOAD_HEADER
+#ifndef TIDE_PAYLOAD_HEADER
+#define TIDE_PAYLOAD_HEADER
 
 #include "endian.hpp"
 
@@ -213,4 +213,4 @@ private:
 
 } // namespace tide
 
-#endif // TORRENT_PAYLOAD_HEADER
+#endif // TIDE_PAYLOAD_HEADER

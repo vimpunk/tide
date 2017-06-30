@@ -1,5 +1,5 @@
-#ifndef TORRENT_TORRENT_HANDLE_HEADER
-#define TORRENT_TORRENT_HANDLE_HEADER
+#ifndef TIDE_TORRENT_HANDLE_HEADER
+#define TIDE_TORRENT_HANDLE_HEADER
 
 #include "units.hpp"
 
@@ -58,4 +58,4 @@ public:
 
 } // namespace tide
 
-#endif // TORRENT_TORRENT_HANDLE_HEADER
+#endif // TIDE_TORRENT_HANDLE_HEADER

@@ -1,5 +1,5 @@
-#ifndef TORRENT_ADDRESS_HEADER
-#define TORRENT_ADDRESS_HEADER
+#ifndef TIDE_ADDRESS_HEADER
+#define TIDE_ADDRESS_HEADER
 
 #include <asio/ip/address.hpp>
 
@@ -11,4 +11,4 @@ using address_v6 = asio::ip::address_v6;
 
 } // namespace tide
 
-#endif // TORRENT_ADDRESS_HEADER
+#endif // TIDE_ADDRESS_HEADER

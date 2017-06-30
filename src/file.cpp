@@ -169,7 +169,7 @@ void move(const path& old_path, const path& new_path, std::error_code& error)
         return;
     }
 #else // _WIN32
-    if(rename(old_path.c_str(), new_path.c_str()) != 0)
+    if(::rename(old_path.c_str(), new_path.c_str()) != 0)
     {
         util::assign_errno(error);
         return;
@@ -477,10 +477,7 @@ int file::read(view<iovec>& buffers, const int64_t file_offset, std::error_code&
 int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code& error)
 {
     check_write_preconditions(file_offset, error);
-    if(error)
-    {
-        return 0;
-    }
+    if(error) { return 0; }
 
     // TODO this is an ugly hack, try to find a better way as it's error prone and
     // difficult to maintain
@@ -583,6 +580,10 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
     return num_written;
 }
 
+// this is currently unused as positional_vector_io is assumed to perform better but do
+// profile and maybe add compile time branching depending on the system that's known
+// to perform better under repeated calls to pread/pwrite (some personal anecdotes
+// indicated that this seems to be the case)
 template<typename PIOFunction>
 int file::repeated_positional_io(PIOFunction pio_fn, view<iovec>& buffers,
     int64_t file_offset, std::error_code& error)

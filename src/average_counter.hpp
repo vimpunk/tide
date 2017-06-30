@@ -1,5 +1,5 @@
-#ifndef TORRENT_AVERAGE_COUNTER_HEADER
-#define TORRENT_AVERAGE_COUNTER_HEADER
+#ifndef TIDE_AVERAGE_COUNTER_HEADER
+#define TIDE_AVERAGE_COUNTER_HEADER
 
 #include <cstdint>
 
@@ -30,4 +30,4 @@ public:
 
 } // namespace tide
 
-#endif // TORRENT_AVERAGE_COUNTER_HEADER
+#endif // TIDE_AVERAGE_COUNTER_HEADER

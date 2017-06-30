@@ -1,5 +1,5 @@
-#ifndef TORRENT_BDECODE_HEADER
-#define TORRENT_BDECODE_HEADER
+#ifndef TIDE_BDECODE_HEADER
+#define TIDE_BDECODE_HEADER
 
 #include "string_view.hpp"
 
@@ -78,169 +78,170 @@ struct btoken
     }
 };
 
-namespace detail
+namespace detail {
+
+class bcontainer;
+void format_map(std::stringstream& ss, const bcontainer& map,
+    const btoken* head = nullptr, int nesting_level = 0);
+void format_list(std::stringstream& ss, const bcontainer& list,
+    const btoken* head = nullptr, int nesting_level = 0);
+
+/**
+ * Defines common operations for container type bencode classes (list, map).
+ * It holds a contiguous sequence of btokens and the raw bencoded string and provides
+ * shared_ptr semantics, so for any given copy there exists only a single token list
+ * and encoded string. Since all belements are read only, this avoids memory churn
+ * and space overhead and is cache friendly.
+ */
+class bcontainer
 {
-    class bcontainer;
-    void format_map(std::stringstream& ss, const bcontainer& map,
-        const btoken* head = nullptr, int nesting_level = 0);
-    void format_list(std::stringstream& ss, const bcontainer& list,
-        const btoken* head = nullptr, int nesting_level = 0);
+    // This is the entire list of tokens, no matter if the container is nested and
+    // only needs a subset of it. This is to always keep the reference count of
+    // m_tokens (and m_encoded) at at least one. To refer to the actual start of the
+    // container, use m_head.
+    std::shared_ptr<std::vector<btoken>> m_tokens;
+    std::shared_ptr<const std::string> m_encoded;
+
+    // Both container types (list, map) have a head token that defines the start and
+    // size of the container. m_head points into m_tokens, to the btoken that's the
+    // conceptual head of this container.
+    const btoken* m_head = nullptr;
+
+protected:
+
+    bcontainer() = default;
 
     /**
-     * Defines common operations for container type bencode classes (list, map).
-     * It holds a contiguous sequence of btokens and the raw bencoded string and provides
-     * shared_ptr semantics, so for any given copy there exists only a single token list
-     * and encoded string. Since all belements are read only, this avoids memory churn
-     * and space overhead and is cache friendly.
+     * This ctor is called the first time a container is decoded from a bencoded
+     * string, it stores the tokens buffer, the encoded string and initializes the
+     * head of the container to the first element in the tokens buffer.
      */
-    class bcontainer
+    bcontainer(std::vector<btoken>&& tokens, std::string&& encoded)
+        : m_tokens(std::make_shared<std::vector<btoken>>(std::move(tokens)))
+        , m_encoded(std::make_shared<const std::string>(std::move(encoded)))
+        , m_head(m_tokens->data())
     {
-        // This is the entire list of tokens, no matter if the container is nested and
-        // only needs a subset of it. This is to always keep the reference count of
-        // m_tokens (and m_encoded) at at least one. To refer to the actual start of the
-        // container, use m_head.
-        std::shared_ptr<std::vector<btoken>> m_tokens;
-        std::shared_ptr<const std::string> m_encoded;
+        assert(!m_tokens->empty());
+    }
 
-        // Both container types (list, map) have a head token that defines the start and
-        // size of the container. m_head points into m_tokens, to the btoken that's the
-        // conceptual head of this container.
-        const btoken* m_head = nullptr;
+    /**
+     * This ctor is called every time a nested container is extracted from its
+     * enclosing container (regardless of actual type (list, map), because both use
+     * only the fields in bcontainer, so slicing the derived containers is OK).
+     */
+    bcontainer(const bcontainer& b, const btoken* head)
+        : m_tokens(b.m_tokens)
+        , m_encoded(b.m_encoded)
+        , m_head(head)
+    {}
 
-    protected:
+    /** Returns the head of this container. */
+    const btoken* head() const noexcept
+    {
+        return m_head;
+    }
 
-        bcontainer() = default;
+    /**
+     * Returns one past the last element of this container. If this is a nested
+     * container, the pointer is likely valid, but if it's not, the pointer is
+     * invalid. Therefore, NEVER DEREFERENCE.
+     */
+    const btoken* tail() const noexcept
+    {
+        return head() ? head() + head()->next_item_array_offset : nullptr;
+    }
 
-        /**
-         * This ctor is called the first time a container is decoded from a bencoded
-         * string, it stores the tokens buffer, the encoded string and initializes the
-         * head of the container to the first element in the tokens buffer.
-         */
-        bcontainer(std::vector<btoken>&& tokens, std::string&& encoded)
-            : m_tokens(std::make_shared<std::vector<btoken>>(std::move(tokens)))
-            , m_encoded(std::make_shared<const std::string>(std::move(encoded)))
-            , m_head(m_tokens->data())
+public:
+
+    bcontainer(const bcontainer& other)
+        : m_tokens(other.m_tokens)
+        , m_encoded(other.m_encoded)
+        , m_head(other.m_head)
+    {}
+
+    bcontainer(bcontainer&& other)
+        : m_tokens(std::move(other.m_tokens))
+        , m_encoded(std::move(other.m_encoded))
+        , m_head(other.m_head)
+    {
+        other.m_head = nullptr;
+    }
+
+    bcontainer& operator=(const bcontainer& other)
+    {
+        if(this != &other)
         {
-            assert(!m_tokens->empty());
+            m_tokens = other.m_tokens;
+            m_encoded = other.m_encoded;
+            m_head = other.m_head;
         }
+        return *this;
+    }
 
-        /**
-         * This ctor is called every time a nested container is extracted from its
-         * enclosing container (regardless of actual type (list, map), because both use
-         * only the fields in bcontainer, so slicing the derived containers is OK).
-         */
-        bcontainer(const bcontainer& b, const btoken* head)
-            : m_tokens(b.m_tokens)
-            , m_encoded(b.m_encoded)
-            , m_head(head)
-        {}
-
-        /** Returns the head of this container. */
-        const btoken* head() const noexcept
+    bcontainer& operator=(bcontainer&& other)
+    {
+        if(this != &other)
         {
-            return m_head;
-        }
-
-        /**
-         * Returns one past the last element of this container. If this is a nested
-         * container, the pointer is likely valid, but if it's not, the pointer is
-         * invalid. Therefore, NEVER DEREFERENCE.
-         */
-        const btoken* tail() const noexcept
-        {
-            return head() ? head() + head()->next_item_array_offset : nullptr;
-        }
-
-    public:
-
-        bcontainer(const bcontainer& other)
-            : m_tokens(other.m_tokens)
-            , m_encoded(other.m_encoded)
-            , m_head(other.m_head)
-        {}
-
-        bcontainer(bcontainer&& other)
-            : m_tokens(std::move(other.m_tokens))
-            , m_encoded(std::move(other.m_encoded))
-            , m_head(other.m_head)
-        {
+            m_tokens = std::move(other.m_tokens);
+            m_encoded = std::move(other.m_encoded);
+            m_head = std::move(other.m_head);
             other.m_head = nullptr;
         }
-
-        bcontainer& operator=(const bcontainer& other)
-        {
-            if(this != &other)
-            {
-                m_tokens = other.m_tokens;
-                m_encoded = other.m_encoded;
-                m_head = other.m_head;
-            }
-            return *this;
-        }
-
-        bcontainer& operator=(bcontainer&& other)
-        {
-            if(this != &other)
-            {
-                m_tokens = std::move(other.m_tokens);
-                m_encoded = std::move(other.m_encoded);
-                m_head = std::move(other.m_head);
-                other.m_head = nullptr;
-            }
-            return *this;
-        }
-
-        int size() const noexcept
-        {
-            return m_head ? m_head->length : 0;
-        }
-
-        bool is_empty() const noexcept
-        {
-            return size() == 0;
-        }
-
-        /** Returns a refernce to the raw bencoded string of the entire container. */
-        const std::string& source() const noexcept
-        {
-            return *m_encoded;
-        }
-
-        /**
-         * Returns a substring (view) of the portion of the source string that is the
-         * current container. If this is the root container, the returned string is
-         * identical to the source string. Note that no actual copies are made, so
-         * calling this function is cheap.
-         */
-        string_view encode() const;
-
-        friend void format_map(std::stringstream& ss, const bcontainer& map,
-            const btoken* head, int nesting_level);
-        friend void format_list(std::stringstream& ss, const bcontainer& list,
-            const btoken* head, int nesting_level);
-    };
-
-    inline string_view make_string_view_from_token(
-        const std::string& encoded, const btoken& token)
-    {
-        assert(token.offset < encoded.length());
-        const int str_length = std::atoi(&encoded[token.offset]);
-        const int str_start = token.offset + token.length;
-        assert(str_start + str_length <= encoded.length());
-        return string_view(encoded.c_str() + str_start, str_length);
+        return *this;
     }
 
-    inline
-    std::string make_string_from_token(const std::string& encoded, const btoken& token)
+    int size() const noexcept
     {
-        return make_string_view_from_token(encoded, token);
+        return m_head ? m_head->length : 0;
     }
 
-    inline int64_t make_number_from_token(const std::string& encoded, const btoken& token)
+    bool is_empty() const noexcept
     {
-        assert(token.offset < encoded.length());
-        return atol(encoded.c_str() + token.offset + 1);
+        return size() == 0;
     }
+
+    /** Returns a refernce to the raw bencoded string of the entire container. */
+    const std::string& source() const noexcept
+    {
+        return *m_encoded;
+    }
+
+    /**
+     * Returns a substring (view) of the portion of the source string that is the
+     * current container. If this is the root container, the returned string is
+     * identical to the source string. Note that no actual copies are made, so
+     * calling this function is cheap.
+     */
+    string_view encode() const;
+
+    friend void format_map(std::stringstream& ss, const bcontainer& map,
+        const btoken* head, int nesting_level);
+    friend void format_list(std::stringstream& ss, const bcontainer& list,
+        const btoken* head, int nesting_level);
+};
+
+inline string_view make_string_view_from_token(
+    const std::string& encoded, const btoken& token)
+{
+    assert(token.offset < encoded.length());
+    const int str_length = std::atoi(&encoded[token.offset]);
+    const int str_start = token.offset + token.length;
+    assert(str_start + str_length <= encoded.length());
+    return string_view(encoded.c_str() + str_start, str_length);
+}
+
+inline
+std::string make_string_from_token(const std::string& encoded, const btoken& token)
+{
+    return make_string_view_from_token(encoded, token);
+}
+
+inline int64_t make_number_from_token(const std::string& encoded, const btoken& token)
+{
+    assert(token.offset < encoded.length());
+    return atol(encoded.c_str() + token.offset + 1);
+}
+
 } // namespace detail
 
 /**
@@ -788,4 +789,4 @@ std::unique_ptr<belement> decode(std::string s);
 
 } // namespace tide
 
-#endif // TORRENT_BDECODE_HEADER
+#endif // TIDE_BDECODE_HEADER

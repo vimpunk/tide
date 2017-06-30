@@ -1,5 +1,5 @@
-#ifndef TORRENT_VIEW_HEADER
-#define TORRENT_VIEW_HEADER
+#ifndef TIDE_VIEW_HEADER
+#define TIDE_VIEW_HEADER
 
 #include <type_traits>
 #include <functional>
@@ -108,22 +108,22 @@ public:
     reference operator[](const size_type i) noexcept { return m_data[i]; }
     const_reference operator[](const size_type i) const noexcept { return m_data[i]; }
 
-    view<T> subview(const size_type offset) const
+    view subview(const size_type offset) const
     {
         if(offset > size())
         {
             throw std::out_of_range("tried to create a subview that is larger than view");
         }
-        return { data() + offset, size() - offset };
+        return {data() + offset, size() - offset};
     }
 
-    view<T> subview(const size_type offset, const size_type count) const
+    view subview(const size_type offset, const size_type count) const
     {
         if((offset > size()) || (offset + count > size()))
         {
             throw std::out_of_range("tried to create a subview that is larger than view");
         }
-        return { data() + offset, count };
+        return {data() + offset, count};
     }
 
     void trim_front(const size_type n)
@@ -228,4 +228,4 @@ namespace std
     };
 } // namespace std
 
-#endif // TORRENT_VIEW_HEADER
+#endif // TIDE_VIEW_HEADER

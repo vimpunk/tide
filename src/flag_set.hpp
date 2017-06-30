@@ -1,5 +1,5 @@
-#ifndef TORRENT_FLAG_SET_HEADER
-#define TORRENT_FLAG_SET_HEADER
+#ifndef TIDE_FLAG_SET_HEADER
+#define TIDE_FLAG_SET_HEADER
 
 #include <initializer_list>
 #include <type_traits>
@@ -219,4 +219,4 @@ inline bool operator!=(const flag_set<Enum, N>& a, const flag_set<Enum, N>& b) n
 
 } // namespace tide
 
-#endif // TORRENT_FLAG_SET_HEADER
+#endif // TIDE_FLAG_SET_HEADER

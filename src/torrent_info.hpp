@@ -1,5 +1,5 @@
-#ifndef TORRENT_TORRENT_INFO_HEADER
-#define TORRENT_TORRENT_INFO_HEADER
+#ifndef TIDE_TORRENT_INFO_HEADER
+#define TIDE_TORRENT_INFO_HEADER
 
 #include "file_info.hpp"
 #include "flag_set.hpp"
@@ -90,6 +90,7 @@ struct torrent_info : public stats
     time_point download_finished_time;
     time_point last_announce_time;
     time_point last_choke_time;
+    time_point last_optimistic_choke_time;
 
     torrent_settings settings;
 
@@ -126,4 +127,4 @@ inline int get_piece_length(const torrent_info& info, const piece_index_t piece)
 
 } // namespace tide
 
-#endif // TORRENT_TORRENT_INFO_HEADER
+#endif // TIDE_TORRENT_INFO_HEADER

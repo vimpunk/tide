@@ -1,5 +1,5 @@
-#ifndef TORRENT_PIECE_DOWNLOAD_HEADER
-#define TORRENT_PIECE_DOWNLOAD_HEADER
+#ifndef TIDE_PIECE_DOWNLOAD_HEADER
+#define TIDE_PIECE_DOWNLOAD_HEADER
 
 #include "units.hpp"
 #include "block_info.hpp"
@@ -227,4 +227,4 @@ inline const std::vector<bool>& piece_download::downloaded_blocks() const
 
 } // namespace tide
 
-#endif // TORRENT_PIECE_DOWNLOAD_HEADER
+#endif // TIDE_PIECE_DOWNLOAD_HEADER

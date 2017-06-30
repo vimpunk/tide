@@ -1,5 +1,5 @@
-#ifndef TORRENT_SOCKET_HEADER
-#define TORRENT_SOCKET_HEADER
+#ifndef TIDE_SOCKET_HEADER
+#define TIDE_SOCKET_HEADER
 
 #include <asio/ip/tcp.hpp>
 #include <asio/ip/udp.hpp>
@@ -11,4 +11,4 @@ using asio::ip::udp;
 using asio::async_write;
 using asio::async_read;
 
-#endif // TORRENT_SOCKET_HEADER
+#endif // TIDE_SOCKET_HEADER

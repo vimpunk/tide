@@ -1,5 +1,5 @@
-#ifndef TORRENT_FILE_INFO_HEADER
-#define TORRENT_FILE_INFO_HEADER
+#ifndef TIDE_FILE_INFO_HEADER
+#define TIDE_FILE_INFO_HEADER
 
 #include "path.hpp"
 
@@ -27,4 +27,4 @@ struct file_info
 
 } // namespace tide
 
-#endif // TORRENT_TORRENT_INFO_HEADER
+#endif // TIDE_TORRENT_INFO_HEADER

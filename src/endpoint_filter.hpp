@@ -1,5 +1,5 @@
-#ifndef TORRENT_ENDPOINT_FILTER_HEADER
-#define TORRENT_ENDPOINT_FILTER_HEADER
+#ifndef TIDE_ENDPOINT_FILTER_HEADER
+#define TIDE_ENDPOINT_FILTER_HEADER
 
 #include "address.hpp"
 #include "socket.hpp"
@@ -29,4 +29,4 @@ public:
 
 } // namespace tide
 
-#endif // TORRENT_ENDPOINT_FILTER_HEADER
+#endif // TIDE_ENDPOINT_FILTER_HEADER

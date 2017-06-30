@@ -1,5 +1,5 @@
-#ifndef TORRENT_THROUGHPUT_RATE_HEADER
-#define TORRENT_THROUGHPUT_RATE_HEADER
+#ifndef TIDE_THROUGHPUT_RATE_HEADER
+#define TIDE_THROUGHPUT_RATE_HEADER
 
 #include "sliding_average.hpp"
 #include "time.hpp"
@@ -110,4 +110,4 @@ private:
 
 } // namespace tide
 
-#endif // TORRENT_THROUGHPUT_RATE_HEADER
+#endif // TIDE_THROUGHPUT_RATE_HEADER

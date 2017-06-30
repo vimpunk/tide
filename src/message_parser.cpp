@@ -70,7 +70,7 @@ message message_parser::extract()
 {
     auto msg = peek();
     m_message_begin += 4 + msg.data.size();
-    if(msg.type != keep_alive)
+    if(msg.type != message_type::keep_alive)
     {
         // keep_alive messages don't have an id field
         ++m_message_begin;
@@ -122,19 +122,19 @@ message message_parser::peek() const
     message msg;
     if(msg_length == 4)
     {
-        msg.type = message_t::keep_alive;
+        msg.type = message_type::keep_alive;
     }
     else
     {
         const int msg_id_pos = m_message_begin + 4;
-        msg.type = message_t(m_buffer[msg_id_pos]);
+        msg.type = m_buffer[msg_id_pos];
         msg.data = const_view<uint8_t>(&m_buffer[msg_id_pos + 1], msg_length - 1);
         // subtract message type
     }
     return msg;
 }
 
-message_t message_parser::type() const
+int message_parser::type() const
 {
     if(!has(4))
     {
@@ -142,13 +142,14 @@ message_t message_parser::type() const
     }
     if(view_message_length() == 0)
     {
-        return message_t::keep_alive;
+        // it's a keep alive message
+        return message_type::keep_alive;
     }
     if(!has(5))
     {
         throw std::runtime_error("type (5): message_parser has no messages");
     }
-    return message_t(m_buffer[m_message_begin + 4]);
+    return m_buffer[m_message_begin + 4];
 }
 
 const_view<uint8_t> message_parser::peek_raw() const noexcept

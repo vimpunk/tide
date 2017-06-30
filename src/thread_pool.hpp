@@ -1,5 +1,5 @@
-#ifndef TORRENT_THREAD_POOL_HEADER
-#define TORRENT_THREAD_POOL_HEADER
+#ifndef TIDE_THREAD_POOL_HEADER
+#define TIDE_THREAD_POOL_HEADER
 
 #include "time.hpp"
 
@@ -52,8 +52,9 @@ private:
         // TODO give more general name as we use it for notifying workers that we're stopping as well
         std::condition_variable job_available;
 
-        // Initialize is_dead as false so we don't have to atomically do it.
-        explicit worker() : is_dead(false) {}
+        // Initialize is_dead as false so we don't have to incur the cost of atomically
+        // doing it after construction.
+        worker() : is_dead(false) {}
     };
 
     // All jobs are first placed in this queue from which they are retrieved by workers.
@@ -88,6 +89,10 @@ private:
     // new work.
     //
     // NOTE: must only be handled after acquiring m_workers_mutex.
+    //
+    // TODO what's preventing us from ditching the unique_ptr? deque does not reallocate
+    // existing storage (and thus does not invalidate references) if elements are only 
+    // removed from either end, thus it should be safe to just refer to workers
     std::deque<std::unique_ptr<worker>> m_workers;
 
     mutable std::mutex m_job_queue_mutex;
@@ -251,4 +256,4 @@ private:
 
 } // namespace tide
 
-#endif // TORRENT_THREAD_POOL_HEADER
+#endif // TIDE_THREAD_POOL_HEADER

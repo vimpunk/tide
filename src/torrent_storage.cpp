@@ -1,5 +1,6 @@
 #include "torrent_storage.hpp"
 #include "disk_io_error.hpp"
+#include "disk_buffer.hpp"
 #include "bitfield.hpp"
 
 #include <cassert>
@@ -18,7 +19,7 @@ torrent_storage::torrent_storage(
     : m_resume_data(std::move(resume_data_path), 0,
         file::open_mode_flags{ file::read_write, file::sequential, file::no_os_cache })
     , m_piece_hashes(piece_hashes)
-    , m_root_path(info.files.size() == 1
+    , m_root_path(info->files.size() == 1
         ? info->save_path
         : info->save_path / info->name)
     , m_name(info->name)
@@ -43,8 +44,7 @@ interval torrent_storage::pieces_in_file(const file_index_t file) const noexcept
     return interval(m_files[file].first_piece, m_files[file].last_piece + 1);
 }
 
-interval
-torrent_storage::files_containing_piece(const piece_index_t piece) const noexcept
+interval torrent_storage::files_containing_piece(const piece_index_t piece) const noexcept
 {
     interval result;
     for(auto i = 0; i < m_files.size(); ++i)
@@ -88,7 +88,7 @@ file_slice torrent_storage::get_file_slice(
     return get_file_slice(entry, piece_offset, block.length);
 }
 
-string_view torrent_storage::expected_hash(const piece_index_t piece) const noexcept
+string_view torrent_storage::expected_piece_hash(const piece_index_t piece) const noexcept
 {
     if((piece > 0) && (piece < m_num_pieces))
     {
@@ -113,227 +113,6 @@ void torrent_storage::dont_want_file(const file_index_t file) noexcept
         m_size_to_download -= m_files[file].storage.length();
         m_files[file].is_wanted = false;
     }
-}
-
-void torrent_storage::erase_file(const file_index_t file_index, std::error_code& error)
-{
-    error.clear();
-    if(!is_file_index_valid(file_index))
-    {
-        error = std::make_error_code(std::errc::no_such_file_or_directory);
-        return;
-    }
-    file& file = m_files[file_index].storage;
-    if(file.is_open())
-    {
-        file.close();
-    }
-    file.erase(error);
-}
-
-void torrent_storage::move(path path, std::error_code& error)
-{
-    if(m_files.size() == 1)
-    {
-        file_entry& file = m_files.front();
-        // TODO check if we have to close file before moving on Windows
-        path new_file_path = path / file.relative_path();
-        fs::move(file.absolute_path(), new_file_path, error);
-        if(!error)
-        {
-            file.on_parent_moved(new_file_path);
-            m_root_path = path;
-        }
-    }
-    else
-    {
-        path name = m_root_path.
-        fs::move(m_root_path, path, error);
-    }
-}
-
-void torrent_storage::check_storage_integrity(bitfield& pieces, std::error_code& error)
-{
-    check_storage_integrity(pieces, 0, m_num_pieces, error);
-}
-
-void torrent_storage::check_storage_integrity(bitfield& pieces, int first_piece,
-    int num_pieces_to_check, std::error_code& error)
-{
-    if(pieces.size() != m_num_pieces
-       || first_piece >= m_num_pieces
-       || num_pieces_to_check > m_num_pieces)
-    {
-        error = std::make_error_code(std::errc::value_too_large);
-        return;
-    }
-    error.clear();
-    const interval files = files_containing_pieces(
-        interval(first_piece, first_piece + num_pieces_to_check));
-    for(auto i = files.begin; i < files.end; ++i)
-    {
-    }
-    // TODO
-}
-
-/*
-std::vector<mmap_source> torrent_storage::create_mmap_source(
-    const block_info& info, std::error_code& error)
-{
-    std::vector<mmap_source> mmaps;
-    do_file_io(
-        [this, &mmaps]
-        (file_entry& file,
-         const file_slice& slice,
-         std::error_code& error) mutable -> int
-        {
-            before_reading(file, error);
-            if(error)
-            {
-                return 0;
-            }
-            mmaps.emplace_back(file.storage.create_mmap_source(
-                slice.offset, slice.length, error));
-            if(error)
-            {
-                return 0;
-            }
-            //assert(slice.length == mmaps.back().length());
-            return slice.length;
-        },
-        info,
-        error);
-    return mmaps;
-}
-
-std::vector<mmap_sink> torrent_storage::create_mmap_sink(
-    const block_info& info, std::error_code& error)
-{
-    std::vector<mmap_sink> mmaps;
-    do_file_io(
-        [this, &mmaps]
-        (file_entry& file,
-         const file_slice& slice,
-         std::error_code& error) mutable -> int
-        {
-            // TODO there is the contingency in which we want to write a block to
-            // several files, but one of them is not wanted, to which we obviously
-            // don't want to write. the problem here is that we return a vector of
-            // mmap sinks which user expects to represent the contiguous blocks of
-            // memory where the block will be written. so if a file is omitted, the
-            // block will all of a sudden not be there. I don't think the whole op
-            // should fail because of this, but somehow user must know that either
-            // not all mappings have returned so don't count the mapped regions'
-            // lengths to keep track of how much of the block has been written, or
-            // that some of the mappings are false but *would* represent this much
-            // memory so user can skip that
-            return 0;
-            /*
-            num_written = file.storage.write(buffers, slice.offset, slice.length, error);
-            if(error)
-            {
-                return 0;
-            }
-            //assert(slice.length == mmaps.back().length());
-            return slice.length;
-            * /
-        },
-        info,
-        error);
-    return mmaps;
-}
-*/
-void torrent_storage::read(iovec buffer, const block_info& info, std::error_code& error)
-{
-    view<iovec> iov_view(&buffer, 1);
-    read(iov_view, info, error);
-}
-
-void torrent_storage::read(view<iovec> buffers,
-    const block_info& info, std::error_code& error)
-{
-    do_file_io(
-        [this, &buffers]
-        (file_entry& file,
-         const file_slice& slice,
-         std::error_code& error) mutable -> int
-        {
-            before_reading(file, error);
-            if(error)
-            {
-                return 0;
-            }
-            // note that file::read trims buffers' front by num_read, so we must not do
-            // it here again
-            const int num_read = file.storage.read(buffers, slice.offset, error);
-            if(!error)
-            {
-                assert(num_read == slice.length);
-            }
-            return num_read;
-        },
-        info,
-        error);
-}
-
-void torrent_storage::read(std::vector<iovec> buffers,
-    const block_info& info, std::error_code& error)
-{
-    read(view<iovec>(buffers), info, error);
-}
-
-void torrent_storage::write(iovec buffer, const block_info& info, std::error_code& error)
-{
-    view<iovec> iov_view(&buffer, 1);
-    write(iov_view, info, error);
-}
-
-void torrent_storage::write(view<iovec> buffers,
-    const block_info& info, std::error_code& error)
-{
-    do_file_io(
-        [this, &buffers]
-        (file_entry& file,
-         const file_slice& slice,
-         std::error_code& error) mutable -> int
-        {
-            int num_written = 0;
-            if(file.is_wanted)
-            {
-                before_writing(file.storage, error);
-                if(error)
-                {
-                    return 0;
-                }
-                // note that file::write trims buffers' front by num_written, so we must
-                // not do it here again
-                num_written = file.storage.write(buffers, slice.offset, error);
-                if(error)
-                {
-                    return 0;
-                }
-            }
-            else
-            {
-                // we don't want this file, so just ignore it (must not write to it),
-                // but we must also trim the buffer as if it had been consumed by
-                // file::write
-                util::trim_buffers_front(buffers, slice.length);
-                num_written = slice.length;
-            }
-            // we should have written to the entire file slice since file::write
-            // guarantees this
-            assert(num_written == slice.length);
-            return num_written;
-        },
-        info,
-        error);
-}
-
-void torrent_storage::write(std::vector<iovec> buffers,
-    const block_info& info, std::error_code& error)
-{
-    write(view<iovec>(buffers), info, error);
 }
 
 bmap torrent_storage::read_resume_data(std::error_code& error)
@@ -383,8 +162,277 @@ void torrent_storage::write_resume_data(
     m_resume_data.write(buffer, 0, error);
 }
 
-template<typename IOFunction>
-void torrent_storage::do_file_io(IOFunction io_fn,
+void torrent_storage::erase_file(const file_index_t file_index, std::error_code& error)
+{
+    error.clear();
+    if(!is_file_index_valid(file_index))
+    {
+        error = std::make_error_code(std::errc::no_such_file_or_directory);
+        return;
+    }
+    file& file = m_files[file_index].storage;
+    if(file.is_open())
+    {
+        file.close();
+    }
+    file.erase(error);
+}
+
+void torrent_storage::move(path path, std::error_code& error)
+{
+    if(m_files.size() == 1)
+    {
+        file_entry& file = m_files.front();
+        // TODO check if we have to close file before moving on Windows
+        /*
+        path new_file_path = path / file.relative_path();
+        fs::move(file.absolute_path(), new_file_path, error);
+        if(!error)
+        {
+            file.on_parent_moved(new_file_path);
+            m_root_path = path;
+        }
+        */
+    }
+    else
+    {
+        /** TODO
+        path name = m_root_path.
+        fs::move(m_root_path, path, error);
+        */
+    }
+}
+
+void torrent_storage::check_storage_integrity(bitfield& pieces, std::error_code& error)
+{
+    check_storage_integrity(pieces, 0, m_num_pieces, error);
+}
+
+void torrent_storage::check_storage_integrity(bitfield& pieces, int first_piece,
+    int num_pieces_to_check, std::error_code& error)
+{
+    if(pieces.size() != m_num_pieces
+       || first_piece >= m_num_pieces
+       || num_pieces_to_check > m_num_pieces)
+    {
+        error = std::make_error_code(std::errc::value_too_large);
+        return;
+    }
+    error.clear();
+    const interval files = files_containing_pieces(
+        interval(first_piece, first_piece + num_pieces_to_check));
+    for(auto i = files.begin; i < files.end; ++i)
+    {
+    }
+    // TODO
+}
+
+/*
+std::vector<mmap_source> torrent_storage::create_mmap_source(
+    const block_info& info, std::error_code& error)
+{
+    std::vector<mmap_source> mmaps;
+    for_each_file(
+        [this, &mmaps]
+        (file_entry& file,
+         const file_slice& slice,
+         std::error_code& error) mutable -> int
+        {
+            before_reading(file, error);
+            if(error)
+            {
+                return 0;
+            }
+            mmaps.emplace_back(file.storage.create_mmap_source(
+                slice.offset, slice.length, error));
+            if(error)
+            {
+                return 0;
+            }
+            //assert(slice.length == mmaps.back().length());
+            return slice.length;
+        },
+        info,
+        error);
+    return mmaps;
+}
+
+std::vector<mmap_sink> torrent_storage::create_mmap_sink(
+    const block_info& info, std::error_code& error)
+{
+    std::vector<mmap_sink> mmaps;
+    for_each_file(
+        [this, &mmaps]
+        (file_entry& file,
+         const file_slice& slice,
+         std::error_code& error) mutable -> int
+        {
+            // TODO there is the contingency in which we want to write a block to
+            // several files, but one of them is not wanted, to which we obviously
+            // don't want to write. the problem here is that we return a vector of
+            // mmap sinks which user expects to represent the contiguous blocks of
+            // memory where the block will be written. so if a file is omitted, the
+            // block will all of a sudden not be there. I don't think the whole op
+            // should fail because of this, but somehow user must know that either
+            // not all mappings have returned so don't count the mapped regions'
+            // lengths to keep track of how much of the block has been written, or
+            // that some of the mappings are false but *would* represent this much
+            // memory so user can skip that
+            return 0;
+            /*
+            num_written = file.storage.write(buffers, slice.offset, slice.length, error);
+            if(error)
+            {
+                return 0;
+            }
+            //assert(slice.length == mmaps.back().length());
+            return slice.length;
+            * /
+        },
+        info,
+        error);
+    return mmaps;
+}
+*/
+void torrent_storage::read(iovec buffer, const block_info& info, std::error_code& error)
+{
+    read(view<iovec>(&buffer, 1), info, error);
+}
+
+void torrent_storage::read(view<disk_buffer> buffers,
+    const block_info& info, std::error_code& error)
+{
+    if(buffers.size() == 1)
+    {
+        // if we only have a single buffer, we don't need a vector (and thus can cut
+        // dynalloc overhead), can call just read(iovec, info, error) directly
+        iovec iov;
+        iov.iov_base = buffers[0].data();
+        iov.iov_len = buffers[0].size();
+        read(iov, info, error);
+    }
+    else
+    {
+        std::vector<iovec> iovecs;
+        iovecs.reserve(buffers.size());
+        for(auto& buffer : buffers)
+        {
+            iovec iov;
+            iov.iov_base = buffer.data();
+            iov.iov_len = buffer.size();
+            iovecs.emplace_back(iov);
+        }
+        read(std::move(iovecs), info, error);
+    }
+}
+
+void torrent_storage::read(std::vector<iovec> buffers,
+    const block_info& info, std::error_code& error)
+{
+    read(view<iovec>(buffers), info, error);
+}
+
+void torrent_storage::read(view<iovec> buffers,
+    const block_info& info, std::error_code& error)
+{
+    for_each_file(
+        [this, &buffers]
+        (file_entry& file,
+         const file_slice& slice,
+         std::error_code& error) mutable -> int
+        {
+            before_reading(file, error);
+            if(error)
+            {
+                return 0;
+            }
+            // note that file::read trims buffers' front by num_read, so we must not do
+            // it here again
+            const int num_read = file.storage.read(buffers, slice.offset, error);
+            if(!error)
+            {
+                assert(num_read == slice.length);
+            }
+            return num_read;
+        },
+        info,
+        error);
+}
+
+void torrent_storage::write(iovec buffer, const block_info& info, std::error_code& error)
+{
+    write(view<iovec>(&buffer, 1), info, error);
+}
+
+void torrent_storage::write(view<disk_buffer> buffers,
+    const block_info& info, std::error_code& error)
+{
+    if(buffers.size() == 1)
+    {
+        iovec iov;
+        iov.iov_base = buffers[0].data();
+        iov.iov_len = buffers[0].size();
+        write(iov, info, error);
+    }
+    else
+    {
+        std::vector<iovec> iovecs;
+        iovecs.reserve(buffers.size());
+        for(auto& buffer : buffers)
+        {
+            iovec iov;
+            iov.iov_base = buffer.data();
+            iov.iov_len = buffer.size();
+            iovecs.emplace_back(iov);
+        }
+        write(std::move(iovecs), info, error);
+    }
+}
+
+void torrent_storage::write(std::vector<iovec> buffers,
+    const block_info& info, std::error_code& error)
+{
+    write(view<iovec>(buffers), info, error);
+}
+
+void torrent_storage::write(view<iovec> buffers,
+    const block_info& info, std::error_code& error)
+{
+    for_each_file(
+        [this, &buffers]
+        (file_entry& file,
+         const file_slice& slice,
+         std::error_code& error) mutable -> int
+        {
+            int num_written = 0;
+            if(file.is_wanted)
+            {
+                before_writing(file.storage, error);
+                if(error) { return 0; }
+                // note that file::write trims buffers' front by num_written, so we must
+                // not do it here again
+                num_written = file.storage.write(buffers, slice.offset, error);
+                if(error) { return 0; }
+            }
+            else
+            {
+                // we don't want this file, so just ignore it (must not write to it),
+                // but we must also trim the buffer as if it had been consumed by
+                // file::write
+                util::trim_buffers_front(buffers, slice.length);
+                num_written = slice.length;
+            }
+            // we should have written to the entire file slice since file::write
+            // guarantees this
+            assert(num_written == slice.length);
+            return num_written;
+        },
+        info,
+        error);
+}
+
+template<typename Function>
+void torrent_storage::for_each_file(Function fn,
     const block_info& block, std::error_code& error)
 {
     error.clear();
@@ -399,7 +447,7 @@ void torrent_storage::do_file_io(IOFunction io_fn,
     int num_left = block.length;
     for(file_entry& file : files)
     {
-        const int num_transferred = io_fn(file,
+        const int num_transferred = fn(file,
             get_file_slice(file, offset, num_left), error);
         num_left -= num_transferred;
         if(error)
@@ -478,8 +526,8 @@ void torrent_storage::initialize_file_entries(const_view<file_info> files)
         entry.storage = file(m_root_path / f.path, f.length, mode);
         entry.torrent_offset = torrent_offset;
         entry.is_wanted = f.is_wanted;
-        // move torrent_offset to the next file's beginning / this file's end
         entry.first_piece = torrent_offset / m_piece_length;
+        // move torrent_offset to the next file's beginning / this file's end
         torrent_offset += f.length;
         entry.last_piece = torrent_offset / m_piece_length;
         m_files.emplace_back(std::move(entry));
@@ -487,6 +535,7 @@ void torrent_storage::initialize_file_entries(const_view<file_info> files)
         {
             m_size_to_download += f.length;
         }
+        m_size += f.length;
     }
 }
 
@@ -496,17 +545,12 @@ void torrent_storage::create_directory_tree()
     if(m_files.size() == 1) { return; }
     // first, establish the root directory
     std::error_code ec;
-    if(!fs::exists(m_root_path, ec))
+    // create directory will not fail if root directory already exists
+    fs::create_directory(m_root_path, ec);
+    if(ec)
     {
-        if(ec)
-        {
-            // TODO handle errors!
-        }
-        fs::create_directory(m_root_path, ec);
-        if(ec)
-        {
-
-        }
+        // this is called from the constructor, so we must throw here
+        throw ec;
     }
     // then the subdirectories
     for(const file_entry& file : m_files)
@@ -517,7 +561,7 @@ void torrent_storage::create_directory_tree()
             fs::create_directories(dir_path, ec);
             if(ec)
             {
-
+                throw ec;
             }
         }
     }
@@ -550,8 +594,8 @@ torrent_storage::files_containing_block(const block_info& block)
     assert(it != end);
     file_entry* last_file = &*it;
 
-    // + 1 because it's a left inclusive interval
-    return { first_file, last_file + 1 };
+    // + 1 because it's a left inclusive interval and last_file points to a valid file
+    return {first_file, last_file + 1};
 }
 
 } // namespace tide

@@ -1,5 +1,5 @@
-#ifndef TORRENT_BENCODE_HEADER
-#define TORRENT_BENCODE_HEADER
+#ifndef TIDE_BENCODE_HEADER
+#define TIDE_BENCODE_HEADER
 
 #include "string_view.hpp"
 
@@ -69,4 +69,4 @@ public:
 
 } // namespace tide
 
-#endif // TORRENT_BENCODE_HEADER
+#endif // TIDE_BENCODE_HEADER

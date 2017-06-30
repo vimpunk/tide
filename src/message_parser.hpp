@@ -1,5 +1,5 @@
-#ifndef TORRENT_MESSAGE_PARSER_HEADER
-#define TORRENT_MESSAGE_PARSER_HEADER
+#ifndef TIDE_MESSAGE_PARSER_HEADER
+#define TIDE_MESSAGE_PARSER_HEADER
 
 #include "view.hpp"
 
@@ -17,28 +17,33 @@ namespace tide {
  * and throughout the application, the unofficial term 'block' is used to denote the
  * piece chunks sent over the network.
  */
-enum message_t : uint8_t
-{
+// we want to use message_type as an integer but don't want to pollute the entire namespace
+namespace message_type {
+
+// A keep alive message has no identifier (it's just 4 zero bytes), this is used only by
+// message_parser::type to tell caller that the current message is a keep_alive.
+constexpr int keep_alive = -1;
+
+enum {
     // -- standard BitTorrent messages --
     choke          = 0,
     unchoke        = 1,
     interested     = 2,
     not_interested = 3,
     have           = 4,
-    bitfield_      = 5, // _ so as not to clash with the bitfield class TODO
+    bitfield       = 5,
     request        = 6,
     block          = 7,
     cancel         = 8,
     // -- DHT extension messages --
     port           = 9,
-    // keep alive has no identifier (it's just 4 zero bytes), this is used only by
-    // message_parser::type to tell caller that the current message is a keep_alive
-    keep_alive     = 255
 };
+
+} // namespace message_type
 
 struct message
 {
-    message_t type;
+    int type;
     // The message content, excluding the four bytes of message length and one byte of
     // message identifier/type.
     const_view<uint8_t> data;
@@ -129,14 +134,6 @@ public:
     bool has_handshake() const noexcept;
 
     /**
-     * Returns the next message and advances the "message pointer", i.e. subsequent
-     * calls to this function convey iterator semantics.
-     *
-     * An exception is thrown if has_message() returns false.
-     */
-    message extract();
-
-    /**
      * Handshake message structure differ from the other BT messages, so this method must
      * be used to extract them.
      *
@@ -147,6 +144,14 @@ public:
      * this when it is known that the message is a handshake.
      */
     handshake extract_handshake();
+
+    /**
+     * Returns the next message and advances the "message pointer", i.e. consecutive
+     * calls to this function convey iterator semantics.
+     *
+     * An exception is thrown if has_message() returns false.
+     */
+    message extract();
 
     /**
      * Same as above, except it doesn't advance the message pointer, so subsequent calls
@@ -166,7 +171,7 @@ public:
      * An excpetion is thrown if the available bytes is less than 5, or 4, in the case of
      * a keep alive message.
      */
-    message_t type() const;
+    int type() const;
 
     /**
      * This returns a view starting at the current message till one past the last valid
@@ -257,4 +262,4 @@ inline int message_parser::buffer_size() const noexcept
 
 } // namespace tide
 
-#endif // TORRENT_SEND_BUFFER_HEADER
+#endif // TIDE_SEND_BUFFER_HEADER

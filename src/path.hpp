@@ -1,5 +1,5 @@
-#ifndef TORRENT_PATH_HEADER
-#define TORRENT_PATH_HEADER
+#ifndef TIDE_PATH_HEADER
+#define TIDE_PATH_HEADER
 
 #include <boost/filesystem/path.hpp>
 
@@ -9,4 +9,4 @@ using boost::filesystem::path;
 
 } // namespace tide
 
-#endif // TORRENT_PATH_HEADER
+#endif // TIDE_PATH_HEADER

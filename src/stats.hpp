@@ -1,5 +1,5 @@
-#ifndef TORRENT_STATS_HEADER
-#define TORRENT_STATS_HEADER
+#ifndef TIDE_STATS_HEADER
+#define TIDE_STATS_HEADER
 
 #include "throughput_rate.hpp"
 #include "sliding_average.hpp"
@@ -68,4 +68,4 @@ struct stats
 
 } // namespace tide
 
-#endif // TORRENT_STATS_HEADER
+#endif // TIDE_STATS_HEADER

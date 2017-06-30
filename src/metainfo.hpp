@@ -1,5 +1,5 @@
-#ifndef TORRENT_METAINFO_HEADER
-#define TORRENT_METAINFO_HEADER
+#ifndef TIDE_METAINFO_HEADER
+#define TIDE_METAINFO_HEADER
 
 #include "string_view.hpp"
 #include "file_info.hpp"
@@ -64,4 +64,4 @@ metainfo parse_and_sanitize_metainfo(bmap source);
 
 } // namespace tide
 
-#endif //TORRENT_METAINFO_HEADER 
+#endif //TIDE_METAINFO_HEADER 

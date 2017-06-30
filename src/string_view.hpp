@@ -1,5 +1,5 @@
-#ifndef TORRENT_STRING_VIEW_HEADER
-#define TORRENT_STRING_VIEW_HEADER
+#ifndef TIDE_STRING_VIEW_HEADER
+#define TIDE_STRING_VIEW_HEADER
 
 #include "view.hpp"
 
@@ -52,4 +52,4 @@ inline std::ostream& operator<<(std::ostream& out, const string_view& v)
 
 } // namespace tide
 
-#endif // TORRENT_STRING_VIEW_HEADER
+#endif // TIDE_STRING_VIEW_HEADER

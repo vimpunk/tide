@@ -1,5 +1,5 @@
-#ifndef TORRENT_TRACKER_HEADER
-#define TORRENT_TRACKER_HEADER
+#ifndef TIDE_TRACKER_HEADER
+#define TIDE_TRACKER_HEADER
 
 #include "string_view.hpp"
 #include "peer_entry.hpp"
@@ -586,4 +586,4 @@ namespace util
 
 } // namespace tide
 
-#endif // TORRENT_TRACKER_HEADER
+#endif // TIDE_TRACKER_HEADER

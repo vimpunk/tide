@@ -1,5 +1,5 @@
-#ifndef TORRENT_UNITS_HEADER
-#define TORRENT_UNITS_HEADER
+#ifndef TIDE_UNITS_HEADER
+#define TIDE_UNITS_HEADER
 
 #include <cstdint>
 #include <array>
@@ -21,4 +21,4 @@ using peer_id_t = sha1_hash;
 
 } // namespace tide
 
-#endif // TORRENT_UNITS_HEADER
+#endif // TIDE_UNITS_HEADER

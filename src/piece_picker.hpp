@@ -1,5 +1,5 @@
-#ifndef TORRENT_PIECE_PICKER_HEADER
-#define TORRENT_PIECE_PICKER_HEADER
+#ifndef TIDE_PIECE_PICKER_HEADER
+#define TIDE_PIECE_PICKER_HEADER
 
 #include "bitfield.hpp"
 #include "interval.hpp"
@@ -238,4 +238,4 @@ inline void piece_picker::dont_want_pieces(const interval pieces)
 
 } // namespace tide
 
-#endif // TORRENT_PIECE_PICKER_HEADER
+#endif // TIDE_PIECE_PICKER_HEADER

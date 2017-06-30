@@ -1,5 +1,5 @@
-#ifndef TORRENT_STRING_UTILS_HEADER
-#define TORRENT_STRING_UTILS_HEADER
+#ifndef TIDE_STRING_UTILS_HEADER
+#define TIDE_STRING_UTILS_HEADER
 
 #include <algorithm>
 #include <iterator> // begin, end
@@ -139,4 +139,4 @@ inline uint16_t extract_port(const std::string& url)
 } // namespace util
 } // namespace tide
 
-#endif // TORRENT_STRING_UTILS_HEADER
+#endif // TIDE_STRING_UTILS_HEADER

@@ -1,7 +1,7 @@
-#ifndef TORRENT_TORRENT_DISK_IO_FRONTEND_HEADER
-#define TORRENT_TORRENT_DISK_IO_FRONTEND_HEADER
+#ifndef TIDE_TORRENT_DISK_IO_FRONTEND_HEADER
+#define TIDE_TORRENT_DISK_IO_FRONTEND_HEADER
 
-#include "block_disk_buffer.hpp"
+#include "block_source.hpp"
 #include "disk_buffer.hpp"
 
 #include <memory>
@@ -59,7 +59,7 @@ public:
 
     operator bool() const noexcept { return m_torrent != nullptr; }
 
-    disk_buffer get_write_buffer();
+    disk_buffer get_disk_buffer();
 
     /**
      * This saves a block to disk and once done, gives back disk_io the disk_buffer
@@ -76,4 +76,4 @@ public:
 
 } // namespace tide
 
-#endif // TORRENT_TORRENT_DISK_IO_FRONTEND_HEADER
+#endif // TIDE_TORRENT_DISK_IO_FRONTEND_HEADER

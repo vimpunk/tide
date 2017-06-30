@@ -1,5 +1,5 @@
-#ifndef TORRENT_INTERVAL_HEADER
-#define TORRENT_INTERVAL_HEADER
+#ifndef TIDE_INTERVAL_HEADER
+#define TIDE_INTERVAL_HEADER
 
 namespace tide {
 
@@ -58,4 +58,4 @@ namespace std
     };
 } // namespace std
 
-#endif // TORRENT_INTERVAL_HEADER
+#endif // TIDE_INTERVAL_HEADER

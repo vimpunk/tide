@@ -1,5 +1,5 @@
-#ifndef TORRENT_EVENT_CHANNEL_HEADER
-#define TORRENT_EVENT_CHANNEL_HEADER
+#ifndef TIDE_EVENT_CHANNEL_HEADER
+#define TIDE_EVENT_CHANNEL_HEADER
 
 #include "time.hpp"
 
@@ -78,4 +78,4 @@ void event_queue::emplace(Args&&... args)
 
 } // namespace tide
 
-#endif // TORRENT_EVENT_CHANNEL_HEADER
+#endif // TIDE_EVENT_CHANNEL_HEADER

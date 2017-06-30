@@ -157,13 +157,11 @@ void thread_pool::handle_new_job()
         // TODO optimize this. if workload has been steadily decreasing in the near
         // past, we don't want to spin up a new thread, otherwise we do, e.g.:
         // if(m_load_avg.is_trend_upward()) or if(some threashold reached)
-        //std::unique_ptr<worker> w(std::make_unique<worker>());
-        //w->is_dead.store(false, std::memory_order_relaxed);
         m_workers.emplace_front(std::make_unique<worker>());
         worker& worker = *m_workers.front();
         // we just added an idle worker, move marker to the right by one
         ++m_last_idle_worker_pos;
-        // we don't want to spin up a new thread while holding the mutex
+        // we don't want to spin up a new thread while holding mutex
         workers_lock.unlock();
 
         // the completion of thread constructor synchronizes-with the beginning of the
@@ -203,23 +201,20 @@ public:
 
 void thread_pool::run(worker& worker)
 {
-    scope_guard termination_guard(
-        [this, &worker] { handle_untimely_worker_demise(worker); }
-    );
+    scope_guard termination_guard([this, &worker]
+        { handle_untimely_worker_demise(worker); });
     while(!worker.is_dead.load(std::memory_order_acquire))
     {
         //LOG("\t" << std::this_thread::get_id() << " looping");
         time_point idle_start = ts_cached_clock::now();
         std::unique_lock<std::mutex> job_queue_lock(m_job_queue_mutex);
-        worker.job_available.wait_for(
-            job_queue_lock, seconds(15),
-            [this, &worker]
-            {
-                // wake up if worker is begin shut down, a new job is available, or if
-                // worker has idled for a minute
-                return worker.is_dead.load(std::memory_order_acquire)
-                    || !m_job_queue.empty();
-            });
+        // wake up if worker is being shut down, a new job is available, or if worker 
+        // has idled for a minute
+        worker.job_available.wait_for(job_queue_lock, seconds(15), [this, &worker]
+        {
+            return worker.is_dead.load(std::memory_order_acquire)
+                || !m_job_queue.empty();
+        });
         m_idle_time.fetch_add(total_milliseconds(ts_cached_clock::now() - idle_start),
             std::memory_order_relaxed);
 

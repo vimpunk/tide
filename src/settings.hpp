@@ -1,5 +1,5 @@
-#ifndef TORRENT_GLOBAL_SETTINGS_HEADER
-#define TORRENT_GLOBAL_SETTINGS_HEADER
+#ifndef TIDE_GLOBAL_SETTINGS_HEADER
+#define TIDE_GLOBAL_SETTINGS_HEADER
 
 #include "units.hpp"
 #include "time.hpp"
@@ -117,8 +117,13 @@ struct disk_io_settings
     int cache_capacity;
 
     // This specifies how many blocks in a piece should be bufferred before writing
-    // them to disk.
+    // them to disk. If it's 0, it disables read ahead and only one block will be pulled
+    // in a time. This is not recommended, but might help to conserve memory.
     int read_cache_line_size;
+
+    // And this specifies how many 16KiB blocks should be buffered before writing them
+    // to disk.
+    int write_buffer_size = 4;
 
     // All metadata of the application (torrent states, preferences etc) are saved here.
     // This must be specified.
@@ -237,4 +242,4 @@ struct settings
 
 } // namespace tide
 
-#endif // TORRENT_GLOBAL_SETTINGS_HEADER
+#endif // TIDE_GLOBAL_SETTINGS_HEADER

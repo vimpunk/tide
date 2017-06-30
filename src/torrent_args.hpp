@@ -1,5 +1,5 @@
-#ifndef TORRENT_TORRENT_ARGS_HEADER
-#define TORRENT_TORRENT_ARGS_HEADER
+#ifndef TIDE_TORRENT_ARGS_HEADER
+#define TIDE_TORRENT_ARGS_HEADER
 
 #include "file_info.hpp"
 #include "metainfo.hpp"
@@ -48,4 +48,4 @@ struct torrent_args
 
 } // namespace tide
 
-#endif // TORRENT_TORRENT_ARGS_HEADER
+#endif // TIDE_TORRENT_ARGS_HEADER

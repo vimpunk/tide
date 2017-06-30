@@ -1,5 +1,5 @@
-#ifndef TORRENT_PATH_SANITIZER_HEADER
-#define TORRENT_PATH_SANITIZER_HEADER
+#ifndef TIDE_PATH_SANITIZER_HEADER
+#define TIDE_PATH_SANITIZER_HEADER
 
 #include "string_view.hpp"
 #include "bdecode.hpp"
@@ -24,4 +24,4 @@ path create_and_sanitize_path(const blist& path_elements);
 
 } // namespace tide
 
-#endif // TORRENT_PATH_SANITIZER_HEADER
+#endif // TIDE_PATH_SANITIZER_HEADER

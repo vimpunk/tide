@@ -1,5 +1,5 @@
-#ifndef TORRENT_IOVEC_HEADER
-#define TORRENT_IOVEC_HEADER
+#ifndef TIDE_IOVEC_HEADER
+#define TIDE_IOVEC_HEADER
 
 /**
  * iovec is used for scatter gather IO operations, where the list is some list of iovec
@@ -34,4 +34,4 @@ namespace util {
 } // namespace util
 } // namespace tide
 
-#endif // TORRENT_IOVEC_HEADER
+#endif // TIDE_IOVEC_HEADER

@@ -1,5 +1,5 @@
-#ifndef TORRENT_BITFIELD_HEADER
-#define TORRENT_BITFIELD_HEADER
+#ifndef TIDE_BITFIELD_HEADER
+#define TIDE_BITFIELD_HEADER
 
 #include <type_traits>
 #include <stdexcept>
@@ -594,4 +594,4 @@ inline void swap(bitfield& a , bitfield& b)
 
 } // namespace tide
 
-#endif // TORRENT_BITFIELD_HEADER
+#endif // TIDE_BITFIELD_HEADER

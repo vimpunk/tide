@@ -1,5 +1,5 @@
-#ifndef TORRENT_ENGINE_HEADER
-#define TORRENT_ENGINE_HEADER
+#ifndef TIDE_ENGINE_HEADER
+#define TIDE_ENGINE_HEADER
 
 #include "event_queue.hpp"
 #include "torrent_handle.hpp"
@@ -195,4 +195,4 @@ private:
 
 } // namespace tide
 
-#endif // TORRENT_ENGINE_HEADER
+#endif // TIDE_ENGINE_HEADER

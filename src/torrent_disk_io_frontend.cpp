@@ -10,9 +10,9 @@ torrent_disk_io_frontend::torrent_disk_io_frontend(torrent& t)
     : m_torrent(t.shared_from_this())
 {}
 
-disk_buffer torrent_disk_io_frontend::get_write_buffer()
+disk_buffer torrent_disk_io_frontend::get_disk_buffer()
 {
-    return m_torrent->m_disk_io.get_write_buffer();
+    return m_torrent->m_disk_io.get_disk_buffer();
 }
 
 /**
