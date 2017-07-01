@@ -52,7 +52,7 @@ public:
 };
 */
 
-using buffer_pool = boost::pool<>;
+using disk_buffer_pool = boost::pool<>;
 
 /**
  * This is a fixed size 16KiB pool allocated buffer which is used for holding a block
@@ -83,7 +83,7 @@ class disk_buffer : public util::buffer
 public:
 
     disk_buffer() = default; // default is invalid buffer
-    disk_buffer(pointer data, size_type size, buffer_pool& pool)
+    disk_buffer(pointer data, size_type size, disk_buffer_pool& pool)
         : m_data(data, [&pool](pointer p) { pool.free(p); })
         , m_size(size)
     {

@@ -97,7 +97,7 @@ void thread_pool::join_all()
 
 void thread_pool::join_n(const int n)
 {
-    join_n(n, std::move(std::unique_lock<std::mutex>(m_workers_mutex)));
+    join_n(n, std::unique_lock<std::mutex>(m_workers_mutex));
 }
 
 void thread_pool::join_n(const int n, std::unique_lock<std::mutex> workers_lock)
@@ -272,8 +272,8 @@ bool thread_pool::execute_jobs(worker& worker, std::unique_lock<std::mutex> job_
         {
             // we don't move this worker back to idle as this worker is being joined,
             // meaning m_workers_mutex is acquired by the joiner, so we would deadlock;
-            // therefore the responsibility of keeping the logical stack intact is left
-            // to the join_n
+            // therefore the responsibility of keeping the workers stack intact is left
+            // to join_n
             return false;
         }
 
@@ -318,7 +318,7 @@ void thread_pool::move_to_active(const worker& worker)
     // bubble worker to the top
     // (this may look expensive but we mostly pick workers from the top of the idle
     // workers stack (or near it), so this should usually be a few iterations at most)
-    // TODO profile it anyway
+    // TODO profile anyway
     for(auto i = worker_pos + 1; i <= m_last_idle_worker_pos; ++i, ++worker_pos)
     {
         m_workers[worker_pos].swap(m_workers[i]);
@@ -360,8 +360,8 @@ void thread_pool::move_to_idle(const worker& worker)
 
 void thread_pool::reap_dead_workers()
 {
-    std::unique_lock<std::mutex> l(m_workers_mutex, std::defer_lock);
-    if(!l.try_lock())
+    std::unique_lock<std::mutex> workers_lock(m_workers_mutex, std::defer_lock);
+    if(!workers_lock.try_lock())
     {
         // we couldn't acquire the mutex, someone is working with it, so let that
         // someone take care of cleaning up later
@@ -378,14 +378,14 @@ void thread_pool::reap_dead_workers()
             // we got one less idle worker, so decrement this
             --m_last_idle_worker_pos;
             // joining a thread may take some time so release the lock
-            l.unlock();
+            workers_lock.unlock();
             assert(worker->thread.joinable());
             worker->thread.join();
             // try to lock for the next round -- if we couldn't acuire the lock it
             // either means that some other thread is cleaning up in which case let
             // it continue, or we're being joined, where m_workers_mutex is acquired
             // and held throughout the operation, so we must not acquire the mutex then
-            if(!l.try_lock())
+            if(!workers_lock.try_lock())
             {
                 return;
             }
@@ -401,7 +401,7 @@ void thread_pool::reap_dead_workers()
 
 void thread_pool::handle_untimely_worker_demise(worker& worker)
 {
-    std::unique_lock<std::mutex> l(m_workers_mutex);
+    std::unique_lock<std::mutex> workers_lock(m_workers_mutex);
     // worker may have been executing or it may have been idle, so we need to search
     // the entire workers stack and move it to the front
     int worker_pos = 0;
@@ -415,7 +415,7 @@ void thread_pool::handle_untimely_worker_demise(worker& worker)
     {
         m_workers[i].swap(m_workers[worker_pos]);
     }
-    l.unlock();
+    workers_lock.unlock();
     worker.is_dead.store(true, std::memory_order_release);
 }
 

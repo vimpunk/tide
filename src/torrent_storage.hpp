@@ -152,7 +152,7 @@ public:
         const block_info& block) const noexcept;
 
     /** Returns the expected 20 byte SHA-1 hash for this piece. */
-    string_view expected_piece_hash(const piece_index_t piece) const noexcept;
+    sha1_hash expected_piece_hash(const piece_index_t piece) const noexcept;
 
     /**
      * User can change which files they wish to download during the download. These

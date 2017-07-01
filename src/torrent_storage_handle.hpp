@@ -67,7 +67,7 @@ public:
         return m_storage->get_file_slice(file, block);
     }
 
-    string_view expected_piece_hash(const piece_index_t piece) const noexcept
+    sha1_hash expected_piece_hash(const piece_index_t piece) const noexcept
     {
         assert(*this);
         return m_storage->expected_piece_hash(piece);

@@ -8,6 +8,7 @@
 #include "settings.hpp"
 #include "disk_io.hpp"
 #include "torrent.hpp"
+#include "random.hpp"
 #include "view.hpp"
 
 #include <algorithm>
@@ -306,8 +307,8 @@ bmap_encoder torrent::create_resume_data() const
     resume_data["leech_time"] = total_seconds(m_info->total_leech_time);
     resume_data["download_started_time"] = total_seconds(
         m_info->download_started_time.time_since_epoch());
-    resume_data["upload_started_time"] = total_seconds(
-        m_info->upload_started_time.time_since_epoch());
+    resume_data["download_finished_time"] = total_seconds(
+        m_info->download_finished_time.time_since_epoch());
     resume_data["total_downloaded_piece_bytes"] = m_info->total_downloaded_piece_bytes;
     resume_data["total_uploaded_piece_bytes"] = m_info->total_uploaded_piece_bytes;
     resume_data["total_downloaded_bytes"] = m_info->total_downloaded_bytes;
@@ -436,7 +437,7 @@ inline tracker_entry& torrent::pick_tracker(const bool force)
         if(!t.tracker->had_protocol_error())
             return t;
     }
-    // at this point nothing matters anymore
+    // at this point nothing matters anymore :(
     return m_trackers.front();
 }
 
@@ -445,7 +446,6 @@ inline bool torrent::can_announce_to(const tracker_entry& t) const noexcept
     return t.tracker->is_reachable()
         && !t.tracker->had_protocol_error()
         && cached_clock::now() - t.last_announce_time >= t.interval;
-/*|| is_shutting_down() */
 }
 
 void torrent::on_announce_response(tracker_entry& tracker, const std::error_code& error,
@@ -727,7 +727,7 @@ void torrent::optimistic_unchoke()
         assert(session->is_peer_choked());
         session->unchoke_peer();
         // peer may not be connected in which case unchoking it failed
-        if(session->!is_peer_choked()) { break; }
+        if(!session->is_peer_choked()) { break; }
     }
 
     /*

@@ -45,8 +45,7 @@ sha1_hasher& sha1_hasher::update(const Container& buffer)
 {
     return update(const_view<uint8_t>(
         reinterpret_cast<const uint8_t*>(buffer.data()),
-        buffer.size()
-    ));
+        buffer.size()));
 }
 
 template<size_t N>
@@ -62,8 +61,8 @@ sha1_hasher& sha1_hasher::update(const std::array<uint8_t, N>& buffer)
 }
 
 /**
- * This is a convenience method for when update would be called only once because all
- * the data is available.
+ * This is a convenience method for when sha1_hasher::update need only be called once
+ * because all the data is available.
  */
 template<typename Buffer>
 static sha1_hash create_sha1_digest(const Buffer& buffer)

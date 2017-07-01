@@ -25,7 +25,6 @@
 #include <map>
 
 #include <asio/io_service.hpp>
-#include <boost/pool/pool.hpp>
 
 namespace tide {
 
@@ -52,7 +51,7 @@ public:
 
         // Includes both the read and write caches. In bytes.
         int cache_capacity = 0;
-        int write_buffer_size = 0;
+        //int write_buffer_size = 0;
         int read_cache_size = 0;
 
         int write_queue_size = 0;
@@ -106,14 +105,14 @@ private:
 
     // Only disk_io can instantiate disk_buffers so that instances can be reused. All
     // buffers made by pool are 16KiB in size.
-    boost::pool<> m_disk_buffer_pool;
+    disk_buffer_pool m_disk_buffer_pool;
 
     /**
      * This class represents an in-progress piece. It is used to buffer blocks and
      * incrementally hash them and store the hash context.
      *
-     * min(settings::write_buffer_size blocks, num_blocks_in_piece) blocks are kept in
-     * memory (bufferred) before being hashed and written to disk. Once this threshold
+     * min(settings::write_cache_line_size blocks, num_blocks_in_piece) blocks are kept
+     * in memory (bufferred) before being hashed and written to disk. Once this threshold
      * is reached, the currently available number of consecutive blocks (i.e. blocks
      * following, without gaps, one another) are posted to m_thread_pool for hashing and 
      * are subsequently written to disk.
@@ -129,9 +128,9 @@ private:
      * compared to the piece's expected hash, and this result is passed along to 
      * completion_handler. If the hash test was passed, the remaining blocks are written
      * to disk. (If the piece is large, that is, it has to be written to disk in several
-     * settings::write_buffer_size chunks, it means that even if a piece turns out to be
-     * bad, some blocks will inevitably be persisted to disk. This is no concern as they
-     * will be overwritten once valid data is received.)
+     * settings::write_cache_line_size chunks, it means that even if a piece turns out
+     * to be bad, some blocks will inevitably be persisted to disk. This is no concern
+     * as they will be overwritten once valid data is received.)
      *
      * Crucially, only a single thread may hash a piece at any given time. When piece
      * has enough blocks for hashing and saving, those blocks are extracted from
@@ -153,31 +152,15 @@ private:
      */
     struct partial_piece
     {
+        // This is invoked once the piece has been hashed, which means that the piece
+        // may not have been written to disk by the time of the invocation.
+        std::function<void(bool)> completion_handler;
+
         // This contains the sha1_context that holds the current hashing progress and is
         // used to incrementally hash blocks. NOTE: blocks may only be hashed in order,
         // otherwise out of order blocks must be buffered until the next block to be
         // hashed is downloaded.
         sha1_hasher hasher;
-
-        const piece_index_t index;
-        // The length of this piece in bytes.
-        const int length;
-        // The number of blocks this piece has in total (i.e. how many blocks we expect).
-        const int num_blocks;
-
-        // The number of contiguous blocks following the last hashed and saved block.
-        // We can only hash and write to disk the blocks that are in order and have no
-        // gaps, so this will be 0 if blocks[0].offset > unhashed_offset, or it will be 
-        // the number of blocks until the first gap.
-        //
-        // It's decreased as soon as a hash & write op is launched, but this number
-        // is added back if the block could not be saved to disk.
-        int num_writeable_blocks = 0;
-
-        // This is always the first byte of the first unhashed block (that is, one past
-        // the last hashed block's last byte). It's used to check if we can hash blocks
-        // since they must be passed to m_hasher.update() in order.
-        int unhashed_offset = 0;
 
         // Only one thread may work with partial_piece at a time, so this is set before
         // such a thread is launched, and unset once thread calls the completion handler
@@ -185,6 +168,12 @@ private:
         // TODO it may be enough to "mutually exclude" only hashing, i.e. rename to
         // is_hashing
         bool is_busy = false;
+
+        const piece_index_t index;
+        // The length of this piece in bytes.
+        const int length;
+        // The number of blocks this piece has in total (i.e. how many blocks we expect).
+        const int num_blocks;
 
         struct block
         {
@@ -198,19 +187,34 @@ private:
                 std::function<void(const std::error_code&)> save_handler_);
         };
 
+    private:
+
+        // The number of contiguous blocks following the last hashed and saved block.
+        // We can only hash and write to disk the blocks that are in order and have no
+        // gaps, so this will be 0 if blocks[0].offset > unhashed_offset, or it will be 
+        // the number of blocks until the first gap.
+        //
+        // It's decreased as soon as a hash & write op is launched, but this number
+        // is added back if the block could not be saved to disk.
+        int m_num_writeable_blocks = 0;
+
+        // This is always the first byte of the first unhashed block (that is, one past
+        // the last hashed block's last byte). It's used to check if we can hash blocks
+        // since they must be passed to m_hasher.update() in order.
+        int m_unhashed_offset = 0;
+
         // These are the actual blocks that we have in this piece. The vector is
         // preallocated for the number of blocks that can be stored in memory (this is
-        // a minimum of settings::write_buffer_size and the number of blocks in piece).
+        // a minimum of settings::write_cache_line_size and the number of blocks in
+        // piece).
         // Note that if we receive blocks out of order in such a way that we cannot
-        // hash them, the number of blocks may exceed settings::write_buffer_size.
-        std::vector<block> blocks;
+        // hash them, the number of blocks may exceed settings::write_cache_line_size.
+        std::vector<block> m_blocks;
 
-        // This is invoked once the piece has been hashed, which means that the piece
-        // may not have been written to disk by the time of the invocation.
-        std::function<void(bool)> completion_handler;
+    public:
 
         /** Initializes the const fields and calculates num_blocks. */
-        partial_piece(piece_index_t index_, int length_, int max_num_blocks,
+        partial_piece(piece_index_t index_, int length_, int max_write_buffer_size,
             std::function<void(bool)> completion_handler);
 
         /**
@@ -218,6 +222,9 @@ private:
          * already hashed and saved to disk or are still in blocks buffer.
          */
         bool is_complete() const noexcept;
+
+        int first_unhashed_byte() const noexcept { return m_unhashed_offset; }
+        int num_writeable_blocks() const noexcept { return m_num_writeable_blocks; }
 
         /**
          * Inserts a new block into blocks such that the resulting set of blocks
@@ -238,6 +245,17 @@ private:
 
         /** Removes and returns num_writeable_blocks blocks. */
         std::vector<block> extract_writeable_blocks();
+
+        /** Incremets unhashed_offset and updates the number of writeable blocks. */
+        void record_hashed_bytes(const int n);
+
+    private:
+
+        /**
+         * This is called when a new block has been received or when we hashed some
+         * blocks--both events that affect how many blocks we can write.
+         */
+        void update_num_writeable_blocks();
     };
 
     struct torrent_entry
@@ -250,10 +268,10 @@ private:
         torrent_storage storage;
 
         // Received blocks are not immediately written to disk, but are buffered in this
-        // list until the number of blocks reach disk_io_settings::write_buffer_size or
-        // the piece is finished, after which the blocks are hashed and written to disk.
-        // This defers write jobs as much as possible so as to batch them together to
-        // increase the amount of work performed within a context switch.
+        // list until the number of blocks reach disk_io_settings::write_cache_line_size
+        // or the piece is finished, after which the blocks are hashed and written to
+        // disk. This defers write jobs as much as possible so as to batch them together
+        // to increase the amount of work performed within a context switch.
         //
         // unique_ptr is used to ensure that a thread referring to a piece does not
         // end up accessing invalid memory when write_buffer is reallocated upon adding
@@ -373,8 +391,13 @@ public:
      * must make sure that it doesn't abuse disk performance and its receive buffer
      * capacity which includes its outstanding bytes being written to disk.
      * TODO create a stronger constraint on this
+
+     // TODO this is muddy explanation
+     * disk_buffers have a fix size of 16KiB (0x4000), but the caller may request that
+     * the size be less than that, in which case the true buffer size will remain the
+     * same but the conceptual buffer size will the be requested number of bytes.
      */
-    disk_buffer get_disk_buffer();
+    disk_buffer get_disk_buffer(const int length = 0x4000);
     //buffer get_buffer();
 
     /**
@@ -412,12 +435,11 @@ private:
     torrent_entry& find_torrent_entry(const torrent_id_t id);
 
     /**
-     * NOTE: this function is executed by m_thread_pool.
+     * Depending on the state of the piece, invokes handle_complete_piece or
+     * flush_write_buffer, and takes care of setting up those operations.
+     TODO better name
      */
-    void fetch_block(torrent_entry& torrent, const block_info& block_info, 
-        std::function<void(const std::error_code&, block_source)> handler);
-    void read_ahead(torrent_entry& torrent, const block_info& block_info,
-        std::function<void(const std::error_code&, block_source)> handler);
+    void dispatch_block_write(torrent_entry& torrent, partial_piece& piece);
 
     /**
      * Blocks are passed in separately, because they are extracted from piece on the
@@ -441,6 +463,9 @@ private:
     void flush_write_buffer(torrent_entry& entry, partial_piece& piece,
         std::vector<partial_piece::block> blocks);
 
+    /**
+     * NOTE: this function is executed by m_thread_pool.
+     */
     int hash_blocks(sha1_hasher& hasher, const int unhashed_offset,
         std::vector<partial_piece::block>& blocks);
 
@@ -450,6 +475,27 @@ private:
      */
     std::pair<std::vector<iovec>, int> prepare_iovec_buffers(
         std::vector<partial_piece::block>& blocks);
+
+    /**
+     * NOTE: this function is executed by m_thread_pool.
+     */
+    void fetch_block(torrent_entry& torrent, const block_info& block_info, 
+        std::function<void(const std::error_code&, block_source)> handler);
+    void read_ahead(torrent_entry& torrent, const block_info& block_info,
+        std::function<void(const std::error_code&, block_source)> handler);
+
+    enum class log_event
+    {
+        cache,
+        metainfo,
+        torrent,
+        piece,
+        resume_data,
+        integrity_check
+    };
+
+    template<typename... Args>
+    void log(const log_event event, const char* format, Args&&... args) const;
 };
 
 } // namespace tide

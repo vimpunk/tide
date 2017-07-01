@@ -9,6 +9,7 @@
 namespace tide {
 
 /**
+ TODO update comment, it's not necessarily memory mapping, it may be a simple disk_buffer
  * This is a read only mapping into a memory mapped region of the file in which the
  * block, represented by this buffer, is mapped. Since a block may span several files, a
  * list of block 'chunks' is used in all cases. This is not to be confused with more

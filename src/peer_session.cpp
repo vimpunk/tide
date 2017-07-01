@@ -1669,7 +1669,7 @@ void peer_session::on_block_read(const std::error_code& error, const block_sourc
     m_torrent_info->num_pending_disk_read_bytes -= block.length;
     m_torrent_info->upload_rate += block.length;
     m_upload_rate.update(block.length);
-    m_num_downloaded_piece_bytes += num_bytes;
+    m_num_downloaded_piece_bytes += block.length;
 
     log(log_event::disk,
         "read block from disk (piece: %i, offset: %i, length: %i) -- "
@@ -2458,6 +2458,6 @@ block_info parse_block_info(const Bytes& data)
     }
 }
 
-} // namespace tide
-
 #undef SHARED_THIS
+
+} // namespace tide

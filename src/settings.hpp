@@ -123,7 +123,7 @@ struct disk_io_settings
 
     // And this specifies how many 16KiB blocks should be buffered before writing them
     // to disk.
-    int write_buffer_size = 4;
+    int write_cache_line_size = 4;
 
     // All metadata of the application (torrent states, preferences etc) are saved here.
     // This must be specified.

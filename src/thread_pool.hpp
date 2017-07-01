@@ -242,7 +242,7 @@ private:
     /**
      * Joins the first n workers and removes them from m_workers.
      * The first overload will acquire m_workers_mutex while the second must be passed
-     * a lock that holds onto m_workers_mutex.
+     * a lock that is holding onto m_workers_mutex.
      */
     void join_n(const int n);
     void join_n(const int n, std::unique_lock<std::mutex> workers_lock);

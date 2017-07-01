@@ -974,14 +974,14 @@ inline const tcp::endpoint& peer_session::remote_endpoint() const noexcept
     return m_info.remote_endpoint;
 }
 
-inline int peer_session::num_bytes_uploaded_this_round() noexcept
+inline int peer_session::num_bytes_uploaded_this_round() const noexcept
 {
     const auto n = m_num_uploaded_piece_bytes;
     m_num_uploaded_piece_bytes = 0;
     return n;
 }
 
-inline int peer_session::num_bytes_downloaded_this_round() noexcept
+inline int peer_session::num_bytes_downloaded_this_round() const noexcept
 {
     const auto n = m_num_downloaded_piece_bytes;
     m_num_downloaded_piece_bytes = 0;

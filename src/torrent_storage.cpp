@@ -88,11 +88,14 @@ file_slice torrent_storage::get_file_slice(
     return get_file_slice(entry, piece_offset, block.length);
 }
 
-string_view torrent_storage::expected_piece_hash(const piece_index_t piece) const noexcept
+sha1_hash torrent_storage::expected_piece_hash(const piece_index_t piece) const noexcept
 {
-    if((piece > 0) && (piece < m_num_pieces))
+    if((piece >= 0) && (piece < m_num_pieces))
     {
-        return { m_piece_hashes.data() + piece * m_piece_length, 20 };
+        sha1_hash hash;
+        string_view view(m_piece_hashes.data() + piece * m_piece_length, 20);
+        std::copy(view.begin(), view.end(), hash.begin());
+        return hash;
     }
     return {};
 }
