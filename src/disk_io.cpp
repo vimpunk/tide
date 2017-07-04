@@ -1,10 +1,9 @@
+#include "string_utils.hpp"
 #include "torrent_info.hpp"
 #include "file_info.hpp"
 #include "settings.hpp"
 #include "bencode.hpp"
 #include "disk_io.hpp"
-
-#include "string_utils.hpp"
 
 #include <cmath>
 #include <tuple>
@@ -161,7 +160,7 @@ disk_io::torrent_entry& disk_io::torrent_entry::operator=(torrent_entry&& other)
 
 // -- disk_io --
 
-disk_io::disk_io(asio::io_service& network_ios, const disk_io_settings& settings)
+disk_io::disk_io(asio::io_service& network_ios, const settings& settings)
     : m_network_ios(network_ios)
     , m_settings(settings)
     , m_disk_buffer_pool(0x4000)
@@ -181,18 +180,23 @@ void disk_io::read_metainfo(const path& path,
 }
 
 torrent_storage_handle disk_io::allocate_torrent(std::shared_ptr<torrent_info> info,
-    string_view piece_hashes, std::error_code& error)
+    std::string piece_hashes, std::error_code& error)
 {
     // TODO investigate whether this can potentially be so expensive an operation as to
     // justify sending it to thread pool
-    log(log_event::torrent, "creating disk_io entry for torrent and"
-        " setting up directory tree");
+    log(log_event::torrent, "creating disk_io entry for torrent"
+        " and setting up directory tree");
     try
     {
-        torrent_entry entry(info, piece_hashes, m_settings.resume_data_path);
+        torrent_entry entry(info, std::move(piece_hashes), m_settings.resume_data_path);
         // pair<iterator, bool>
-        auto it_success_pair = m_torrents.emplace(info->id, std::move(entry));
-        return torrent_storage_handle(it_success_pair.first->second.storage);
+        auto r = m_torrents.emplace(info->id, std::move(entry));
+        auto handle = torrent_storage_handle(r.first->second.storage);
+        if(handle)
+        {
+            log(log_event::torrent, "torrent allocated at %s", handle.root_path().c_str());
+        }
+        return handle;
     }
     catch(const std::error_code& ec)
     {
@@ -602,8 +606,7 @@ disk_io::torrent_entry& disk_io::find_torrent_entry(const torrent_id_t id)
 template<typename... Args>
 void disk_io::log(const log_event event, const char* format, Args&&... args) const
 {
-    // TODO proper logging
-    std::cerr << '[';
+    std::cerr << "[DIO|";
     switch(event)
     {
     case log_event::cache: std::cerr << "CACHE"; break;
@@ -613,17 +616,7 @@ void disk_io::log(const log_event event, const char* format, Args&&... args) con
     case log_event::resume_data: std::cerr << "RESUME_DATA"; break;
     case log_event::integrity_check: std::cerr << "INTEGRITY_CHECK"; break;
     }
-    std::cerr << "] -- ";
-
-    // TODO we can just use a string here directly, instead of buffer
-    // + 1 for '\0'
-    const size_t length = std::snprintf(nullptr, 0, format, args...) + 1;
-    std::unique_ptr<char[]> buffer(new char[length]);
-    std::snprintf(buffer.get(), length, format, args...);
-    // -1 to exclude the '\0' at the end
-    // TODO this is temporary
-    std::string message(buffer.get(), buffer.get() + length - 1);
-    std::cerr << message << '\n';
+    std::cerr << "] - " << util::format(format, std::forward<Args>(args)...) << '\n';
 }
 
 } // namespace tide

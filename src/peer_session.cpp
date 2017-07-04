@@ -16,21 +16,10 @@
 #include <string>
 #include <bitset>
 #include <cmath> // min, max
-#include <cstdio> // snprintf
 
 #include <asio/io_service.hpp>
 
 #include <iostream>
-
-/*
-// TODO make logging compilation dependent, and move this into the logger header
-// this invokes each class' log method
-#ifdef TIDE_LOG
-# define LOG(m) do log(m); while(0)
-#else
-# define LOG(m)
-#endif
-*/
 
 namespace tide {
 
@@ -92,6 +81,10 @@ peer_session::peer_session(
     , m_inactivity_timeout_timer(ios)
 {
     assert(m_settings.max_receive_buffer_size != -1);
+    assert(m_settings.max_send_buffer_size != -1);
+    assert(m_settings.peer_connect_timeout > seconds(0));
+    assert(m_settings.peer_timeout > seconds(0));
+
     m_info.remote_endpoint = std::move(peer_endpoint);
     m_info.max_outgoing_request_queue_size = settings.max_outgoing_request_queue_size;
     m_op_state.set(op_t::slow_start);
@@ -132,6 +125,8 @@ peer_session::peer_session(
 {
     m_torrent_attacher = std::move(torrent_attacher);
     m_info.is_outbound = false;
+
+    assert(m_torrent_attacher);
 }
 
 peer_session::~peer_session()
@@ -216,6 +211,10 @@ inline void peer_session::connect()
 
     m_info.state = state_t::connecting;
     m_info.connection_started_time = cached_clock::now();
+    if(m_torrent_info)
+    {
+        ++m_torrent_info->num_connecting_sessions;
+    }
 
     start_timer(m_connect_timeout_timer, m_settings.peer_connect_timeout,
         [SHARED_THIS](const std::error_code& error) { on_connect_timeout(error); });
@@ -224,6 +223,11 @@ inline void peer_session::connect()
 
 void peer_session::on_connected(const std::error_code& error)
 {
+    if(m_torrent_info)
+    {
+        --m_torrent_info->num_connecting_sessions;
+    }
+
     if(should_abort(error))
     {
         disconnect(peer_session_errc::stopped);
@@ -234,7 +238,7 @@ void peer_session::on_connected(const std::error_code& error)
 
     if(error || !m_socket->is_open())
     {
-        disconnect(error);
+        disconnect(error ? error : std::make_error_code(std::errc::bad_file_descriptor));
         return;
     }
 
@@ -247,7 +251,7 @@ void peer_session::on_connected(const std::error_code& error)
     }
 
     m_info.connection_established_time = cached_clock::now();
-    log(log_event::connecting, "connected to %s in %ims",
+    log(log_event::connecting, "connected to %s in %lims",
         m_info.remote_endpoint.address().to_string().c_str(),
         total_milliseconds(m_info.connection_established_time
             - m_info.connection_started_time));
@@ -288,9 +292,8 @@ void peer_session::disconnect(const std::error_code& error)
     if(is_disconnected()) { return; }
 
     //m_info.state = state_t::disconnecting;
-    log(log_event::disconnecting,
-        "preparing to disconnect; reason: %s",
-        error.message().c_str());
+    log(log_event::disconnecting, "preparing to disconnect; reason: %s (%i)",
+        error.message().c_str(), error.value());
 
     std::error_code ec;
     m_keep_alive_timer.cancel(ec);
@@ -310,6 +313,7 @@ void peer_session::disconnect(const std::error_code& error)
     if(m_torrent_info)
     {
         m_torrent_info->num_outstanding_bytes -= m_info.num_outstanding_bytes;
+        ++m_torrent_info->num_lingering_disconnected_sessions;
     }
 
     log(log_event::disconnecting, "tore down connection");
@@ -794,7 +798,7 @@ inline int peer_session::flush_socket()
     // we may not have read all of the available bytes buffered in socket:
     // try sync read remaining bytes
     std::error_code ec;
-    const int num_available_bytes = m_socket->available(ec);
+    const auto num_available_bytes = m_socket->available(ec);
     if(ec)
     {
         disconnect(ec);
@@ -1357,7 +1361,7 @@ inline void peer_session::adjust_request_timeout() // TODO rename
 {
     const auto request_rtt = cached_clock::now() - m_info.last_outgoing_request_time;
     m_avg_request_rtt.update(total_milliseconds(request_rtt));
-    log(log_event::request, "request rtt: %ims", total_milliseconds(request_rtt));
+    log(log_event::request, "request rtt: %lims", total_milliseconds(request_rtt));
 
     const auto timeout = request_timeout();
     if((request_rtt < timeout) && m_info.has_peer_timed_out)
@@ -2196,8 +2200,10 @@ void peer_session::on_connect_timeout(const std::error_code& error)
     }
     else
     {
-        log(log_event::timeout, "connecting timed out, elapsed time: %ims",
-            total_milliseconds(cached_clock::now() - m_info.connection_started_time));
+        const auto elapsed = total_seconds(
+            cached_clock::now() - m_info.connection_started_time);
+        assert(elapsed > 0);
+        log(log_event::timeout, "connecting timed out, elapsed time: %is", elapsed);
         disconnect(peer_session_errc::connect_timeout);
     }
 }
@@ -2247,9 +2253,9 @@ void peer_session::on_keep_alive_timeout(const std::error_code& error)
 template<typename... Args>
 void peer_session::log(const log_event event, const char* format, Args&&... args) const
 {
-    // TODO proper logging
-    std::cerr << '[';
-    if(event != log_event::connecting)
+    const auto& ep = remote_endpoint();
+    std::cerr << '[' << ep.address().to_string() << ':' << ep.port() << '|';
+    if(is_connected())
     {
         std::cerr << '+';
         std::cerr << total_seconds(cached_clock::now()
@@ -2268,17 +2274,7 @@ void peer_session::log(const log_event event, const char* format, Args&&... args
     case log_event::timeout: std::cerr << "TIMEOUT"; break;
     case log_event::request: std::cerr << "REQUEST"; break;
     }
-    std::cerr << "] -- ";
-
-    // TODO we can just use a string here directly, instead of buffer
-    // + 1 for '\0'
-    const size_t length = std::snprintf(nullptr, 0, format, args...) + 1;
-    std::unique_ptr<char[]> buffer(new char[length]);
-    std::snprintf(buffer.get(), length, format, args...);
-    // -1 to exclude the '\0' at the end
-    // TODO this is temporary
-    std::string message(buffer.get(), buffer.get() + length - 1);
-    std::cerr << message << '\n';
+    std::cerr << "] - " << util::format(format, std::forward<Args>(args)...) << '\n';
 }
 
 inline piece_download* peer_session::find_download(const piece_index_t piece) noexcept

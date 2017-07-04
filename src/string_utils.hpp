@@ -4,8 +4,10 @@
 #include <algorithm>
 #include <iterator> // begin, end
 #include <string>
+#include <memory> // unique_ptr
 #include <stdexcept>
 #include <cctype> // isspace, isdigit
+#include <cstdio> // snprintf
 
 #include "string_view.hpp"
 
@@ -134,6 +136,16 @@ inline uint16_t extract_port(const std::string& url)
         throw std::invalid_argument("no port in url (" + url + ")");
     }
     return std::atoi(url.c_str() + colon_pos + 1);
+}
+
+template<typename... Args>
+std::string format(const char* format_str, Args&&... args)
+{
+    const size_t length = std::snprintf(nullptr, 0, format_str, args...) + 1;
+    std::unique_ptr<char[]> buffer(new char[length]);
+    std::snprintf(buffer.get(), length, format_str, args...);
+    // -1 to exclude the '\0' at the end
+    return std::string(buffer.get(), buffer.get() + length - 1);
 }
 
 } // namespace util

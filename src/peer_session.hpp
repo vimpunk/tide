@@ -496,6 +496,8 @@ public:
     time_point last_outgoing_unchoke_time() const noexcept;
     time_point connection_established_time() const noexcept;
 
+    seconds connection_duration() const noexcept;
+
     peer_id_t peer_id() const noexcept;
 
     const tcp::endpoint& local_endpoint() const noexcept;
@@ -957,6 +959,12 @@ inline time_point peer_session::last_outgoing_unchoke_time() const noexcept
 inline time_point peer_session::connection_established_time() const noexcept
 {
     return m_info.connection_established_time;
+}
+
+inline seconds peer_session::connection_duration() const noexcept
+{
+    if(connection_established_time() == time_point()) return seconds(0);
+    return duration_cast<seconds>(cached_clock::now() - connection_established_time());
 }
 
 inline peer_id_t peer_session::peer_id() const noexcept

@@ -47,15 +47,16 @@ inline bool operator!=(const interval& a, const interval& b) noexcept
 
 #include <functional>
 
-namespace std
+namespace std {
+
+template<> struct hash<tide::interval>
 {
-    template<> struct hash<tide::interval>
+    size_t operator()(const tide::interval& i) const noexcept
     {
-        size_t operator()(const tide::interval& i) const noexcept
-        {
-            return std::hash<int>()(i.begin) * (101 ^ std::hash<int>()(i.end)) * 31 + 51;
-        }
-    };
+        return std::hash<int>()(i.begin) * (101 ^ std::hash<int>()(i.end)) * 31 + 51;
+    }
+};
+
 } // namespace std
 
 #endif // TIDE_INTERVAL_HEADER

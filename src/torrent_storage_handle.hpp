@@ -29,14 +29,6 @@ public:
 
     torrent_storage* native_handle() noexcept { return m_storage; }
 
-/*
-    const std::string& name() const noexcept
-    {
-        assert(*this);
-        return m_storage->name();
-    }
-*/
-
     const path& root_path() const noexcept
     {
         assert(*this);

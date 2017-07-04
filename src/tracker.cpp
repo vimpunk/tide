@@ -59,37 +59,18 @@ tracker::tracker(std::string url, asio::io_service& ios, const settings& setting
 {}
 
 template<typename... Args>
-void tracker::log(const log_event event, const std::string& format, Args&&... args) const
+void tracker::log(const log_event event, const char* format, Args&&... args) const
 {
-    // TODO proper logging
-    std::cerr << '[';
+    std::cerr << '[' << url() << '|';
     switch(event)
     {
-    case log_event::connecting:
-        std::cerr << "CONNECTING";
-        break;
-    case log_event::incoming:
-        std::cerr << "IN";
-        break;
-    case log_event::outgoing:
-        std::cerr << "OUT";
-        break;
-    case log_event::invalid_message:
-        std::cerr << "INVALID MESSAGE";
-        break;
-    case log_event::timeout:
-        std::cerr << "TIMEOUT";
-        break;
+    case log_event::connecting: std::cerr << "CONNECTING"; break;
+    case log_event::incoming: std::cerr << "IN"; break;
+    case log_event::outgoing: std::cerr << "OUT"; break;
+    case log_event::invalid_message: std::cerr << "INVALID MESSAGE"; break;
+    case log_event::timeout: std::cerr << "TIMEOUT"; break;
     }
-    std::cerr << "] -- ";
-
-    // + 1 for '\0'
-    const size_t length = std::snprintf(nullptr, 0, format.c_str(), args...) + 1;
-    std::unique_ptr<char[]> buffer(new char[length]);
-    std::snprintf(buffer.get(), length, format.c_str(), args...);
-    // -1 to exclude the '\0' at the end
-    std::string message(buffer.get(), buffer.get() + length - 1);
-    std::cerr << message << '\n';
+    std::cerr << "] - " << util::format(format, std::forward<Args>(args)...) << '\n';
 }
 
 // ------------------
@@ -276,10 +257,7 @@ inline bool udp_tracker::must_connect() const noexcept
 template<typename Request>
 void udp_tracker::send_connect_request(Request& request)
 {
-    log(log_event::outgoing,
-        "sending CONNECT (trans_id: %i)",
-        request.transaction_id
-    );
+    log(log_event::outgoing, "sending CONNECT (trans_id: %i)", request.transaction_id);
     m_state = state_t::connecting;
     request.action = action_t::connect;
     request.payload
@@ -379,18 +357,18 @@ inline std::string event_to_string(tracker_request::event_t event)
  */
 void udp_tracker::send_announce_request(announce_request& request)
 {
-    request.action = action_t::announce_1;
+    request.action = action_t::announce_;
     tracker_request& params = request.params;
     log(log_event::outgoing,
-        "sending ANNOUNCE (trans_id: %i; info_hash: %s; peer_id: %s; down: %lli;"
+        "sending ANNOUNCE (trans_id: %i; peer_id: %s; down: %lli;"
         " left: %lli; up: %lli; event: %s; num_want: %i; port: %i)",
-        request.transaction_id, params.info_hash.data(), params.peer_id.data(),
-        params.downloaded, params.left, params.uploaded,
-        event_to_string(params.event).c_str(), params.num_want, params.port);
+        request.transaction_id, params.peer_id.data(), params.downloaded,
+        params.left, params.uploaded, event_to_string(params.event).c_str(),
+        params.num_want, params.port);
     request.payload.clear();
     request.payload
         .i64(m_connection_id)
-        .i32(action_t::announce_1)
+        .i32(action_t::announce_)
         .i32(static_cast<int>(request.transaction_id))
         .buffer(params.info_hash)
         .buffer(params.peer_id)
@@ -446,6 +424,7 @@ inline void udp_tracker::handle_announce_response(
     {
         // endpoints are encoded as a 32 bit integer for the IP address and a 16 bit
         // integer for the port
+        //address_v4 ip(endian::parse<uint32_t>(buffer));
         address_v4 ip(endian::parse<uint32_t>(buffer));
         const uint16_t port = endian::parse<uint16_t>(buffer + 4);
         response.ipv4_peers.emplace_back(std::move(ip), port);
@@ -516,10 +495,10 @@ inline void udp_tracker::on_message_sent(request& request,
     case action_t::connect:
         assert(num_bytes_sent == 16); // TODO check if udp guarantees draining send buffer
         break;
-    case action_t::announce_1:
+    case action_t::announce_:
         assert(num_bytes_sent == 98);
         break;
-    case action_t::scrape_1:
+    case action_t::scrape_:
         assert(num_bytes_sent == 16 + 20 *
             std::min(int(static_cast<scrape_request&>(request).info_hashes.size()), 74));
         break;
@@ -617,12 +596,12 @@ inline void udp_tracker::on_message_received(
     case action_t::connect:
         handle_connect_response(request, num_bytes_received);
         break;
-    case action_t::announce_1:
+    case action_t::announce_:
         handle_announce_response(
             static_cast<announce_request&>(request), num_bytes_received);
         receive_message();
         break;
-    case action_t::scrape_1:
+    case action_t::scrape_:
         handle_scrape_response(static_cast<scrape_request&>(request), num_bytes_received);
         receive_message();
         break;
@@ -807,22 +786,21 @@ tracker_request tracker_request_builder::build()
     return m_request;
 }
 
-namespace util
-{
-    bool is_udp_tracker(string_view url) noexcept
-    {
-        static constexpr char udp[] = "udp://";
-        static constexpr int udp_len = sizeof(udp) - 1;
-        return url.length() >= 3
-            && std::equal(url.begin(), url.begin() + udp_len, udp);
-    }
+namespace util {
 
-    bool is_http_tracker(string_view url) noexcept
-    {
-        static constexpr char http[] = "http://";
-        static constexpr int http_len = sizeof(http) - 1;
-        return url.length() >= 3
-            && std::equal(url.begin(), url.begin() + http_len, http);
-    }
+bool is_udp_tracker(string_view url) noexcept
+{
+    static constexpr char udp[] = "udp://";
+    return url.length() >= 3
+        && std::equal(url.begin(), url.begin() + sizeof(udp) - 1, udp);
+}
+
+bool is_http_tracker(string_view url) noexcept
+{
+    static constexpr char http[] = "http://";
+    return url.length() >= 3
+        && std::equal(url.begin(), url.begin() + sizeof(http) - 1, http);
+}
+
 } // namespace util
 } // namespace tide

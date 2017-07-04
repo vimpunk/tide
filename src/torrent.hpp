@@ -77,8 +77,9 @@ class torrent : public std::enable_shared_from_this<torrent>
     // the actual disk interaction is done indirectly through m_disk_io.
     torrent_storage_handle m_storage;
 
-    // These are all the connected peers. The first upload slots number of peers are
-    // ordered according to the choking algorithms rating (i.e. upload rate).
+    // These are all the connected peers. The first min(m_peer_sessions.size(),
+    // settings::max_upload_slots) number of peers are ordered according to the choke 
+    // algorithm's rating.
     std::vector<std::shared_ptr<peer_session>> m_peer_sessions;
 
     // Trackers are ordered the same way as they were specified in the metainfo file,
@@ -113,7 +114,7 @@ class torrent : public std::enable_shared_from_this<torrent>
     // becomes a seeder, the memory for this is released for optimization as at that
     // point it's no longer needed.
     // TODO since we're searching, adding and removing here all the time, perhaps
-    //  this should be a std::set despite the bad effect on cache?
+    // this should be a std::set despite the bad effect on cache?
     std::shared_ptr<std::vector<std::shared_ptr<piece_download>>> m_downloads;
 
     // Since torrent is exposed to user through torrent_handle and since torrent runs on
@@ -187,7 +188,7 @@ public:
         asio::io_service& ios,
         disk_io& disk_io,
         bandwidth_controller& bandwidth_controller,
-        settings& global_settings,
+        const settings& global_settings,
         std::vector<tracker_entry> trackers,
         endpoint_filter& endpoint_filter,
         event_queue& event_queue,
@@ -207,7 +208,7 @@ public:
         asio::io_service& ios,
         disk_io& disk_io,
         bandwidth_controller& bandwidth_controller,
-        settings& global_settings,
+        const settings& global_settings,
         std::vector<tracker_entry> trackers,
         endpoint_filter& endpoint_filter,
         event_queue& event_queue,
@@ -323,7 +324,7 @@ private:
         asio::io_service& ios,
         disk_io& disk_io,
         bandwidth_controller& bandwidth_controller,
-        settings& global_settings,
+        const settings& global_settings,
         std::vector<tracker_entry> trackers,
         endpoint_filter& endpoint_filter,
         event_queue& event_queue);
@@ -462,9 +463,18 @@ private:
     void optimistic_unchoke();
 
     /**
+     * We may not be able to unchoke all peers we can unchoke (e.g. if peers are not yet
+     * connected, we can't send an unchoke message), so, if we have sessions available,
+     * we try to unchoke as many peers as many upload slots are left. Thus, it does not
+     * choke any peers, it only attempts to unchoke some.
+     */
+    void fill_free_upload_slots();
+
+    /**
      * These are the currently supported peer score comparators for the choking
      * algorithm. Before we decide which peers to {un,}choke, m_peer_sessions is sorted
      * according to m_unchoke_comparator, which is one of these functions.
+     *
      * Returns true if a is favored over b, false otherwise.
      */
     struct choke_ranker
@@ -481,6 +491,7 @@ private:
 
     enum class log_event
     {
+        update,
         disk,
         tracker,
         choke
@@ -492,12 +503,12 @@ private:
 
 inline bool torrent::is_stopped() const noexcept
 {
-    return m_info->state[torrent_info::stopped];
+    return !is_running();
 }
 
 inline bool torrent::is_running() const noexcept
 {
-    return !is_stopped();
+    return m_info->state[torrent_info::active];
 }
 
 inline bool torrent::is_leech() const noexcept

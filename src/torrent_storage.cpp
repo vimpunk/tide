@@ -16,7 +16,7 @@ torrent_storage::torrent_storage(
     string_view piece_hashes,
     path resume_data_path
 )
-    : m_resume_data(std::move(resume_data_path), 0,
+    : m_resume_data(resume_data_path, 0,
         file::open_mode_flags{ file::read_write, file::sequential, file::no_os_cache })
     , m_piece_hashes(piece_hashes)
     , m_root_path(info->files.size() == 1
@@ -517,6 +517,7 @@ void torrent_storage::before_reading(file& file, std::error_code& error)
 
 void torrent_storage::initialize_file_entries(const_view<file_info> files)
 {
+    assert(!files.is_empty());
     m_files.reserve(files.size());
     // the path of a file depends whether torrent is multi file or single file/
     file_index_t index = 0;
@@ -540,6 +541,8 @@ void torrent_storage::initialize_file_entries(const_view<file_info> files)
         }
         m_size += f.length;
     }
+    assert(m_size >= 0);
+    assert(m_size_to_download >= 0);
 }
 
 void torrent_storage::create_directory_tree()

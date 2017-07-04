@@ -116,12 +116,12 @@ struct disk_io_settings
     // counted here as well.
     int cache_capacity;
 
-    // This specifies how many blocks in a piece should be bufferred before writing
-    // them to disk. If it's 0, it disables read ahead and only one block will be pulled
-    // in a time. This is not recommended, but might help to conserve memory.
+    // This determines how many blocks should be read ahead, including the originally
+    // requested block. If it's 0, it disables read ahead and only one block will be
+    // pulled in a time. This is not recommended, but might help to conserve memory.
     int read_cache_line_size;
 
-    // And this specifies how many 16KiB blocks should be buffered before writing them
+    // This specifies how many blocks in a piece should be bufferred before writing them
     // to disk.
     int write_cache_line_size = 4;
 

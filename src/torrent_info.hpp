@@ -66,6 +66,19 @@ struct torrent_info : public stats
     int num_leechers = 0;
     int num_unchoked_peers = 0;
 
+    // The number of peers to which we're currently connecting but have as yet not been
+    // connected. This is used to cap the number of "half-open" connections. This is
+    // only for outbound connections.
+    int num_connecting_sessions = 0;
+
+    // The number of peer sessions that autonomously disconnected (i.e. not by torrent),
+    // and are waiting for torrent to erase them from torrent's internal list. This is
+    // incremented by each peer that disconnects. (It's used as an optimization, as
+    // otherwise torrent would have to loop through all its peer sessions, and this way
+    // it only needs to if there are actually stopped sessions, and it can exit early
+    // if all sessions have been cleaned up.)
+    int num_lingering_disconnected_sessions = 0;
+
     // Counting the number of times the choking algorithm has been invoked. This is done
     // so that every 3rd time we can run optimistic_unchoke.
     int num_choke_cycles = 0;
@@ -89,15 +102,15 @@ struct torrent_info : public stats
     time_point download_started_time;
     time_point download_finished_time;
     time_point last_announce_time;
-    time_point last_choke_time;
-    time_point last_optimistic_choke_time;
+    time_point last_unchoke_time;
+    time_point last_optimistic_unchoke_time;
 
     torrent_settings settings;
 
     enum state_t : uint8_t
     {
-        // If this state is set, no other state may be set. TODO guarantee
-        stopped,
+        // If this state is not set, no other state may be set. TODO guarantee
+        active,
         // Torrent's disk space is being allocated, which means that a torrent_storage
         // instance and the directory structure is being created.
         allocating,

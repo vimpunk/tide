@@ -101,27 +101,28 @@ inline bool operator!=(const block_info& b, const pending_block& a) noexcept
 
 } // namespace tide
 
-namespace std
-{
-    template<> struct hash<tide::block_info>
-    {
-        size_t operator()(const tide::block_info& b) const noexcept
-        {
-            return std::hash<tide::piece_index_t>()(b.index)
-                 * 101 + std::hash<int>()(b.offset)
-                 * (31 ^ std::hash<int>()(b.length))
-                 * 79 + 51;
-        }
-    };
+namespace std {
 
-    template<> struct hash<tide::pending_block>
+template<> struct hash<tide::block_info>
+{
+    size_t operator()(const tide::block_info& b) const noexcept
     {
-        size_t operator()(const tide::pending_block& b) const noexcept
-        {
-            return std::hash<tide::block_info>()(static_cast<const tide::block_info&>(b))
-                 + std::hash<bool>()(b.has_timed_out);
-        }
-    };
+        return std::hash<tide::piece_index_t>()(b.index)
+             * 101 + std::hash<int>()(b.offset)
+             * (31 ^ std::hash<int>()(b.length))
+             * 79 + 51;
+    }
+};
+
+template<> struct hash<tide::pending_block>
+{
+    size_t operator()(const tide::pending_block& b) const noexcept
+    {
+        return std::hash<tide::block_info>()(static_cast<const tide::block_info&>(b))
+             + std::hash<bool>()(b.has_timed_out);
+    }
+};
+
 } // namespace std
 
 #endif // TIDE_BLOCK_INFO_HEADER

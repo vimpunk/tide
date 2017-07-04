@@ -97,7 +97,7 @@ private:
     // exclusion.
     thread_pool m_thread_pool;
 
-    const disk_io_settings& m_settings;
+    const settings& m_settings;
 
     // Statistics are gathered here. One copy persists throughout the entire application
     // and copies for other modules are made on demand.
@@ -152,29 +152,6 @@ private:
      */
     struct partial_piece
     {
-        // This is invoked once the piece has been hashed, which means that the piece
-        // may not have been written to disk by the time of the invocation.
-        std::function<void(bool)> completion_handler;
-
-        // This contains the sha1_context that holds the current hashing progress and is
-        // used to incrementally hash blocks. NOTE: blocks may only be hashed in order,
-        // otherwise out of order blocks must be buffered until the next block to be
-        // hashed is downloaded.
-        sha1_hasher hasher;
-
-        // Only one thread may work with partial_piece at a time, so this is set before
-        // such a thread is launched, and unset once thread calls the completion handler
-        // (i.e. it need not be atomic since it's only accessed from the network thread).
-        // TODO it may be enough to "mutually exclude" only hashing, i.e. rename to
-        // is_hashing
-        bool is_busy = false;
-
-        const piece_index_t index;
-        // The length of this piece in bytes.
-        const int length;
-        // The number of blocks this piece has in total (i.e. how many blocks we expect).
-        const int num_blocks;
-
         struct block
         {
             disk_buffer buffer;
@@ -188,6 +165,14 @@ private:
         };
 
     private:
+
+        // These are the actual blocks that we have in this piece. The vector is
+        // preallocated for the number of blocks that can be stored in memory (this is
+        // a minimum of settings::write_cache_line_size and the number of blocks in
+        // piece).
+        // Note that if we receive blocks out of order in such a way that we cannot
+        // hash them, the number of blocks may exceed settings::write_cache_line_size.
+        std::vector<block> m_blocks;
 
         // The number of contiguous blocks following the last hashed and saved block.
         // We can only hash and write to disk the blocks that are in order and have no
@@ -203,15 +188,30 @@ private:
         // since they must be passed to m_hasher.update() in order.
         int m_unhashed_offset = 0;
 
-        // These are the actual blocks that we have in this piece. The vector is
-        // preallocated for the number of blocks that can be stored in memory (this is
-        // a minimum of settings::write_cache_line_size and the number of blocks in
-        // piece).
-        // Note that if we receive blocks out of order in such a way that we cannot
-        // hash them, the number of blocks may exceed settings::write_cache_line_size.
-        std::vector<block> m_blocks;
-
     public:
+
+        const piece_index_t index;
+        // The length of this piece in bytes.
+        const int length;
+        // The number of blocks this piece has in total (i.e. how many blocks we expect).
+        const int num_blocks;
+
+        // Only one thread may work with partial_piece at a time, so this is set before
+        // such a thread is launched, and unset once thread calls the completion handler
+        // (i.e. it need not be atomic since it's only accessed from the network thread).
+        // TODO it may be enough to "mutually exclude" only hashing, i.e. rename to
+        // is_hashing
+        bool is_busy = false;
+
+        // This is invoked once the piece has been hashed, which means that the piece
+        // may not have been written to disk by the time of the invocation.
+        std::function<void(bool)> completion_handler;
+
+        // This contains the sha1_context that holds the current hashing progress and is
+        // used to incrementally hash blocks. NOTE: blocks may only be hashed in order,
+        // otherwise out of order blocks must be buffered until the next block to be
+        // hashed is downloaded.
+        sha1_hasher hasher;
 
         /** Initializes the const fields and calculates num_blocks. */
         partial_piece(piece_index_t index_, int length_, int max_write_buffer_size,
@@ -253,7 +253,7 @@ private:
 
         /**
          * This is called when a new block has been received or when we hashed some
-         * blocks--both events that affect how many blocks we can write.
+         * blocks--both events that may affect how many blocks we can write.
          */
         void update_num_writeable_blocks();
     };
@@ -286,21 +286,21 @@ private:
 
         // Each time a block fetch is issued, which usually pulls in more blocks or,
         // if the piece is not too large, the entire piece, it is registered here, so
-        // that if other requests for the block or subsequent blocks are issued (which
-        // is common when a peer sends us a request queue), they don't launch their own
-        // fetch ops, but instead wait for the first operation to finish and notify them
-        // of the block. The piece_fetch_subscriber list has to be ordered by the offset
-        // within
+        // that if other requests for the same block or for any of the blocks that are
+        // pulled in with the first one (if read ahead is not disabled), which is common
+        // when a peer sends us a request queue, they don't launch their own fetch ops,
+        // but instead wait for the first operation to finish and notify them of their
+        // block. The piece_fetch_subscriber list has to be ordered by the requested
+        // offset.
         //
         // After the operation is finished and all waiting requests are served, the
         // entry is removed from this map.
         //
         // Thus only the first block fetch request is recorded here, the rest are
-        // attached to the wait queue.
+        // attached to the subscriber queue.
         //
-        // So as not to unnecessarily allocate vector if only a single request is issued
-        // for the block, the original request's handler is not registered in the wait
-        // queue, but is captured in the lambda passed to m_thread_pool.
+        // The original request handler is not stored in the subscriber list (so if only
+        // a single request is issued for this block, we don't have to allocate torrent).
         std::vector<std::pair<block_info,
             std::vector<piece_fetch_subscriber>>> block_fetches;
 
@@ -320,7 +320,7 @@ private:
 
 public:
 
-    disk_io(asio::io_service& network_ios, const disk_io_settings& settings);
+    disk_io(asio::io_service& network_ios, const settings& settings);
     ~disk_io();
 
     void change_cache_size(const int64_t n);
@@ -339,7 +339,7 @@ public:
      * torrent_storage_handle is returned.
      */
     torrent_storage_handle allocate_torrent(std::shared_ptr<torrent_info> info,
-        string_view piece_hashes, std::error_code& error);
+        std::string piece_hashes, std::error_code& error);
     void move_torrent(const torrent_id_t id, std::string new_path,
         std::function<void(const std::error_code&)> handler);
     void rename_torrent(const torrent_id_t id, std::string name,

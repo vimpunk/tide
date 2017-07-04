@@ -193,9 +193,8 @@ std::error_condition make_error_condition(tracker_errc e);
 
 } // namespace tide
 
-namespace std
-{
-    template<> struct is_error_code_enum<tide::tracker_errc> : public true_type {};
+namespace std {
+template<> struct is_error_code_enum<tide::tracker_errc> : public true_type {};
 }
 
 namespace tide {
@@ -292,7 +291,7 @@ protected:
     };
 
     template<typename... Args>
-    void log(const log_event event, const std::string& format, Args&&... args) const;
+    void log(const log_event event, const char* format, Args&&... args) const;
 };
 
 /** Currently not implemented. */
@@ -316,10 +315,10 @@ class udp_tracker final : public tracker
     /** Each exchanged message has an action field specifying the message's intent. */
     enum action_t : uint8_t
     {
-        connect    = 0,
-        announce_1 = 1,
-        scrape_1   = 2,
-        error      = 3
+        connect   = 0,
+        announce_ = 1,
+        scrape_   = 2,
+        error     = 3
     };
 
     /**
@@ -578,12 +577,12 @@ struct tracker_entry
     std::string warning_message;
 };
 
-namespace util
-{
-    bool is_udp_tracker(string_view url) noexcept;
-    bool is_http_tracker(string_view url) noexcept;
-} // namespace util
+namespace util {
 
+bool is_udp_tracker(string_view url) noexcept;
+bool is_http_tracker(string_view url) noexcept;
+
+} // namespace util
 } // namespace tide
 
 #endif // TIDE_TRACKER_HEADER

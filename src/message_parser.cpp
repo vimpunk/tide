@@ -40,9 +40,9 @@ void message_parser::record_received_bytes(const int n) noexcept
 {
     if(m_unused_begin + n > buffer_size())
     {
-        throw std::logic_error(
-            "recorded the receipt of more bytes in message parser than possible"
-        );
+        // TODO consider asserting here (even though it's an input), since it's a low level class
+        throw std::invalid_argument(
+            "recorded the receipt of more bytes in message parser than possible");
     }
     m_unused_begin += n;
 }
