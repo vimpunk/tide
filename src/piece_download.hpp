@@ -1,8 +1,9 @@
 #ifndef TIDE_PIECE_DOWNLOAD_HEADER
 #define TIDE_PIECE_DOWNLOAD_HEADER
 
-#include "units.hpp"
 #include "block_info.hpp"
+#include "types.hpp"
+#include "time.hpp"
 
 #include <functional>
 #include <vector>
@@ -16,12 +17,34 @@ namespace tide {
  * distributing the result of a finished piece's hash test, so that entities that need
  * otherwise not interact with one another can continue to do so.
  */
-class piece_download
+struct piece_download
 {
-public:
-
     using completion_handler = std::function<void(bool)>;
     using cancel_handler = std::function<void(const block_info&)>;
+
+    /**
+     * All peers from whom we've downloaded blocks in this piece are saved so that when
+     * a piece is finished downloading each participant can be let know of the piece's
+     * hash test result.
+     */
+    struct peer
+    {
+        peer_id_t id;
+        completion_handler handler;
+    };
+
+    struct block
+    {
+        enum class status : uint8_t
+        {
+            free,
+            requested,
+            received
+        };
+
+        enum status status = status::free;
+        bool was_timed_out = false;
+    };
 
 private:
 
@@ -34,96 +57,87 @@ private:
      */
     struct cancel_candidate
     {
-        cancel_handler handler;
         const peer_id_t& peer;
+        cancel_handler handler;
 
-        cancel_candidate(cancel_handler h, const peer_id_t& p)
-            : handler(std::move(h))
-            , peer(p)
+        cancel_candidate(const peer_id_t& p, cancel_handler h)
+            : peer(p)
+            , handler(std::move(h))
         {}
     };
-
-    // TODO check whether unordered maps are a better fit!
-
-    // All peers from whom we've downloaded blocks in this piece are saved so that when
-    // a piece is finished downloading each participant can be let know.
-    std::map<peer_id_t, completion_handler> m_participants;
 
     // All pending blocks that have timed out and were made free to be downloaded from
     // other peers are placed here.
     std::map<block_info, cancel_candidate> m_timed_out_blocks;
 
-    enum class block_status
-    {
-        free,
-        requested,
-        received
-    };
+    std::vector<peer> m_peers;
+    std::vector<block> m_blocks;
 
-    // A block is either free or not. The latter may mean that it has been received or
-    // that it's being downloaded, while free blocks are those that we don't have yet.
-    // TODO use block_status instead as we need the distinction between picked and reserved
-    std::vector<bool> m_completion;
+    piece_index_t m_index;
+    int m_piece_length;
 
-    const piece_index_t m_index;
-    const int m_piece_length;
-
-    // NOTE: this number does not correspond with the number of free slots in
-    // m_completion, as blocks that have been requested but haven't arrived also have
-    // a slot reserve in m_completion.
-    // Thus this is only decremented on a call to got_block().
+    // This is only decremented on a call to got_block().
     int m_num_blocks_left;
 
-    // This is incremented with every block request that was made and only decremented
-    // if a request times out. This means that even if we receive the block this is not
-    // decremented. This is used to check if we can make requests for this piece or we
-    // should move on to another.
-    int m_num_blocks_picked = 0;
+    // This is decremented with every requested and received block, and incremented once
+    // a block times out and becomes pickable. This means that once the piece is fully 
+    // downloaded this will equal m_num_blocks_left. It's used to check if we can make 
+    // requests for this piece or we should move on to another.
+    int m_num_pickable_blocks;
 
     // A peer may be disconnected, so it's important not to rely on the current number
     // of participants to determine whether we downloaded the block from a single peer
     // or several peers, even if some were disconnected. This is because if we download
-    // from more than a single peer, but then all but one are disconnected, and
-    // if the remaining peer completes the download, it would be marked as the culprit,
-    // even though any one of the other peers may have sent bad data.
+    // from more than a single peer, but then all but one are disconnected, and if the
+    // remaining peer completes the download and the piece turns out to be corrupt, the 
+    // remaining peer would be marked as the culprit, even though any one of the other 
+    // peers may have sent the bad data.
     int m_all_time_num_participants = 0;
+
+    // Every time got_block is called, this is updated. This is because timing out
+    // blocks is handled by peer_sessions, not by piece_download itself (because each
+    // peer_session tailors the timeout value to its peer's performance). However, we
+    // don't always release timed out blocks for other peers to download (when we're not
+    // close to completion, see time_out comment), which means that if a block that a
+    // peer_session has timed out but piece_download didn't release never arrived in the
+    // end, it would be stuck as `requested` forever, barring other peer_sessions from
+    // downloading it. Since any number of blocks may behave like this, we must enforce
+    // an upper bound on the time a block can remain in the `requested` state. This is
+    // achieved by measuring average block round trip times and adjusting the upper
+    // limit using this value.
+    int m_avg_request_rtt_ms = 0;
+    time_point m_last_received_request_time;
+    time_point m_last_eviction_time;
 
 public:
 
-    /**
-     * Note that only downloads with the same m_index and m_piece_length can be
-     * assigned to another.
-     */
     piece_download(const piece_index_t index, const int piece_length);
-    piece_download(const piece_download& other);
-    piece_download(piece_download&& other);
-    piece_download& operator=(const piece_download& other);
-    piece_download& operator=(piece_download&& other);
 
     /** Tests whether there are blocks left to request. */
     bool can_request() const noexcept;
 
-    /**
-     * Exclusive means that we downloaded this piece from a single peer, even if we
-     * disconnected that peer and detached it from this download since.
-     */
-    bool is_exclusive() const noexcept;
-
     /** Checks if we already downloaded block. */
     bool has_block(const block_info& block) const noexcept;
+
+    /**
+     * Exclusive means that no more than a single peer participated in this download,
+     * even if that peer has been disconnected and detached from this download since.
+     */
+    bool is_exclusive() const noexcept;
 
     int num_participants() const noexcept;
     int num_blocks() const noexcept;
     int num_blocks_left() const noexcept;
+
+    int piece_length() const noexcept;
     piece_index_t piece_index() const noexcept;
 
     /**
      * Returns the peers that participated in this download and haven't been disconnected
      * (i.e. removed by remove_peer).
      */
-    std::vector<peer_id_t> peers() const;
-
-    const std::vector<bool>& downloaded_blocks() const;
+    const std::vector<peer>& peers() const noexcept;
+    const std::vector<block>& blocks() const noexcept;
 
     /**
      * When a part of the piece is received, it must be registered. The completion
@@ -151,10 +165,11 @@ public:
      * are more blocks left, it doesn't make sense to handoff the request, so wait for
      * the timed out peer's block and let others request different blocks in the piece.
      *
-     * So depending on the above, the block may remain as reserved or be changed to free
-     * for others to request. If the block is freed, the peer's cancel handler is saved,
-     * which is stored so that when block is downloaded from someone other than the
-     * original timed out peer, the timed out peer can be sent a cancel message.
+     * So depending on the above, the block may remain as requested or be changed to
+     * free for others to request. However, the peer's cancel handler is saved in either 
+     * case, as peer may never send its block, in which case we request it from another
+     * peer. When block is downloaded from someone other than the original timed out
+     * peer, the timed out peer can be sent a cancel message.
      *
      * NOTE: must not time out the block if peer is the only one that has this piece.
      * This is the caller's responsibility.
@@ -167,8 +182,7 @@ public:
      * in the latter case peer may still decide to serve our requests).
      * This makes sure that the block is immediately freed for others to download.
      */
-    // TODO rename cancel_request
-    void abort_request(const block_info& block);
+    void cancel_request(const block_info& block);
     
     /**
      * A peer may be disconnected before the download finishes, so it must be removed
@@ -177,9 +191,19 @@ public:
      */
     void remove_peer(const peer_id_t& peer);
 
+    /**
+     * Picks a single block to download next. This should be used over make_request_queue 
+     * to avoid the vector allocation. If no blocks could be requested, invalid_block is 
+     * returned.
+     *
+     * If this function is called in quick succession in order to create a request queue
+     * of several blocks, offset_hint can be used to hint at the next block in order to 
+     * avoid looping over all blocks. This should be the next block's offset, that is, a
+     * multiple of 0x4000.
+     */
+    block_info pick_block(int offset_hint = 0);
+
     /** Returns n or less blocks to request. */
-    // TODO make user request blocks one by one so we don't have to allocate a vector
-    // for this
     std::vector<block_info> make_request_queue(const int n);
 
 private:
@@ -192,22 +216,17 @@ private:
 
 inline bool piece_download::is_exclusive() const noexcept
 {
-    return m_all_time_num_participants > 1;
+    return m_all_time_num_participants == 1;
 }
 
 inline int piece_download::num_participants() const noexcept
 {
-    return m_participants.size();
-}
-
-inline bool piece_download::can_request() const noexcept
-{
-    return m_num_blocks_picked < m_completion.size();
+    return m_peers.size();
 }
 
 inline int piece_download::num_blocks() const noexcept
 {
-    return m_completion.size();
+    return m_blocks.size();
 }
 
 inline int piece_download::num_blocks_left() const noexcept
@@ -215,14 +234,24 @@ inline int piece_download::num_blocks_left() const noexcept
     return m_num_blocks_left;
 }
 
+inline int piece_download::piece_length() const noexcept
+{
+    return m_piece_length;
+}
+
 inline piece_index_t piece_download::piece_index() const noexcept
 {
     return m_index;
 }
 
-inline const std::vector<bool>& piece_download::downloaded_blocks() const
+inline const std::vector<piece_download::peer>& piece_download::peers() const noexcept
 {
-    return m_completion;
+    return m_peers;
+}
+
+inline const std::vector<piece_download::block>& piece_download::blocks() const noexcept
+{
+    return m_blocks;
 }
 
 } // namespace tide

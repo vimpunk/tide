@@ -43,7 +43,7 @@ private:
         // Thread pool notifies workers to shut down through this variable. Also, if a
         // worker has not had work for 60 consecutive seconds, it marks itself as dead,
         // waiting for another thread to reap it.
-        std::atomic<bool> is_dead;
+        std::atomic<bool> is_dead{false};
 
         // Among waiting workers we pick the one that has done work the most recently,
         // so we need each worker to have its own condition variable with which we can
@@ -51,10 +51,6 @@ private:
         // NOTE: wait() must be called while holding onto m_job_queue_mutex.
         // TODO give more general name as we use it for notifying workers that we're stopping as well
         std::condition_variable job_available;
-
-        // Initialize is_dead as false so we don't have to incur the cost of atomically
-        // doing it after construction.
-        worker() : is_dead(false) {}
     };
 
     // All jobs are first placed in this queue from which they are retrieved by workers.
@@ -98,17 +94,17 @@ private:
     mutable std::mutex m_job_queue_mutex;
     mutable std::mutex m_workers_mutex;
 
-    std::atomic<int> m_num_executed_jobs;
+    std::atomic<int> m_num_executed_jobs{0};
 
     // The total time in milliseonds all threads spent working (executing jobs) and
     // idling (waiting for jobs). Reaping dead workers is not counted.
-    std::atomic<int> m_work_time;
-    std::atomic<int> m_idle_time;
+    std::atomic<int> m_work_time{0};
+    std::atomic<int> m_idle_time{0};
 
     // See m_workers comment. -1 means there are no idle workers.
     //
     // NOTE: must only be handled after acquiring m_workers_mutex.
-    int m_last_idle_worker_pos = -1;
+    int m_last_idle_worker_pos{-1};
 
     // This is the max number of threads that we may have running. It is only accessed
     // on the caller's thread, no mutual exclusion is necessary.

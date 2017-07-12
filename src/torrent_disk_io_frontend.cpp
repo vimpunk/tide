@@ -15,6 +15,9 @@ disk_buffer torrent_disk_io_frontend::get_disk_buffer()
     return m_torrent->m_disk_io.get_disk_buffer();
 }
 
+// NOTE: must not capture `this` as `this` is owned by a peer_session that may die by
+// the time some of the handlers are invoked, so only capture m_torrent.
+
 /**
  * This saves a block to disk and once done, gives back disk_io the disk_buffer
  * holding the block data, invokes handler, and passes to disk_io torrent's

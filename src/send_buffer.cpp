@@ -28,7 +28,6 @@ std::vector<asio::const_buffer> send_buffer::get_send_buffers(int num_bytes) con
     assert(num_bytes <= m_size && "requested more from send_buffer than available");
 
     std::vector<asio::const_buffer> buffers;
-    int send_size = 0;
     if(!m_buffers.empty())
     {
         // first buffer may be partially sent, so treat separately
@@ -36,7 +35,6 @@ std::vector<asio::const_buffer> send_buffer::get_send_buffers(int num_bytes) con
             m_buffers[0]->size() - m_first_unsent_byte, num_bytes);
         buffers.emplace_back(m_buffers[0]->data() + m_first_unsent_byte, first_size);
         num_bytes -= first_size;
-        send_size += first_size;
 
         for(auto i = 1; (i < m_buffers.size()) && (num_bytes > 0); ++i)
         {
@@ -46,13 +44,11 @@ std::vector<asio::const_buffer> send_buffer::get_send_buffers(int num_bytes) con
             {
                 buffers.emplace_back(buffer->data(), num_bytes);
                 num_bytes = 0;
-                send_size += num_bytes;
             }
             else
             {
                 buffers.emplace_back(buffer->data(), buffer_size);
                 num_bytes -= buffer_size;
-                send_size += buffer_size;
             }
         }
     }

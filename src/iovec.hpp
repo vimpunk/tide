@@ -24,12 +24,12 @@ struct iovec
 namespace tide {
 namespace util {
 
-    /** NOTE: if n is larger than iov.iov_len, using the iovec after this function is UB. */
-    inline void trim_iovec_front(iovec& iov, const int n) noexcept
-    {
-        iov.iov_base = reinterpret_cast<char*>(iov.iov_base) + n;
-        iov.iov_len -= n;
-    }
+/** NOTE: if n is larger than iov.iov_len, using the iovec after this function is UB. */
+inline void trim_iovec_front(iovec& iov, const int n) noexcept
+{
+    iov.iov_base = reinterpret_cast<char*>(iov.iov_base) + n;
+    iov.iov_len -= n;
+}
 
 } // namespace util
 } // namespace tide

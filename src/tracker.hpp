@@ -6,7 +6,7 @@
 #include "settings.hpp"
 #include "payload.hpp"
 #include "socket.hpp"
-#include "units.hpp"
+#include "types.hpp"
 #include "time.hpp"
 
 #include <unordered_map>
@@ -25,7 +25,7 @@ namespace tide {
 // TODO consider renaming the protocol specific names in request to more sensible ones
 struct tracker_request
 {
-    enum class event_t
+    enum event_t
     {
         // This is used by udp_tracker because an event field is always included so we
         // must differentiate it from the other three events.
@@ -178,6 +178,7 @@ enum class tracker_errc
     invalid_response,
     response_too_small,
     wrong_response_type,
+    wrong_response_length,
     invalid_transaction_id
 };
 
@@ -340,10 +341,11 @@ class udp_tracker final : public tracker
         explicit request(int32_t tid) : transaction_id(tid) {}
         virtual ~request() = default;
 
+        // Handlers are not the same for announce and scrape, so we can't put them here.
         virtual void on_error(const std::error_code& error) = 0;
     };
 
-    struct announce_request : public request
+    struct announce_request final : public request
     {
         // These are the request arguments to be sent to tracker.
         tracker_request params;
@@ -365,7 +367,7 @@ class udp_tracker final : public tracker
         void on_error(const std::error_code& error) override { handler(error, {}); }
     };
 
-    struct scrape_request : public request
+    struct scrape_request final : public request
     {
         // These are the torrents we want info about. It may be empty, in which case we
         // request info about all torrents tracker has.
@@ -437,6 +439,7 @@ public:
     udp_tracker(const std::string& url, asio::io_service& ios, const settings& settings);
     ~udp_tracker();
 
+    // TODO add a stop function that waits for the current request to finish
     void abort() override;
 
     void announce(tracker_request params,
@@ -460,8 +463,8 @@ private:
 
     /**
      * Sending an announce or a scrape requests entails the same sort of logic up until
-     * issuing the request, so this function takes care of those tasks. Function must be
-     * either send_announce_request or send_scrape_request.
+     * issuing the request, so this function takes care of those tasks. f must be either
+     * send_announce_request or send_scrape_request.
      */
     template<typename Request, typename Function>
     void execute_request(Request& request, Function f);
@@ -558,7 +561,10 @@ struct tracker_entry
     // If torrent's metainfo file supports the announce-list extension, then trackers
     // are grouped in tiers, and the announce-list is a list of these tiers. This field
     // denotes the zero-based index of that group in announce-list.
-    uint8_t tier = 0;
+    int tier = 0;
+
+    // After a certain number of failures we won't announce to tracker anymore.
+    int num_fails = 0;
 
     // We should not announce more frequently than every 'interval' seconds, however,
     // 'completed' and 'stopped' events must be sent regardless of these fields.

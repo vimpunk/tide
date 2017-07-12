@@ -2,7 +2,6 @@
 #define TIDE_STATS_HEADER
 
 #include "throughput_rate.hpp"
-#include "sliding_average.hpp"
 
 #include <cstddef>
 
@@ -14,6 +13,11 @@ namespace tide {
  */
 struct stats
 {
+    // These values are weighed running averages, the last ~5 seconds having the largest
+    // weight. These are strictly the throughput rates of piece byte transfers.
+    throughput_rate upload_rate;
+    throughput_rate download_rate;
+
     // The total number of piece bytes exchanged. Does not include protocol overhead
     // (i.e. neither BitTorrent protocol and TCP/IP protocol).
     // Note that it also includes pieces that later turned out to be invalid and had
@@ -58,12 +62,6 @@ struct stats
     int num_unwanted_blocks = 0;
     int num_disk_io_failures = 0;
     int num_timed_out_requests = 0;
-
-    // The number of requests that peers hasn't served yet.
-    //int download_queue_size = 0;
-    // The number of requests from peer that haven't been answered yet.
-    //int upload_queue_size = 0;
-
 };
 
 } // namespace tide

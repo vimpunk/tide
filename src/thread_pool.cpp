@@ -8,10 +8,7 @@ namespace tide {
 thread_pool::thread_pool() : thread_pool(auto_concurrency()) {}
 
 thread_pool::thread_pool(int concurrency)
-    : m_num_executed_jobs(0)
-    , m_work_time(0)
-    , m_idle_time(0)
-    , m_concurrency(concurrency <= 0 ? 1 : concurrency)
+    : m_concurrency(concurrency <= 0 ? 2 : concurrency)
 {}
 
 thread_pool::~thread_pool()

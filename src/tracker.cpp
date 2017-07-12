@@ -17,6 +17,7 @@ namespace tide {
 
 std::string tracker_error_category::message(int env) const
 {
+    // TODO complete
     switch(static_cast<tracker_errc>(env))
     {
     case tracker_errc::invalid_response:
@@ -105,6 +106,7 @@ udp_tracker::udp_tracker(const std::string& url,
     , m_socket(ios)
     , m_resolver(ios)
 {
+    // TODO do this on the first request so that construction is side-effect free
     m_resolver.async_resolve(udp::resolver::query(udp::v4(), util::extract_host(url), ""),
         [this](const std::error_code& error, udp::resolver::iterator it)
         { on_host_resolved(error, it); });
@@ -126,15 +128,17 @@ void udp_tracker::on_host_resolved(
     assert(it != udp::resolver::iterator());
     udp::endpoint ep(*it);
     ep.port(util::extract_port(m_url));
+
     log(log_event::connecting, "tracker (%s) resolved to: %s:%i",
         m_url.c_str(), ep.address().to_string().c_str(), ep.port());
 
-    std::error_code ec;
     // connect also opens socket
+    std::error_code ec;
     m_socket.connect(ep, ec);
     if(ec)
     {
         // TODO handle error
+        return;
     }
     m_is_resolved = true;
     resume_stalled_requests();
@@ -181,10 +185,8 @@ void udp_tracker::scrape(std::vector<sha1_hash> info_hashes,
 {
     if(!m_is_aborted)
     {
-        execute_request(create_request_entry<scrape_request>(
-                std::move(info_hashes), std::move(handler)),
-            [this](scrape_request& r) { send_scrape_request(r); }
-        );
+        execute_request(create_request_entry<scrape_request>(std::move(info_hashes),
+            std::move(handler)), [this](scrape_request& r) { send_scrape_request(r); });
     }
 }
 
@@ -242,10 +244,8 @@ void udp_tracker::execute_request(Request& request, Function f)
 
 inline bool udp_tracker::must_connect() const noexcept
 {
-    // if we're already connecting we must not indicate need for reconnection, because
-    // otherwise we'd have multiple connection attempts
     return m_state != state_t::connecting
-        && cached_clock::now() - m_last_connect_time > minutes(1);
+        && cached_clock::now() - m_last_connect_time >= minutes(1);
 }
 
 /**
@@ -297,10 +297,7 @@ inline void udp_tracker::handle_connect_response(
 
 void udp_tracker::resume_stalled_requests()
 {
-    if(m_requests.empty())
-    {
-        return;
-    }
+    if(m_requests.empty()) { return; }
 
     if(must_connect())
     {
@@ -330,11 +327,11 @@ void udp_tracker::resume_stalled_requests()
 
 inline std::string event_to_string(tracker_request::event_t event)
 {
-    return event == tracker_request::event_t::started
+    return event == tracker_request::started
         ? "started"
-        : event == tracker_request::event_t::completed
+        : event == tracker_request::completed
             ? "completed"
-            : event == tracker_request::event_t::stopped
+            : event == tracker_request::stopped
                 ? "stopped"
                 : "none";
 }
@@ -359,12 +356,14 @@ void udp_tracker::send_announce_request(announce_request& request)
 {
     request.action = action_t::announce_;
     tracker_request& params = request.params;
+
     log(log_event::outgoing,
         "sending ANNOUNCE (trans_id: %i; peer_id: %s; down: %lli;"
         " left: %lli; up: %lli; event: %s; num_want: %i; port: %i)",
         request.transaction_id, params.peer_id.data(), params.downloaded,
         params.left, params.uploaded, event_to_string(params.event).c_str(),
         params.num_want, params.port);
+
     request.payload.clear();
     request.payload
         .i64(m_connection_id)
@@ -397,15 +396,13 @@ inline void udp_tracker::handle_announce_response(
     announce_request& request, const size_t num_bytes_received)
 {
     // remove handler from request because we remove request before calling handler
-    // (so that even if an error occurs there remain no lingering request entries)
-    // NOTE: after this point referring to request is going to segfault
     auto handler = std::move(request.handler);
 
     if((num_bytes_received < 20) || ((num_bytes_received - 20) % 6 != 0))
     {
         m_requests.erase(request.transaction_id);
         m_had_protocol_error = true;
-        handler(make_error_code(tracker_errc::response_too_small), {});
+        handler(make_error_code(tracker_errc::wrong_response_length), {});
         return;
     }
 
@@ -417,6 +414,7 @@ inline void udp_tracker::handle_announce_response(
     response.interval = seconds(endian::parse<int32_t>(buffer));
     response.num_leechers = endian::parse<int32_t>(buffer += 4);
     response.num_seeders = endian::parse<int32_t>(buffer += 4);
+    buffer += 4;
     // TODO branch here depending on ipv4 or ipv6 request (but currently ipv6 isn't sup.)
     const int num_peers = (num_bytes_received - 20) / 6;
     response.ipv4_peers.reserve(num_peers);
@@ -424,11 +422,11 @@ inline void udp_tracker::handle_announce_response(
     {
         // endpoints are encoded as a 32 bit integer for the IP address and a 16 bit
         // integer for the port
-        //address_v4 ip(endian::parse<uint32_t>(buffer));
         address_v4 ip(endian::parse<uint32_t>(buffer));
         const uint16_t port = endian::parse<uint16_t>(buffer + 4);
         response.ipv4_peers.emplace_back(std::move(ip), port);
     }
+
     log(log_event::incoming,
         "received ANNOUNCE (trans_id: %i; interval: %i; num_leechers: %i;"
         " num_seeders: %i; num_peers: %i)",
@@ -572,8 +570,8 @@ inline void udp_tracker::on_message_received(
     auto it = m_requests.find(transaction_id);
     if(it == m_requests.end())
     {
-        // tracker sent us a bad transaction id, so we have no choice but let all
-        // pending requests know
+        // tracker sent us a bad transaction id, so we have no choice but let all pending
+        // requests know (since we don't know to which requests this reply was addressed)
         on_global_error(make_error_code(tracker_errc::invalid_transaction_id));
         return;
     }
@@ -588,6 +586,7 @@ inline void udp_tracker::on_message_received(
         receive_message();
         return;
     }
+
     log(log_event::incoming, "received %i bytes (trans_id: %i; action: %i)",
         num_bytes_received, request.transaction_id, raw_action);
 

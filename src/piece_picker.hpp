@@ -3,7 +3,7 @@
 
 #include "bitfield.hpp"
 #include "interval.hpp"
-#include "units.hpp"
+#include "types.hpp"
 
 #include <vector>
 #include <memory>
@@ -217,10 +217,7 @@ inline void piece_picker::want_piece(const piece_index_t piece)
 
 inline void piece_picker::want_pieces(const interval pieces)
 {
-    for(auto i = pieces.begin; i < pieces.end; ++i)
-    {
-        want_piece(i);
-    }
+    for(auto i = pieces.begin; i < pieces.end; ++i) { want_piece(i); }
 }
 
 inline void piece_picker::dont_want_piece(const piece_index_t piece)
@@ -230,10 +227,7 @@ inline void piece_picker::dont_want_piece(const piece_index_t piece)
 
 inline void piece_picker::dont_want_pieces(const interval pieces)
 {
-    for(auto i = pieces.begin; i < pieces.end; ++i)
-    {
-        dont_want_piece(i);
-    }
+    for(auto i = pieces.begin; i < pieces.end; ++i) { dont_want_piece(i); }
 }
 
 } // namespace tide

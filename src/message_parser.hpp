@@ -17,7 +17,6 @@ namespace tide {
  * and throughout the application, the unofficial term 'block' is used to denote the
  * piece chunks sent over the network.
  */
-// we want to use message_type as an integer but don't want to pollute the entire namespace
 namespace message_type {
 
 // A keep alive message has no identifier (it's just 4 zero bytes), this is used only by
@@ -51,7 +50,8 @@ struct message
 
 struct handshake
 {
-    const_view<uint8_t> protocol_id;
+    // Variable length string identifying the protocol. Currently "Bittorrent protocol".
+    const_view<uint8_t> protocol;
     // 8 reserved bytes used to identify extensions.
     const_view<uint8_t> reserved;
     // This is the torrent's (20 byte) SHA-1 hash to which the peer belongs.
@@ -114,7 +114,7 @@ public:
      * This returns the range of memory:
      * [unused_begin, unused_begin + min(n, free_space_size())
      * in which we can receive bytes. If there is no space for n bytes, space is
-     * reserved.
+     * reserved, but note that no upper bound is enforced on the buffer size.
      */
     view<uint8_t> get_receive_buffer(const int n);
 
@@ -151,7 +151,7 @@ public:
      *
      * An exception is thrown if has_message() returns false.
      */
-    message extract();
+    message extract_message();
 
     /**
      * Same as above, except it doesn't advance the message pointer, so subsequent calls
@@ -159,7 +159,7 @@ public:
      *
      * An exception is thrown if has_message() returns false.
      */
-    message peek() const;
+    message view_message() const;
 
     /**
      * Returns the message id/type of the current message.
@@ -177,7 +177,7 @@ public:
      * This returns a view starting at the current message till one past the last valid
      * message byte in receive buffer, so it may be empty.
      */
-    const_view<uint8_t> peek_raw() const noexcept;
+    const_view<uint8_t> view_raw_bytes() const noexcept;
 
     /**
      * Returns the number of bytes left till the completion of the current message if
@@ -187,7 +187,7 @@ public:
     int num_bytes_left_till_completion() const noexcept;
 
     /** Skips to the next message. Exception is thrown if there is no message to skip. */
-    void skip();
+    void skip_message();
 
 private:
 
@@ -212,6 +212,8 @@ private:
      * verify that the buffer is large enough to receive the rest (after the message has
      * been shifted), reserve space if it's not, and then shift the incomplete bytes to
      * the front to increase the receive space.
+     TODO consider making this a public function so that user can call this once done
+     parsing so that it's only called once instead of with every call to extract/view
      */
     void optimize_receive_space();
 

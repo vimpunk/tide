@@ -63,7 +63,7 @@ public:
                                  : 0;
     }
 
-    void clear() noexcept
+    void reset() noexcept
     {
         m_mean = m_deviation = m_num_samples = 0;
     }

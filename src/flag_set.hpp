@@ -5,6 +5,7 @@
 #include <type_traits>
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
 
 namespace tide {
 
@@ -77,8 +78,8 @@ namespace util
  * if(op_state & op_t::send) { ... }
  *
  * With flag_set:
- * op_state.set(op_t::send);
- * op_state.unset(op_t::send);
+ * op_state.set(op_t::send); // or op_state[op_t::send] = true;
+ * op_state.unset(op_t::send); // or op_state[op_t::send] = false;
  * if(op_state[op_t::send]) { ... }
  */
 template<
@@ -93,6 +94,10 @@ template<
     using size_type = size_t;
     using const_reference = value_type;
     using enum_type = Enum;
+    // note: we can't just use std::underlying_type<Enum> because an int representation
+    // of an enum value does not map to the number of bits needed express that many
+    // flags (e.g. the value 64 can be represented by a single 8-bit int, but we'd need
+    // an uint64_t to represent 64 flags)
     using underlying_type = typename util::integral_type_for<
         util::enum_cast<size_type>(NumFlags)
     >::type;
@@ -161,6 +166,11 @@ public:
     bool is_empty() const noexcept
     {
         return m_flags == 0;
+    }
+
+    bool is_full() const noexcept
+    {
+        return m_flags == std::numeric_limits<underlying_type>::max();
     }
 
     /** Used to query whether any flags are set. */

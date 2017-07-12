@@ -214,25 +214,10 @@ public:
         return operator[](bit);
     }
 
-    const_iterator begin() const noexcept
-    {
-        return const_iterator(*this);
-    }
-
-    const_iterator cbegin() const noexcept
-    {
-        return const_iterator(*this);
-    }
-
-    const_iterator end() const noexcept
-    {
-        return const_iterator(*this, m_num_bits);
-    }
-
-    const_iterator cend() const noexcept
-    {
-        return const_iterator(*this, m_num_bits);
-    }
+    const_iterator begin() const noexcept { return const_iterator(*this); }
+    const_iterator cbegin() const noexcept { return const_iterator(*this); }
+    const_iterator end() const noexcept { return const_iterator(*this, m_num_bits); }
+    const_iterator cend() const noexcept { return const_iterator(*this, m_num_bits); }
 
     /** Returns the Hamming weight of this bitfield.
     int count() const
@@ -452,37 +437,25 @@ public:
 
         reference& operator|=(bool x) noexcept
         {
-            if(x)
-            {
-                m_block |= m_mask;
-            }
+            if(x) m_block |= m_mask;
             return *this;
         }
 
         reference& operator&=(bool x) noexcept
         {
-            if(x)
-            {
-                m_block &= m_mask;
-            }
+            if(x) m_block &= m_mask;
             return *this;
         }
 
         reference& operator^=(bool x) noexcept
         {
-            if(x)
-            {
-                m_block ^= m_mask;
-            }
+            if(x) m_block ^= m_mask;
             return *this;
         }
 
         reference& operator-=(bool x) noexcept
         {
-            if(x)
-            {
-                m_block &= ~m_mask;
-            }
+            if(x) m_block &= ~m_mask;
             return *this;
         }
 

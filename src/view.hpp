@@ -13,9 +13,7 @@ namespace tide {
  * operations, but does not take ownership of the resource.
  * Credit for the idea goes to libtorrent.
  */
-template<
-    typename T
-> struct view
+template<typename T> struct view
 {
     using value_type = T;
     using difference_type = std::ptrdiff_t;
@@ -49,13 +47,13 @@ public:
     {}
 
     template<typename U>
-    view(const view<U>& other)
-        : m_data(other.m_data)
-        , m_length(other.m_length)
+    view(view<U>& other)
+        : m_data(other.data())
+        , m_length(other.length())
     {}
 
     template<typename U, size_type N>
-    view(const std::array<U, N>& arr)
+    view(std::array<U, N>& arr)
         : m_data(arr.data())
         , m_length(arr.size())
     {}
@@ -108,7 +106,7 @@ public:
     reference operator[](const size_type i) noexcept { return m_data[i]; }
     const_reference operator[](const size_type i) const noexcept { return m_data[i]; }
 
-    view subview(const size_type offset) const
+    view subview(const size_type offset)
     {
         if(offset > size())
         {
@@ -117,7 +115,7 @@ public:
         return {data() + offset, size() - offset};
     }
 
-    view subview(const size_type offset, const size_type count) const
+    view subview(const size_type offset, const size_type count)
     {
         if((offset > size()) || (offset + count > size()))
         {

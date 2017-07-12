@@ -13,7 +13,7 @@
 #include "flag_set.hpp"
 #include "bitfield.hpp"
 #include "socket.hpp"
-#include "units.hpp"
+#include "types.hpp"
 #include "stats.hpp"
 #include "time.hpp"
 
@@ -76,9 +76,11 @@ public:
         // This is the state in which the session is when it is ready to send and
         // receive regular messages, i.e. when the up/download actually begins.
         connected,
-        // If peer_session is gracefully disconnected, we wait for all pending async
-        // operations to complete before closing the connection. Otherwise we don't for
-        // async ops, we immediately transition to disconnected, skipping this one.
+        // If peer_session is gracefully stopped, we wait for all pending async
+        // operations (listed in op_t) to complete before closing the connection.
+        // This means that each async operation's callback will check whether it's the
+        // last outstanding operation, and if so, it will finally disconnect peer. Note
+        // that only socket and disk read writes qualify, timers need not do this.
         disconnecting
     };
 
@@ -166,18 +168,6 @@ private:
     // them, that is, until they are not sent (queued up in disk_io or elsewhere). If
     // the block is transmitted, it is removed from this list.
     std::vector<block_info> m_received_requests;
-
-    // If peer is on parole, it may only download a single piece in which no other peer
-    // may participate. This is because normally multiple blocks are downloaded from
-    // multiple peers and if one turns out to be bad (and more peers helped to complete
-    // it), we have no way of determining which peer misbehaved. So as a result all are
-    // suspected and each is assigned a "parole piece" which only this peer downloads.
-    // The result of this download determines the guilt of this peer.
-    // If peer_session is destructed without having the chance to finish this piece,
-    // the download is placed into m_downloads, letting others finish it. This has
-    // the risk of putting another peer on parole if this one sent us corrupt pieces,
-    // so we may want to discard the piece as is (TODO).
-    std::unique_ptr<piece_download> m_parole_download;
 
     /**
      * This is used for internal bookkeeping information and statistics about a peer.
@@ -275,7 +265,7 @@ private:
         // number of bytes outstanding at any given time (and some more to account for
         // disk latency). Though during the start of the connection it is subject to slow 
         // start mode.
-        int best_request_queue_size = 2;
+        int best_request_queue_size = 4;
 
         // If the number of unserved and currently served requests to peer exceeds this
         // number, further requests will be dropped. This is the same value found in
@@ -297,15 +287,10 @@ private:
     info m_info;
 
     // These fields are used when the exact number of bytes downloaded are requested
-    // between calls, instead of a weighed average (see below).
+    // between calls, instead of a weighed average of the transfer rates. These are
+    // reset with each call.
     mutable int m_num_uploaded_piece_bytes = 0;
     mutable int m_num_downloaded_piece_bytes = 0;
-
-    // These values are weighed running averages, the last 20 seconds having the largest
-    // weight. These are strictly the throughput rates of piece byte transfers and are
-    // used to compare a peer's performance against another to determine which to unchoke.
-    throughput_rate<20> m_upload_rate;
-    throughput_rate<20> m_download_rate;
 
     // This is the average network round-trip-time (in milliseconds) between issuing a
     // request and receiving a block (note that it doesn't have to be the same block
@@ -341,10 +326,29 @@ private:
     // stopped if either side becomes interested.
     deadline_timer m_inactivity_timeout_timer;
 
+    // If peer is on parole, it may only download a single piece in which no other peer
+    // may participate. This is because normally multiple blocks are downloaded from
+    // multiple peers and if one turns out to be bad (and more peers helped to complete
+    // it), we have no way of determining which peer misbehaved. So as a result all are
+    // suspected and each is assigned a "parole piece" which only this peer downloads.
+    // The result of this download determines the guilt of this peer.
+    // If peer_session is destructed without having the chance to finish this piece,
+    // the download is placed into m_downloads, letting others finish it. This has
+    // the risk of putting another peer on parole if this one sent us corrupt pieces,
+    // so we may want to discard the piece as is (TODO).
+    std::unique_ptr<piece_download> m_parole_download;
+
     // When this is an incoming connection, this peer_session must attach to a torrent
     // using this callback after peer's handshake has been received and a torrent info
     // hash could be extracted. It is not used otherwise.
     std::function<torrent_specific_args(const sha1_hash&)> m_torrent_attacher;
+
+    // When torrent is gracefully stopped, it waits for all its peers' async ops to
+    // finish, i.e. it needs to know when to mark torrent as stopped, which is done by
+    // supplying a handler to each peer_session's stop method and when a session is
+    // disconnected, this is called and torrent can stop itself after the last such
+    // callback.
+    std::function<void()> m_stop_handler;
 
 public:
 
@@ -398,13 +402,17 @@ public:
     void start();
 
     /**
-     * If there are currently ongoing asynchronous operations, such as a socket send
-     * or receive, we wait for them to complete. This is important when sending or
+     * If there are outstanding asynchronous operations, such as a socket send or 
+     * receive, we wait for them to complete. This is important when sending or
      * receiving a block, in which case no payload data is wasted this way. However, if
      * reading a block from disk returns after this call, it won't be sent. 
      * This should be preferred over abort.
+     *
+     * Handler is called after the last pending operation finished.
+     TODO decide whether to never execute it in the context of this function
+     or to call it in this function if there are no async ops
      */
-    void stop();
+    void stop(std::function<void()> handler);
 
     /**
      * All pending network operations are aborted by calling cancel on the IO objects,
@@ -495,7 +503,6 @@ public:
 
     time_point last_outgoing_unchoke_time() const noexcept;
     time_point connection_established_time() const noexcept;
-
     seconds connection_duration() const noexcept;
 
     peer_id_t peer_id() const noexcept;
@@ -555,6 +562,13 @@ private:
     void connect();
     void on_connected(const std::error_code& error = std::error_code());
 
+    /**
+     * This is called by each of the four async operations callbacks if they detect
+     * that we're disconnecting (gracefully stopping). If there are no outstanding
+     * operations left, this finally disconnects peer and calls m_stop_handler.
+     */
+    void try_finish_disconnecting();
+
     /** error indicates why peer was disconnected. */
     void disconnect(const std::error_code& error);
 
@@ -599,14 +613,13 @@ private:
      */
     void receive();
     void request_download_bandwidth();
-    bool can_receive() const noexcept;
     
     /**
      * If we don't expect piece payloads (in which case receive operations are
      * constrained by how fast we can write to disk, and resumed once disk writes
      * finished, in on_block_saved), we should always have enough space for protocol
      * chatter (non payload messages), otherwise the async receive cycle would stop,
-     * i.e. there'd be noone reregistering the async receive calls.
+     * i.e. there'd be no one reregistering the async receive calls.
      */
     void ensure_protocol_exchange();
     int get_num_to_receive() const noexcept;
@@ -620,7 +633,7 @@ private:
     void update_receive_stats(const int num_bytes_received) noexcept;
 
     void adjust_receive_buffer(const bool was_choked);
-    bool am_expecting_piece() const noexcept;
+    bool am_expecting_block() const noexcept;
 
     /**
      * If the receive buffer is completely filled up in a receive operation, it may mean
@@ -669,10 +682,11 @@ private:
     void adjust_best_request_queue_size() noexcept;
 
     /**
-     * Updates download rate and related statistics which affect how many requests we'll
-     * issue in the future.
+     * Updates piece transfer rates and related statistics which in the case of
+     * downlaod rate affect how many requests we'll issue in the future.
      */
     void update_download_stats(const int num_bytes);
+    void update_upload_stats(const int num_bytes);
 
     bool is_request_valid(const block_info& request) const noexcept;
     bool is_block_info_valid(const block_info& block) const noexcept;
@@ -831,7 +845,6 @@ private:
      * only peer that has the block, we must not time out the block.
      */
     void on_request_timeout(const std::error_code& error);
-    void cancel_request_handler(const block_info& block);
     void on_connect_timeout(const std::error_code& error);
     void on_inactivity_timeout(const std::error_code& error);
     void on_keep_alive_timeout(const std::error_code& error);
@@ -859,11 +872,8 @@ private:
     /** Tries to detect client's software from its peer_id in its handshake. */
     void try_identify_client();
 
-    /**
-     * It guarantees to return a valid piece_download pointer, otherwise an assertion
-     * is triggered.
-     */
-    piece_download* find_download(const piece_index_t piece) noexcept;
+    /** If no piece download is found, an assertion is triggered. */
+    piece_download& find_download(const piece_index_t piece) noexcept;
 
     class send_cork;
 };
@@ -940,10 +950,11 @@ inline bool peer_session::has_pending_disk_op() const noexcept
 
 inline bool peer_session::has_pending_async_op() const noexcept
 {
+    // note: can't use !m_op_state.is_empty() because slow_start is not considered here
     return m_op_state[op_t::send]
-        || m_op_state[op_t::receive]
-        || m_op_state[op_t::disk_read]
-        || m_op_state[op_t::disk_write];
+        && m_op_state[op_t::receive]
+        && m_op_state[op_t::disk_read]
+        && m_op_state[op_t::disk_write];
 }
 
 inline peer_session::state_t peer_session::state() const noexcept
@@ -998,12 +1009,12 @@ inline int peer_session::num_bytes_downloaded_this_round() const noexcept
 
 inline int peer_session::download_rate() const noexcept
 {
-    return m_download_rate.bytes_per_second();
+    return m_info.download_rate.rate();
 }
 
 inline int peer_session::upload_rate() const noexcept
 {
-    return m_upload_rate.bytes_per_second();
+    return m_info.upload_rate.rate();
 }
 
 } // namespace tide

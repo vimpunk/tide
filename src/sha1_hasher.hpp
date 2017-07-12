@@ -1,7 +1,7 @@
 #ifndef TIDE_SHA1_HASHER_HEADER
 #define TIDE_SHA1_HASHER_HEADER
 
-#include "units.hpp"
+#include "types.hpp"
 #include "view.hpp"
 
 #include <utility> // declval

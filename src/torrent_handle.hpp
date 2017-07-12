@@ -1,7 +1,7 @@
 #ifndef TIDE_TORRENT_HANDLE_HEADER
 #define TIDE_TORRENT_HANDLE_HEADER
 
-#include "units.hpp"
+#include "types.hpp"
 
 #include <vector>
 #include <memory>

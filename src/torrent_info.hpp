@@ -4,7 +4,7 @@
 #include "file_info.hpp"
 #include "flag_set.hpp"
 #include "settings.hpp"
-#include "units.hpp"
+#include "types.hpp"
 #include "stats.hpp"
 #include "time.hpp"
 
@@ -82,20 +82,6 @@ struct torrent_info : public stats
     // Counting the number of times the choking algorithm has been invoked. This is done
     // so that every 3rd time we can run optimistic_unchoke.
     int num_choke_cycles = 0;
-
-    // In bytes per second. Whenever a peer has received or uploaded a block (i.e. cause
-    // to update its {up,down}load rate), it adds the transferred number of bytes to
-    // the matching field below, and every second torrent resets this field to 0.
-    // Thus, this gives a real time view of the up/download rates, suitable for exposing 
-    // it to user, but not intended for internal component as running averages are more 
-    // suitable there.
-    int upload_rate = 0;
-    int download_rate = 0;
-
-    // Before torrent resets the above two fields, it checks whether they have surpassed
-    // the current peak values, and if so, sets these fields to that.
-    int peak_upload_rate = 0;
-    int peak_download_rate = 0;
 
     seconds total_seed_time;
     seconds total_leech_time;

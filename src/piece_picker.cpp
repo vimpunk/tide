@@ -420,10 +420,7 @@ private:
     // so as to keep the other group fully a priority). */
     void adjust_interval(interval& interval) const
     {
-        if(interval.length() < 2)
-        {
-            return;
-        }
+        if(interval.length() < 2) { return; }
 
         auto& begin_entry = m_piece_map[interval.begin];
         auto& next_entry  = m_piece_map[interval.begin + 1];
@@ -461,17 +458,13 @@ private:
     // TODO a version which only restores the invalidation of a single group
     void restore_group_order()
     {
-        if(m_groups.size() <= 1)
-        {
-            return;
-        }
+        if(m_groups.size() <= 1) { return; }
 
         auto last_incomplete = m_default_group;
         auto it = last_incomplete;
         const auto first = m_groups.begin();
 
         --it;
-
         while(it != first)
         {
             auto tmp = it--;
@@ -492,7 +485,7 @@ private:
         return !it->is_complete() && (it->type() == group::type_t::priority);
     }
 
-    groups::iterator splice(groups::iterator dest, groups::iterator it)
+    groups::iterator splice(groups::iterator dest, groups::iterator it) noexcept
     {
         m_groups.splice(dest, m_groups, it);
         return it;
@@ -683,10 +676,7 @@ public:
 
     private:
 
-        bool is_at_end() const noexcept
-        {
-            return m_group == m_groups_end;
-        }
+        bool is_at_end() const noexcept { return m_group == m_groups_end; }
     };
 };
 
@@ -745,10 +735,7 @@ void piece_picker::increase_frequency(const bitfield& available_pieces)
 {
     for(piece_index_t piece = 0; piece < num_pieces(); ++piece)
     {
-        if(available_pieces[piece])
-        {
-            increase_frequency(piece);
-        }
+        if(available_pieces[piece]) { increase_frequency(piece); }
     }
 }
 
@@ -762,10 +749,7 @@ void piece_picker::decrease_frequency(const bitfield& available_pieces)
     assert(available_pieces.size() == num_pieces());
     for(piece_index_t piece = 0; piece < num_pieces(); ++piece)
     {
-        if(available_pieces[piece])
-        {
-            decrease_frequency(piece);
-        }
+        if(available_pieces[piece]) { decrease_frequency(piece); }
     }
 }
 
@@ -850,8 +834,7 @@ piece_picker::pick_and_reserve(const bitfield& available_pieces, const int n)
     return indices;
 }
 
-piece_index_t piece_picker::pick_ignore_reserved(
-    const bitfield& available_pieces) const
+piece_index_t piece_picker::pick_ignore_reserved(const bitfield& available_pieces) const
 {
     auto piece_it = m_piece_tracker->cbegin();
     const auto pieces_end = m_piece_tracker->cend();

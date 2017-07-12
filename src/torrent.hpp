@@ -11,7 +11,7 @@
 #include "bdecode.hpp"
 #include "bencode.hpp"
 #include "socket.hpp"
-#include "units.hpp"
+#include "types.hpp"
 #include "time.hpp"
 #include "tracker.hpp"
 
@@ -81,6 +81,10 @@ class torrent : public std::enable_shared_from_this<torrent>
     // settings::max_upload_slots) number of peers are ordered according to the choke 
     // algorithm's rating.
     std::vector<std::shared_ptr<peer_session>> m_peer_sessions;
+
+    // If torrent is stopped, peer_sessions are not erased, but put here, as we might be
+    // able to reconnect them.
+    //std::vector<std::shared_ptr<peer_session>> m_stopped_peer_sessions;
 
     // Trackers are ordered the same way as they were specified in the metainfo file,
     // i.e. the first tracker has the highest priority and is always used unless an
@@ -283,6 +287,12 @@ public:
     time_point download_started_time() const noexcept;
     time_point download_ended_time() const noexcept;
 
+    /** Total peers includes connected and available (i.e. not connected) peers. */
+    int num_connected_peers() const noexcept;
+    int total_peers() const noexcept;
+    int num_seeders() const noexcept;
+    int num_leechers() const noexcept;
+
     bool is_stopped() const noexcept;
     bool is_running() const noexcept;
     bool is_leech() const noexcept;
@@ -335,7 +345,10 @@ private:
      * This is the main update cycle that is invoked every second. It removes
      * peer_sessions that are finished, connects to peers, if necessary, launches scrape
      * and announce requests if not enough peers are available, and invokes the choking
-     * algorithm every 10 seconds.
+     * algorithm every 10 seconds and so on.
+     * It only runs if there are active or connecting peer sessions available, otherwise
+     * there is nothing to update. If we get from tracker more peers to connect, the
+     * update cycle is reinstated.
      */
     void update(const std::error_code& error = std::error_code());
 
@@ -382,6 +395,8 @@ private:
     void connect_peer(tcp::endpoint& peer);
     void close_peer_session(peer_session& session);
 
+    void on_peer_session_graceful_stop_complete(peer_session& session);
+
     // -------------
     // -- tracker --
     // -------------
@@ -393,15 +408,20 @@ private:
      */
     void announce(tracker_request::event_t event = tracker_request::event_t::none,
         const bool force = false);
-    void on_announce_response(tracker_entry& tracker, const std::error_code& error,
-        tracker_response response, const tracker_request::event_t event);
+
     tracker_request create_tracker_request(
         tracker_request::event_t event) const noexcept;
     int calculate_num_want() const noexcept;
 
+    void on_announce_response(tracker_entry& tracker, const std::error_code& error,
+        tracker_response response, const tracker_request::event_t event);
+    void on_announce_error(tracker_entry& tracker, const std::error_code& error,
+        const tracker_request::event_t event);
+
     /**
      * Adds a peer returned in an announce response if we're not already connected to
-     * peer, if it's not us, and if m_endpoint_filter allows it.
+     * it, if it's not already in m_available_peers, if it's not us, and if 
+     * m_endpoint_filter allows it.
      */
     void add_peer(tcp::endpoint peer);
 
@@ -418,7 +438,7 @@ private:
      * and so on. If no error occured with any of the trackers so far, this will
      * always return *m_trackers[0].
      */
-    tracker_entry& pick_tracker(const bool force);
+    tracker_entry* pick_tracker(const bool force);
     bool can_announce_to(const tracker_entry& t) const noexcept;
 
     // -------------
@@ -501,35 +521,38 @@ private:
     void log(const log_event event, const char* format, Args&&... args) const;
 };
 
-inline bool torrent::is_stopped() const noexcept
-{
-    return !is_running();
-}
+inline bool torrent::is_stopped() const noexcept { return !is_running(); }
 
 inline bool torrent::is_running() const noexcept
 {
     return m_info->state[torrent_info::active];
 }
 
-inline bool torrent::is_leech() const noexcept
+inline int torrent::num_connected_peers() const noexcept
 {
-    return !is_seed();
+    // we use this metric because if torrent is paused it does not clear m_peer_sessions
+    // in the hopes of reconnecting them, so calling m_peer_sessions.size is not always
+    // accurate
+    return num_seeders() + num_leechers();
 }
+
+inline int torrent::total_peers() const noexcept
+{
+    return m_peer_sessions.size() + m_available_peers.size();
+}
+
+inline int torrent::num_seeders() const noexcept { return m_info->num_seeders; }
+inline int torrent::num_leechers() const noexcept { return m_info->num_leechers; }
+
+inline bool torrent::is_leech() const noexcept { return !is_seed(); }
 
 inline bool torrent::is_seed() const noexcept
 {
     return m_info->state[torrent_info::state_t::seeding];
 }
 
-inline torrent_handle torrent::get_handle() noexcept
-{
-    return torrent_handle(this);
-}
-
-inline torrent_storage_handle torrent::get_storage_handle() noexcept
-{
-    return m_storage;
-}
+inline torrent_handle torrent::get_handle() noexcept { return torrent_handle(this); }
+inline torrent_storage_handle torrent::get_storage_handle() noexcept { return m_storage; }
 
 } // namespace tide
 

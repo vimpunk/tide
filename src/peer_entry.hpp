@@ -1,7 +1,7 @@
 #ifndef TIDE_PEER_ENTRY_HEADER
 #define TIDE_PEER_ENTRY_HEADER
 
-#include "units.hpp"
+#include "types.hpp"
 #include "socket.hpp"
 
 namespace tide {

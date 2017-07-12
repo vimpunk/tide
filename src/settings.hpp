@@ -1,7 +1,7 @@
 #ifndef TIDE_GLOBAL_SETTINGS_HEADER
 #define TIDE_GLOBAL_SETTINGS_HEADER
 
-#include "units.hpp"
+#include "types.hpp"
 #include "time.hpp"
 #include "path.hpp"
 
@@ -121,9 +121,30 @@ struct disk_io_settings
     // pulled in a time. This is not recommended, but might help to conserve memory.
     int read_cache_line_size;
 
-    // This specifies how many blocks in a piece should be bufferred before writing them
-    // to disk.
+    // The number of contiguous 16KiB blocks that are buffered before written to disk.
+    // If the piece is smaller than this, the number of blocks in piece replaces this
+    // value.
+    // If blocks in a piece's write buffer are not contiguous, their numbers might
+    // exceed this value. To avoid memory inflation and other performance penalties,
+    // disk_io will choose a suitable upper bound (usually betweeen this value and
+    // receive_buffer_size) after which blocks are flushed to disk no matter what.
+    //
+    // NOTE: this value times 16KiB must never exceed receive_buffer_size, as the blocks
+    // being written to disk are counted as part of peer_session's receive buffer, which
+    // means that the write cache would never fill up as peer_session would not be able
+    // to receive more blocks, effectively stalling the download. For this reason if
+    // this condition is not met, it will be overwritten by a value deemed fit by engine.
+    //
+    // NOTE: write_buffer_capacity is included here for data organization purposes,
+    // but any user set value is disregarded as engine calculates this as a function of
+    // write_cache_line_size and receive_buffer_size.
     int write_cache_line_size = 4;
+    int write_buffer_capacity;
+
+    // This enforces an upper bound on how long blocks may stay in memory. This is to
+    // avoid lingering blocks, which may occur if the client started downloading a piece
+    // from the only peer that has it, then disconnected.
+    seconds write_buffer_expiry_timeout;
 
     // All metadata of the application (torrent states, preferences etc) are saved here.
     // This must be specified.
@@ -179,10 +200,6 @@ struct peer_session_settings
     // connected it takes up space from other potential candidates.
     seconds peer_connect_timeout;
 
-    // The roundtrip time threshold in seconds under which we attempt to request whole
-    // pieces instead of blocks.
-    //int whole_piece_rtt_threshold_s;
-
     // The number of outstanding block requests peer is allowed to have at any given
     // time. If peer exceeds this number, all subsequent requests are rejected until the
     // number of outstanding requests drops below this limit.
@@ -198,14 +215,17 @@ struct peer_session_settings
     // can be spared for better performance (at least 3 blocks (16KiB)), though note
     // that the receive buffer cannot be less than the block size (16KiB) as we wouldn't
     // be able to receive blocks then. A value of -1 means that these are auto managed.
+    //
+    // NOTE: max_receive_buffer_size  must always be larger than write_cache_line_size
+    // * 16KiB, see write_cache_line_size comment.
     int max_receive_buffer_size = -1;
     int max_send_buffer_size = -1;
 
-    // Normally the TCP/IP overhead is not included when limiting torrent bandwidth. With
-    // this set, an esimate of the overhead is added to the traffic.
+    // Normally the TCP/IP overhead is not included when limiting torrent bandwidth.
+    // With this set, an esimate of the overhead is added to the traffic.
     bool include_ip_overhead = false;
 
-    enum class encryption_policy_t
+    enum encryption_policy_t
     {
         // TODO add encryption
         // Only encrypted connections are made, incoming non-encrypted connections are
@@ -220,7 +240,7 @@ struct peer_session_settings
         no_encryption
     };
 
-    encryption_policy_t encryption_policy = encryption_policy_t::no_encryption;
+    encryption_policy_t encryption_policy = no_encryption;
 
     peer_session_settings()
         : peer_timeout(60)

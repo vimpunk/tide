@@ -79,6 +79,9 @@ void rename(const path& old_path, const path& new_path, std::error_code& error);
 // closed. do we pass the responsibility of disposing of those mmap instances to user?
 // plus files will periodically be flushed and perhaps closed (on windows there might
 // be issues with syncing to disk but look into this)
+// TODO comment about length() vs actual file size (i.e. we keep the requested length
+// and that's what's returned when queried but some other process may change file size
+// in which case we're f-ed)
 struct file
 {
     enum open_mode : uint8_t
@@ -211,10 +214,10 @@ public:
      *
      * An exception is thrown if file_offset is invalid.
      */
-    int read(view<uint8_t> buffer, const int64_t file_offset, std::error_code& error);
-    int read(iovec buffer, const int64_t file_offset, std::error_code& error);
-    int write(view<uint8_t> buffer, const int64_t file_offset, std::error_code& error);
-    int write(iovec buffer, const int64_t file_offset, std::error_code& error);
+    int read(view<uint8_t> buffer, int64_t file_offset, std::error_code& error);
+    int read(iovec buffer, int64_t file_offset, std::error_code& error);
+    int write(view<uint8_t> buffer, int64_t file_offset, std::error_code& error);
+    int write(iovec buffer, int64_t file_offset, std::error_code& error);
 
     /**
      * These two functions are scatter-gather operations in that multiple buffers may
@@ -260,7 +263,20 @@ private:
     void check_write_preconditions(
         const int64_t file_offset, std::error_code& error) const noexcept;
     void verify_handle(std::error_code& error) const;
-    void verify_file_offset(const int64_t file_offset) const;
+    void verify_file_offset(const int64_t file_offset, std::error_code& error) const;
+
+    /**
+     * Abstarcts away the plumbing behind a single pread/pwrite operation: repeatedly
+     * calls io_fn until it transfers min(buffer.iov_len, length() - file_offset) number
+     * of bytes.
+     *
+     * io_fn needs the following signature:
+     * int pio_fn(void* buffer, int length, int64_t file_offset);
+     * where the return value is the number of bytes that were transferred.
+     */
+    template<typename IOFunction>
+    int single_buffer_io(IOFunction io_fn, iovec buffer,
+        int64_t file_offset, std::error_code& error);
 
     /**
      * Abstracts away scatter-gather IO by repeatedly calling the supplied pread or
@@ -268,7 +284,7 @@ private:
      * on the current system.
      *
      * pio_fn will be called for every buffer processed, and its signature must be:
-     * int pio_fn(void* buffer, int64_t file_offset, int64_t length);
+     * int pio_fn(void* buffer, int length, int64_t file_offset);
      * where the return value is the number of bytes transferred.
      *
      * Note that unlike preadv/pwritev, this is not atomic, so other processes may be

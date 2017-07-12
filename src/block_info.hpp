@@ -1,7 +1,7 @@
 #ifndef TIDE_BLOCK_INFO_HEADER
 #define TIDE_BLOCK_INFO_HEADER
 
-#include "units.hpp"
+#include "types.hpp"
 
 #include <functional>
 
@@ -42,17 +42,28 @@ inline bool operator<(const block_info& a, const block_info& b) noexcept
     if(a.index == b.index)
     {
         if(a.offset == b.offset)
-        {
             return a.length < b.length;
-        }
         else
-        {
             return a.offset < b.offset;
-        }
     }
     else
     {
         return a.index < b.index;
+    }
+}
+
+inline bool operator>(const block_info& a, const block_info& b) noexcept
+{
+    if(a.index == b.index)
+    {
+        if(a.offset == b.offset)
+            return a.length > b.length;
+        else
+            return a.offset > b.offset;
+    }
+    else
+    {
+        return a.index > b.index;
     }
 }
 

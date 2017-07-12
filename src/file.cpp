@@ -412,56 +412,71 @@ mmap_source file::create_mmap_source(
 }
 */
 
-int file::read(view<uint8_t> buffer, const int64_t file_offset, std::error_code& error)
+int file::read(view<uint8_t> buffer, int64_t file_offset, std::error_code& error)
 {
-    int num_read = 0;
+    return read(iovec{buffer.data(), buffer.length()}, file_offset, error);
+}
+
+int file::read(iovec buffer, int64_t file_offset, std::error_code& error)
+{
     check_read_preconditions(file_offset, error);
     if(!error)
     {
-        const int num_read = pread(m_file_handle,
-            reinterpret_cast<void*>(buffer.data()),
-            std::min(buffer.length(), length() - buffer.length()),
-            file_offset);
-        if(num_read < 0)
-        {
-            util::assign_errno(error);
-        }
+        return single_buffer_io([this](void* buffer, int length, int64_t offset) -> int
+            { return pread(m_file_handle, buffer, length, offset); },
+            buffer, file_offset, error);
     }
-    return num_read;
+    return 0;
 }
 
-int file::read(iovec buffer, const int64_t file_offset, std::error_code& error)
+int file::write(view<uint8_t> buffer, int64_t file_offset, std::error_code& error)
 {
-    return read(
-        view<uint8_t>(reinterpret_cast<uint8_t*>(buffer.iov_base), buffer.iov_len),
-        file_offset,
-        error);
+    return write(iovec{buffer.data(), buffer.length()}, file_offset, error);
 }
 
-int file::write(view<uint8_t> buffer, const int64_t file_offset, std::error_code& error)
+int file::write(iovec buffer, int64_t file_offset, std::error_code& error)
 {
-    int num_written = 0;
     check_write_preconditions(file_offset, error);
     if(!error)
     {
-        num_written = pwrite(m_file_handle,
-            reinterpret_cast<void*>(buffer.data()),
-            std::min(buffer.length(), length() - buffer.length()),
-            file_offset);
-        if(num_written < 0)
-        {
-            util::assign_errno(error);
-        }
+        return single_buffer_io([this](void* buffer, int length, int64_t offset) -> int
+            { return pwrite(m_file_handle, buffer, length, offset); },
+            buffer, file_offset, error);
     }
-    return num_written;
+    return 0;
 }
 
-int file::write(iovec buffer, const int64_t file_offset, std::error_code& error)
+template<typename IOFunction>
+int file::single_buffer_io(IOFunction io_fn, iovec buffer,
+    int64_t file_offset, std::error_code& error)
 {
-    return write(
-        view<uint8_t>(reinterpret_cast<uint8_t*>(buffer.iov_base), buffer.iov_len),
-        file_offset,
-        error);
+    int total_transferred = 0;
+    while(buffer.iov_len > 0)
+    {
+        // make sure not to transfer more than what's left in file because if this is
+        // a read operation, we'll enlarge file
+        const int num_to_transfer = std::min(buffer.iov_len,
+            size_t(length() - file_offset));
+        const int num_transferred = io_fn(buffer.iov_base, num_to_transfer, file_offset);
+        if(num_transferred < 0)
+        {
+#ifdef _WIN32
+            // TODO
+#else
+            if(errno == EINTR) { continue; }
+#endif
+            util::assign_errno(error);
+            break;
+        }
+        else if(num_transferred == 0)
+        {
+            // TODO short transfer or eof
+        }
+        file_offset += num_transferred;
+        total_transferred += num_transferred;
+        util::trim_iovec_front(buffer, num_transferred);
+    }
+    return total_transferred;
 }
 
 int file::read(view<iovec>& buffers, const int64_t file_offset, std::error_code& error)
@@ -469,9 +484,7 @@ int file::read(view<iovec>& buffers, const int64_t file_offset, std::error_code&
     return positional_vector_io(
         [this](view<iovec>& buffers, int64_t file_offset) -> int
         { return preadv(m_file_handle, buffers.data(), buffers.size(), file_offset); },
-        buffers,
-        file_offset,
-        error);
+        buffers, file_offset, error);
 }
 
 int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code& error)
@@ -532,9 +545,7 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
                 return pwritev(m_file_handle, buffers.data(),
                     buffers.size(), file_offset);
             },
-            buffers,
-            file_offset,
-            error);
+            buffers, file_offset, error);
 
         if(num_bytes_to_trim > 0)
         {
@@ -568,9 +579,7 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
                 return pwritev(m_file_handle, buffers.data(),
                     buffers.size(), file_offset);
             },
-            buffers,
-            file_offset,
-            error);
+            buffers, file_offset, error);
     }
 
     if(!error && m_open_mode[no_os_cache])
@@ -598,7 +607,7 @@ int file::repeated_positional_io(PIOFunction pio_fn, view<iovec>& buffers,
         {
             const int num_to_transfer = std::min(file_length_left, int(buffer.iov_len));
             const int num_transferred = pio_fn(buffer.iov_base,
-                file_offset, num_to_transfer);
+                num_to_transfer, file_offset);
             if(num_transferred < 0)
             {
                 util::assign_errno(error);
@@ -668,12 +677,11 @@ void file::sync_with_disk(std::error_code& error)
 inline void file::check_read_preconditions(
     const int64_t file_offset, std::error_code& error) const noexcept
 {
-    verify_file_offset(file_offset);
+    verify_file_offset(file_offset, error);
+    if(error) { return; }
     verify_handle(error);
-    if(error)
-    {
-        return;
-    }
+    if(error) { return; }
+
     else if(!is_allocated())
     {
         error = make_error_code(disk_io_errc::tried_unallocated_file_read);
@@ -683,12 +691,11 @@ inline void file::check_read_preconditions(
 inline void file::check_write_preconditions(
     const int64_t file_offset, std::error_code& error) const noexcept
 {
-    verify_file_offset(file_offset);
+    verify_file_offset(file_offset, error);
+    if(error) { return; }
     verify_handle(error);
-    if(error)
-    {
-        return;
-    }
+    if(error) { return; }
+
     else if(!is_allocated())
     {
         error = make_error_code(disk_io_errc::tried_unallocated_file_write);
@@ -708,11 +715,13 @@ inline void file::verify_handle(std::error_code& error) const
     }
 }
 
-inline void file::verify_file_offset(const int64_t file_offset) const
+inline void file::verify_file_offset(const int64_t file_offset,
+    std::error_code& error) const
 {
+    error.clear();
     if((file_offset > file::length()) || (file_offset < 0))
     {
-        throw std::out_of_range("invalid file_offset");
+        error = std::make_error_code(std::errc::invalid_argument);
     }
 }
 

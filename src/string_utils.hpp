@@ -141,6 +141,7 @@ inline uint16_t extract_port(const std::string& url)
 template<typename... Args>
 std::string format(const char* format_str, Args&&... args)
 {
+    // TODO optimize this as it's used a lot
     const size_t length = std::snprintf(nullptr, 0, format_str, args...) + 1;
     std::unique_ptr<char[]> buffer(new char[length]);
     std::snprintf(buffer.get(), length, format_str, args...);

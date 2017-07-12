@@ -69,7 +69,7 @@ template<typename Duration, typename Handler>
 void start_timer(deadline_timer& timer, const Duration& expires_in, Handler handler)
 {
     std::error_code ec;
-    // setting expires from now also cancels pending async waits (which is what we want)
+    // setting this cancels pending async waits (which is what we want)
     timer.expires_from_now(expires_in, ec);
     timer.async_wait(std::move(handler));
 }

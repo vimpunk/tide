@@ -5,7 +5,7 @@
 #include "metainfo.hpp"
 #include "settings.hpp"
 #include "bdecode.hpp"
-#include "units.hpp"
+#include "types.hpp"
 #include "path.hpp"
 
 #include <string>

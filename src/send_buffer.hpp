@@ -57,6 +57,7 @@ class send_buffer
     {
         std::array<uint8_t, N> bytes;
 
+        // TODO verify that copyctor for std::array works as expected
         raw_fixed_buffer_holder(const std::array<uint8_t, N>& b) : bytes(b) {}
         raw_fixed_buffer_holder(const uint8_t (&b)[N])
         {
@@ -110,7 +111,7 @@ public:
      * at most num_bytes (less if there aren't that many bytes available for sending).
      */
     // TODO find a way to not have to build a vector every time we send something
-    // maybe somehow return a view?
+    // maybe somehow return a view to a vector stored in the class?
     std::vector<asio::const_buffer> get_send_buffers(int num_bytes) const;
 
     /**
@@ -144,7 +145,6 @@ void send_buffer::append(const fixed_payload<N>& payload)
 template<size_t N>
 void send_buffer::append(const std::array<uint8_t, N>& bytes)
 {
-    static_assert(N > 0, "buffer must not be empty");
     m_buffers.emplace_back(std::make_unique<raw_fixed_buffer_holder<N>>(bytes));
     m_size += N;
 }
@@ -152,7 +152,6 @@ void send_buffer::append(const std::array<uint8_t, N>& bytes)
 template<size_t N>
 void send_buffer::append(const uint8_t (&bytes)[N])
 {
-    static_assert(N > 0, "buffer must not be empty");
     m_buffers.emplace_back(std::make_unique<raw_fixed_buffer_holder<N>>(bytes));
     m_size += N;
 }

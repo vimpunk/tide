@@ -143,14 +143,11 @@ void torrent::start()
         auto handle = m_disk_io.allocate_torrent(m_info, m_piece_hashes, error);
         on_torrent_allocated(error, handle);
     }
-    announce(tracker_request::event_t::started);
+    announce(tracker_request::started);
     if(!m_peer_sessions.empty())
     {
-        log(log_event::update, "trying to reconnect to %i peers", m_peer_sessions.size());
-        for(auto& session : m_peer_sessions)
-        {
-            session->start();
-        }
+        log(log_event::update, "trying to reconnect %i peers", m_peer_sessions.size());
+        for(auto& session : m_peer_sessions) { session->start(); }
         update();
     }
 }
@@ -161,10 +158,11 @@ void torrent::stop()
 
     log(log_event::update, "stopping torrent");
 
+    // TODO should we stop these when the last peer disconnected?
     m_update_timer.cancel();
     m_announce_timer.cancel();
 
-    announce(tracker_request::event_t::stopped);
+    announce(tracker_request::stopped);
     for(auto& session : m_peer_sessions)
     {
         if(!session->is_stopped())
@@ -173,14 +171,25 @@ void torrent::stop()
             // since we're gracefully disconnecting peers, so they may be around for a 
             // while till all async ops finish, during which peers may send us requests)
             session->choke_peer();
-            session->stop();
+            session->stop([SHARED_THIS, &session = *session]
+                { on_peer_session_graceful_stop_complete(session); });
         }
     }
-    m_info->state[torrent_info::active] = false;
-    m_info->num_seeders = 0;
-    m_info->num_leechers = 0;
-    m_info->num_unchoked_peers = 0;
-    save_state();
+}
+
+// TODO rename...
+void torrent::on_peer_session_graceful_stop_complete(peer_session& session)
+{
+    on_peer_session_finished(session);
+    if(num_connected_peers() == 0)
+    {
+        m_info->state[torrent_info::active] = false;
+        assert(m_info->num_seeders = 0);
+        assert(m_info->num_leechers = 0);
+        assert(m_info->num_unchoked_peers = 0);
+        save_state();
+        // TODO send alert event that we finished shutting down
+    }
 }
 
 void torrent::abort()
@@ -196,10 +205,7 @@ void torrent::abort()
 
     for(auto& session : m_peer_sessions)
     {
-        if(!session->is_disconnected())
-        {
-            session->abort();
-        }
+        if(!session->is_disconnected()) { session->abort(); }
     }
     m_info->state[torrent_info::active] = false;
     m_info->num_seeders = 0;
@@ -255,6 +261,9 @@ void torrent::on_state_saved(const std::error_code& error)
     m_info->state[torrent_info::saving_state] = false;
     if(error)
     {
+        m_is_state_changed = false;
+        const auto reason = error.message();
+        log(log_event::disk, "failed to save torrent state: %s", reason.c_str());
     }
     log(log_event::disk, "torrent state saved");
 }
@@ -301,9 +310,9 @@ bmap_encoder torrent::create_resume_data() const
         piece["index"] = d->piece_index();
         blist_encoder blocks;
         int i = 0;
-        for(const bool have : d->downloaded_blocks())
+        for(const piece_download::block block : d->blocks())
         {
-            if(have)
+            if(block.status == piece_download::block::status::received)
             {
                 // save the block indices, they are at 0x4000 offsets
                 blocks.push_back(i);
@@ -356,10 +365,10 @@ void torrent::announce(tracker_request::event_t event, const bool force)
         log(log_event::tracker, "cannot announce: no trackers");
         return;
     }
-    else if(is_stopped())
+    else if(m_is_aborted) // TODO TODO
     {
-        // TODO we should allow announce's when we're in graceful stop mode
-        log(log_event::tracker, "cannot announce: torrent stopped");
+        // TODO we should allow announces when we're in graceful stop mode
+        log(log_event::tracker, "cannot announce: torrent aborted");
         return;
     }
     m_info->state[torrent_info::announcing] = true;
@@ -368,45 +377,50 @@ void torrent::announce(tracker_request::event_t event, const bool force)
     // if the event is stopped or completed, we need to send it to all trackers to which
     // we have announced in the past, otherwise just pick the most suitable tracker, as
     // otherwise we're just requesting more peers
-    if(event == tracker_request::event_t::stopped
-        || event == tracker_request::event_t::completed)
+    if((event == tracker_request::stopped) || (event == tracker_request::completed))
     {
-        for(auto& tracker : m_trackers)
+        for(auto& entry : m_trackers)
         {
-            // don't send the 'stopped' and 'completed' more than once, or if we haven't
-            // contacted tracker at all (sent a 'started' event)
-            // TODO if we download the torrent twice (i.e. got deleted so is downloaded
-            // again), then this is wrong FIXME
-            if((tracker.has_sent_completed
-                && event == tracker_request::event_t::completed)
-               || (tracker.has_sent_stopped
-                   && event == tracker_request::event_t::stopped))
+            // don't send the 'stopped' and 'completed' events more than once, or if we 
+            // haven't contacted tracker at all (haven't sent a 'started' event)
+            if((entry.has_sent_completed && (event == tracker_request::completed))
+               || (entry.has_sent_stopped && (event == tracker_request::stopped)))
             {
                 continue;
             }
-            else if(tracker.has_sent_started)
+            else if(entry.has_sent_started && entry.tracker->is_reachable())
             {
                 log(log_event::tracker, "sending event(%s) to tracker(%s)",
-                    event == tracker_request::event_t::completed
-                        ? "completed" : "stopped", tracker.tracker->url().c_str());
-                tracker.tracker->announce(request, [SHARED_THIS, &tracker, event]
+                    event == tracker_request::completed ? "completed" : "stopped",
+                    entry.tracker->url().c_str());
+                entry.tracker->announce(request, [SHARED_THIS, &entry, event]
                     (const std::error_code& ec, tracker_response response)
-                    { on_announce_response(tracker, ec, std::move(response), event); });
+                    { on_announce_response(entry, ec, std::move(response), event); });
             }
         }
     }
     else
     {
-        tracker_entry& entry = pick_tracker(force);
-        if(!entry.has_sent_started && (request.event != tracker_request::event_t::started))
+        tracker_entry* t = pick_tracker(force);
+        // TODO ehhh, this is not completely correct
+        if(t == nullptr)
         {
-            // this means we haven't contacted tracker before, and the first request to
-            // tracker must include the 'started' event
-            request.event = tracker_request::event_t::started;
+            if(m_trackers.empty() && m_peer_sessions.empty() && m_available_peers.empty())
+            {
+                stop();
+            }
+            return;
+        }
+        tracker_entry& entry = *t;
+        // if we haven't sent the 'started' event before, this is the first time
+        // contacting tracker--in which case we must send a 'started' event
+        if(!entry.has_sent_started)
+        {
+            request.event = tracker_request::started;
         }
         log(log_event::tracker, "sending event(%s) to tracker(%s)",
-            event == tracker_request::event_t::started
-                ? "started" : "none", entry.tracker->url().c_str());
+            event == tracker_request::started ? "started" : "none",
+            entry.tracker->url().c_str());
         entry.tracker->announce(std::move(request),
             [SHARED_THIS, &entry, event](const std::error_code& ec, tracker_response r)
             { on_announce_response(entry, ec, std::move(r), event); });
@@ -425,8 +439,8 @@ inline tracker_request torrent::create_tracker_request(
     request.port = m_global_settings.listener_port;
     request.event = event;
     request.compact = true; // I think?
-    request.num_want = event == tracker_request::event_t::started
-                    || event == tracker_request::event_t::none
+    request.num_want = event == tracker_request::started
+                    || event == tracker_request::none
                        ? calculate_num_want()
                        : 0;
     return request;
@@ -440,34 +454,26 @@ inline int torrent::calculate_num_want() const noexcept
     return n;
 }
 
-inline tracker_entry& torrent::pick_tracker(const bool force)
+inline tracker_entry* torrent::pick_tracker(const bool force)
 {
     assert(!m_trackers.empty());
-    // TODO probably revise this
+    // even if we're forcing the reannounce, first try to see if we can find a tracker
+    // to which we can announce without forcing some other tracker
     for(auto& t : m_trackers)
     {
-        if(can_announce_to(t))
-            return t;
+        if(can_announce_to(t)) { return &t; }
     }
-    // if we couldn't find a tracker satisfying all criteria, lower criteria standards
-    // and fall back
-    for(auto& t : m_trackers)
+    // if we're forcing a reannounce, we don't have to check whether the wait interval
+    // is up, we need only know that we can reach tracker
+    if(force)
     {
-        if(force && t.tracker->is_reachable() && !t.tracker->had_protocol_error())
-            return t;
+        for(auto& t : m_trackers)
+        {
+            if(!t.tracker->had_protocol_error() && t.tracker->is_reachable())
+                return &t;
+        }
     }
-    for(auto& t : m_trackers)
-    {
-        if(t.tracker->is_reachable())
-            return t;
-    }
-    for(auto& t : m_trackers)
-    {
-        if(!t.tracker->had_protocol_error())
-            return t;
-    }
-    // at this point nothing matters anymore :(
-    return m_trackers.front();
+    return nullptr;
 }
 
 inline bool torrent::can_announce_to(const tracker_entry& t) const noexcept
@@ -481,23 +487,9 @@ void torrent::on_announce_response(tracker_entry& tracker, const std::error_code
     tracker_response response, const tracker_request::event_t event)
 {
     m_info->state[torrent_info::announcing] = false;
-    if(error.category() == tracker_category())
+    if(error)
     {
-        // this is a tracker specific error, so we can retry with a different tracker
-        log(log_event::tracker, "error contacting tracker: %s", error.message().c_str());
-        tracker.last_error = error;
-        // FIXME TODO this will recurse infinitely, since we announce unconditionally, so
-        // put some condition either here or in announce
-        announce(event);
-        return;
-    }
-    else if(error)
-    {
-        log(log_event::tracker, "error contacting tracker: %s", error.message().c_str());
-        tracker.last_error = error;
-        // this is a general system error
-        // TODO depending on the error (i.e. no internet) shutdown torrent
-        stop();
+        on_announce_error(tracker, error, event);
         return;
     }
 
@@ -510,11 +502,11 @@ void torrent::on_announce_response(tracker_entry& tracker, const std::error_code
     const auto now = cached_clock::now();
     m_info->last_announce_time = now;
     tracker.last_announce_time = now; 
-    if(event == tracker_request::event_t::started)
+    if(event == tracker_request::started)
         tracker.has_sent_started = true;
-    else if(event == tracker_request::event_t::completed)
+    else if(event == tracker_request::completed)
         tracker.has_sent_completed = true;
-    else if(event == tracker_request::event_t::stopped)
+    else if(event == tracker_request::stopped)
         tracker.has_sent_stopped = true;
 
     if(!response.warning_message.empty())
@@ -539,6 +531,42 @@ void torrent::on_announce_response(tracker_entry& tracker, const std::error_code
     {
         log(log_event::update, "starting torrent update cycle");
         update();
+    }
+}
+
+inline void torrent::on_announce_error(tracker_entry& tracker,
+    const std::error_code& error, const tracker_request::event_t event)
+{
+    if(error.category() == tracker_category())
+    {
+        const auto reason = error.message();
+        log(log_event::tracker, "error contacting tracker: %s", reason.c_str());
+        // if this tracker failed too much, we won't bother in the future, remove it
+        if(++tracker.num_fails > 100)
+        {
+            m_trackers.erase(std::find_if(m_trackers.begin(), m_trackers.end(),
+                [&tracker](const auto& t) { return &t == &tracker; }));
+            if(m_trackers.empty() && m_peer_sessions.empty() && m_available_peers.empty())
+            {
+                stop();
+                return;
+            }
+        }
+        tracker.last_error = error;
+        // this is a tracker specific error, so we can retry with a different tracker
+        // (if there are no more trackers to try, it's handled by announce)
+        announce(event);
+    }
+    else if(error)
+    {
+        const auto reason = error.message();
+        log(log_event::tracker, "error contacting tracker: %s", reason.c_str());
+        tracker.last_error = error;
+        // TODO make this more granular: if we have no inet, it's not tracker's fault,
+        // whereas if host is unreachable or somesuch, it is
+        ++tracker.num_fails;
+        // this is a general system error, so there is a larger underlying problem
+        stop();
     }
 }
 
@@ -573,6 +601,11 @@ void torrent::update(const std::error_code& error)
     }
 
     remove_finished_peer_sessions();
+    if(m_info->num_disk_io_failures > 300)
+    {
+        stop();
+        return;
+    }
     // if we don't have active sessions left it makes no sense to continue updating,
     // try to get some peers by announcing, which will reinstate the update cycle
     if(m_peer_sessions.empty() && m_available_peers.empty())
@@ -581,38 +614,22 @@ void torrent::update(const std::error_code& error)
         return;
     }
 
-    if(should_connect_peers())
-    {
-        connect_peers();
-    }
+    if(should_connect_peers()) { connect_peers(); }
+    if(needs_peers()) { announce(); }
+    if(cached_clock::now() - m_info->last_unchoke_time >= seconds(10)) { unchoke(); }
 
-    if(needs_peers())
-    {
-        announce();
-    }
-
-    if(cached_clock::now() - m_info->last_unchoke_time >= seconds(10))
-    {
-        unchoke();
-    }
-
-    if(m_info->num_unchoked_peers < m_info->settings.max_upload_slots)
+    // in the rare circumstance when we have as many peers as upload slots, the freshly
+    // connected ones may not be unchokable, but waiting 10s for the next unchoke round
+    // would be too much, so we check every second whether there are peers we can unchoke
+    // TODO this feels ugly
+    if(m_info->num_unchoked_peers < m_info->settings.max_upload_slots
+       && m_peer_sessions.size() > m_info->settings.max_upload_slots)
     {
         fill_free_upload_slots();
     }
 
-    if(m_info->upload_rate > m_info->peak_upload_rate)
-    {
-        m_info->peak_upload_rate = m_info->upload_rate;
-    }
-    if(m_info->download_rate > m_info->peak_download_rate)
-    {
-        m_info->peak_download_rate = m_info->download_rate;
-    }
-    // TODO send stats event before resetting these fields
+    // TODO send stats event
     // m_event_queue.emplace<torrent_stats_event>(*m_info);
-    m_info->upload_rate = 0;
-    m_info->download_rate = 0;
 
     start_timer(m_update_timer, seconds(1),
         [SHARED_THIS](const std::error_code& error) { update(error); });
@@ -690,24 +707,6 @@ inline void torrent::remove_finished_peer_sessions()
     m_info->num_lingering_disconnected_sessions = 0;
     log(log_event::update, "removing %i peer session%c", num_removed,
         num_removed == 1 ? 0 : 's');
-
-/*
-    auto first_removed = std::remove_if(m_peer_sessions.begin(), m_peer_sessions.end(),
-        [](const auto& session) { return session->is_stopped(); });
-    const int num_removed = m_peer_sessions.end() - first_removed;
-    if(num_removed > 0)
-    {
-        for(auto it = first_removed, end = m_peer_sessions.end(); it != end; ++it)
-        {
-            auto& session = *it;
-            assert(session);
-            on_peer_session_finished(*session);
-        }
-        log(log_event::update, "removing %i peer session%c", num_removed,
-            num_removed == 1 ? 0 : 's');
-        m_peer_sessions.erase(first_removed, m_peer_sessions.end());
-    }
-*/
 }
 
 void torrent::on_peer_session_finished(peer_session& session)
@@ -721,9 +720,6 @@ void torrent::on_peer_session_finished(peer_session& session)
     if(!session.is_peer_choked())
     {
         --m_info->num_unchoked_peers;
-        // TODO we shouldn't call unchoke so often, try to accumulate these calls and
-        // execute them in one
-        unchoke();
     }
 
     if(session.is_peer_seed())
@@ -755,7 +751,6 @@ void torrent::unchoke()
     // we don't have free upload slots and no one is choked, so save the trouble
     if((num_to_unchoke == 0) && (m_info->num_unchoked_peers == 0)) { return; }
 
-    log(log_event::choke, "unchoking %i peers", num_to_unchoke);
     // put the unchoke candidates at the beginning of the peer list
     std::partial_sort(m_peer_sessions.begin(), m_peer_sessions.begin() + num_to_unchoke,
         m_peer_sessions.end(), [this](const auto& a, const auto& b)
@@ -770,6 +765,9 @@ void torrent::unchoke()
             if(session->is_peer_choked() && session->is_peer_interested())
             {
                 session->unchoke_peer();
+                const auto address = session->remote_endpoint().address().to_string();
+                log(log_event::choke, "unchoking peer(%s:%i)", address.c_str(),
+                    session->remote_endpoint().port());
             }
             // even if peer is already unchoked, we count it so that we don't unchoke
             // more than we should
@@ -832,9 +830,10 @@ void torrent::optimistic_unchoke()
 
 inline void torrent::fill_free_upload_slots()
 {
-    const int num_to_unchoke = m_info->settings.max_upload_slots -
-        (m_peer_sessions.size() - m_info->num_unchoked_peers);
-    if(num_to_unchoke == 0) { return; }
+    const int num_to_unchoke = std::min(
+        m_info->settings.max_upload_slots - m_info->num_unchoked_peers,
+        int(m_peer_sessions.size()) - m_info->num_unchoked_peers);
+    if(num_to_unchoke <= 0) { return; }
 
     int num_unchoked = 0;
     for(auto it = m_peer_sessions.begin() + m_info->num_unchoked_peers,
@@ -884,7 +883,7 @@ bool torrent::choke_ranker::download_rate_based(
 
 void torrent::on_new_piece(piece_download& download, const bool is_valid)
 {
-    log(log_event::update, "received new piece(%i, %i)", download.piece_index(),
+    log(log_event::update, "received new piece(%i, %s)", download.piece_index(),
         is_valid ? "valid" : "corrupt");
     // let the peer_sessions that participated in the download know of the piece's
     // hash result
@@ -960,7 +959,7 @@ inline void torrent::handle_corrupt_piece(piece_download& download)
         // bad piece, erase it
         auto it = std::find_if(m_peer_sessions.begin(), m_peer_sessions.end(),
             [peer_id = download.peers()[0]](const auto& session)
-            { return session->peer_id() == peer_id; });
+            { return session->peer_id() == peer.id; });
         assert(it != m_peer_sessions.end());
         auto& session = *it;
         if(session->is_stopped())
@@ -989,7 +988,7 @@ inline void torrent::on_download_complete()
     // I think but TODO maybe this is not true)
     if(m_info->num_downloaded_pieces == m_info->num_pieces)
     {
-        announce(tracker_request::event_t::completed);
+        announce(tracker_request::completed);
     }
     // since we have become a seeder, and if any of our peers were seeders, they were
     // disconnected, so clean up those finished sessions

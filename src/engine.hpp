@@ -23,6 +23,7 @@
 namespace tide {
 
 class endpoint_filter;
+class peer_session;
 
 /**
  * This class represents a torrent application. It is the highest level wrapper around,
@@ -60,6 +61,10 @@ class engine
     // torrent. A tracker is removed from here when all torrents that use it have been
     // removed (checked using shared_ptr's reference count).
     std::vector<std::shared_ptr<tracker>> m_trackers;
+
+    // Incoming connections are stored here until the handshake has been concluded after
+    // which we can determine to which torrent this peer belongs.
+    std::vector<std::shared_ptr<peer_session>> m_incoming_connections;
 
     // This contains all the user configurable options, a const reference to which is
     // passed down to pretty much all components of the engine.
@@ -120,8 +125,8 @@ public:
      * torrent_args.
      *
      * The advantage of using this function over manually reading and parsing .torrent
-     * is making use of engine's existing multithreaded disk IO infrastructure, but it
-     * may of course be done another way.
+     * is making use of engine's existing multithreaded disk IO infrastructure, but it's
+     * not necessary to start a torrent.
      */
     void parse_metainfo(const path& path);
 
