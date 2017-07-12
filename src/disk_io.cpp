@@ -622,12 +622,25 @@ inline void disk_io::save_contiguous_blocks(torrent_storage& storage,
     std::error_code& error)
 {
     assert(!blocks.is_empty());
-    std::vector<iovec> buffers;
-    int num_bytes;
-    std::tie(buffers, num_bytes) = prepare_iovec_buffers(blocks);
-    assert(num_bytes > 0);
-    const block_info info(piece_index, blocks[0].offset, num_bytes);
-    storage.write(std::move(buffers), info, error);
+    // don't allocate an iovec vector if there is only a single buffer
+    if(blocks.size() == 1)
+    {
+        auto& block = blocks[0];
+        const block_info info(piece_index, block.offset, block.buffer.size());
+        iovec buffer;
+        buffer.iov_base = block.buffer.data();
+        buffer.iov_len = block.buffer.length();
+        storage.write(buffer, info, error);
+    }
+    else
+    {
+        std::vector<iovec> buffers;
+        int num_bytes;
+        std::tie(buffers, num_bytes) = prepare_iovec_buffers(blocks);
+        assert(num_bytes > 0);
+        const block_info info(piece_index, blocks[0].offset, num_bytes);
+        storage.write(std::move(buffers), info, error);
+    }
 }
 
 // -------------

@@ -493,7 +493,8 @@ private:
 
     /**
      * Called by handle_complete_piece, hashes all unhashed blocks in piece, which means
-     * it may need to read back some blocks from disk. blocks need not be contiguous.
+     * it may need to read back some blocks from disk. blocks in piece::work_buffer need 
+     * not be contiguous.
      */
     sha1_hash finish_hashing(torrent_entry& torrent, partial_piece& piece,
         std::error_code& error);
@@ -502,7 +503,7 @@ private:
      * This is called when piece has settings::write_cache_line_size or more hashable
      * blocks (which means contiguous and following the last hashed block in piece), in
      * which case these blocks are extracted from the piece's write buffer, hashed and
-     * saved on a single thread.
+     * saved in one batch.
      */
     void hash_and_save_blocks(torrent_entry& torrent, partial_piece& piece);
 
@@ -517,7 +518,8 @@ private:
     void flush_buffer(torrent_entry& torrent, partial_piece& piece);
 
     /**
-     * Utility function that saves blocks that may or may not be contiguous to disk.
+     * Utility function that saves to disk the blocks in piece::work_buffer, which may
+     * or may not be contiguous to disk.
      * The less fragmented the block sequence, the more efficient the operation.
      */
     void save_maybe_contiguous_blocks(torrent_entry& torrent,
