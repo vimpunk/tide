@@ -1,7 +1,7 @@
 #ifndef TIDE_DISK_BUFFER_HEADER
 #define TIDE_DISK_BUFFER_HEADER
 
-//#include "mmap/mmap.hpp"
+#include "mmap.hpp"
 
 #include <iterator>
 #include <cassert>
@@ -39,7 +39,6 @@ struct buffer
 
 } // namespace util
 
-/*
 class mmap_source_buffer : public util::buffer
 {
     mmap_source m_source;
@@ -50,7 +49,6 @@ public:
     const_pointer data() const { return m_source.data(); }
     size_type size() const { return m_source.size(); }
 };
-*/
 
 using disk_buffer_pool = boost::pool<>;
 

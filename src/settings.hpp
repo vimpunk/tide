@@ -70,21 +70,21 @@ struct engine_settings
 
     // The number of seconds following the tracker announce after which the tracker is
     // considered to have timed out and the connection is dropped.
-    seconds tracker_timeout;
+    seconds tracker_timeout{60};
 
     // This is the granularity at which statistics of a torrent are sent to the user.
     // Note that user may manually request statistics of a certain torrent or even
     // peer_session at arbitrary intervals.
     // Note that this value should ideally not go below 500ms as it would be prohibitive
     // in the face of many torrents.
-    milliseconds stats_aggregation_interval;
+    milliseconds stats_aggregation_interval{2000};
 
     // This is the amount of time between the torrent engine's event loop which, among
     // other things, is responsible for meting out bandwidth quota to peers. A lower
     // value results in more accurate quota distribution, while a higher value will likely
     // perform better on slower machines.
     // Should be between 100 and 1000.
-    milliseconds bandwidth_distribution_interval;
+    milliseconds bandwidth_distribution_interval{150};
 
     // TODO add choking algorithm choices
     enum class choking_algorithm_t
@@ -97,12 +97,6 @@ struct engine_settings
     };
 
     choking_algorithm_t choking_algorithm;
-
-    engine_settings()
-        : tracker_timeout(60)
-        , stats_aggregation_interval(2000)
-        , bandwidth_distribution_interval(150)
-    {}
 };
 
 struct disk_io_settings
@@ -191,14 +185,12 @@ struct peer_session_settings
 
     // The number of seconds we should wait for a peer (regardless of the last sent
     // message type) before concluding it to have timed out and closing the connection.
-    // The default is 2 minutes.
-    // TODO rework
-    seconds peer_timeout;
+    seconds peer_timeout{60};
 
     // This is the number of seconds we wait for establishing a connection with a peer.
     // This should be lower than peer_timeout_sec, because until this peer is not
     // connected it takes up space from other potential candidates.
-    seconds peer_connect_timeout;
+    seconds peer_connect_timeout{60};
 
     // The number of outstanding block requests peer is allowed to have at any given
     // time. If peer exceeds this number, all subsequent requests are rejected until the
@@ -241,11 +233,6 @@ struct peer_session_settings
     };
 
     encryption_policy_t encryption_policy = no_encryption;
-
-    peer_session_settings()
-        : peer_timeout(60)
-        , peer_connect_timeout(120)
-    {}
 };
 
 /**

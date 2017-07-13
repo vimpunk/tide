@@ -27,162 +27,6 @@ int pwritev(handle_type file_handle, iovec* buffers, int iovec_count, int64_t fi
 #endif // _WIN32
 
 namespace tide {
-namespace fs {
-
-file_status status(const path& path, std::error_code& error)
-{
-    error.clear();
-    file_status status;
-#ifdef _WIN32
-    // TODO
-#else // _WIN32
-    struct stat s;
-    if(stat(path.c_str(), &s) != 0)
-    {
-        util::assign_errno(error);
-        return {};
-    }
-
-    /*
-    status.devide_id = s.st_dev;
-    status.inode_number = s.st_ino;
-    status.mode = s.st_mode;
-    status.num_hardlinks = s.st_nlink;
-    status.uid = s.st_uid;
-    status.gid = s.st_gid;
-    status.block_length = s.st_blksize;
-    status.num_blocks = s.st_blocks;
-    */
-    status.length = s.st_size;
-    status.last_access_time = time_point(duration(s.st_atime));
-    status.last_modification_time = time_point(duration(s.st_mtime));
-    status.last_status_change_time = time_point(duration(s.st_ctime));
-    status.mode = (S_ISSOCK(s.st_mode) ? file_status::socket : 0)
-                | (S_ISLNK(s.st_mode) ? file_status::symbolic_link : 0)
-                | (S_ISREG(s.st_mode) ? file_status::regular_file : 0)
-                | (S_ISBLK(s.st_mode) ? file_status::block_device : 0)
-                | (S_ISDIR(s.st_mode) ? file_status::directory : 0)
-                | (S_ISCHR(s.st_mode) ? file_status::character_device : 0)
-                | (S_ISFIFO(s.st_mode) ? file_status::fifo : 0);
-#endif // _WIN32
-    return status;
-}
-
-bool exists(const path& path)
-{
-    std::error_code ec;
-    return exists(path, ec);
-}
-
-bool exists(const path& path, std::error_code& error)
-{
-    error.clear();
-    status(path, error);
-    if(error)
-    {
-        if(error == std::errc::no_such_file_or_directory)
-        {
-            // this is not an error as this is exactly what the function tests against
-            error.clear();
-        }
-        return false;
-    }
-    return true;
-}
-
-int64_t file_length(const path& path, std::error_code& error)
-{
-    file_status s = status(path, error);
-    if(error)
-    {
-        return 0;
-    }
-    return s.length;
-}
-
-bool is_directory(const path& path, std::error_code& error)
-{
-    error.clear();
-    file_status s = status(path, error);
-    return !error && (s.mode & file_status::directory);
-}
-
-void create_directory(const path& path, std::error_code& error)
-{
-    error.clear();
-#ifdef _WIN32
-    // TODO probably use CreateDirectoryA instead for unicode support
-    if(CreateDirectory(path.c_str(), 0) == 0
-       && GetLastError() != ERROR_ALREADY_EXISTS)
-    {
-        util::assign_errno(error);
-    }
-#else
-    int mode = S_IRWXU | S_IRWXG | S_IRWXO;
-    if((mkdir(path.c_str(), mode) != 0) && (errno != EEXIST))
-    {
-        util::assign_errno(error);
-    }
-#endif
-}
-
-// this is mostly a port of the function of the same name in boost::filesystem
-// because boost::system::error_code does not interop with its std:: equivalent
-void create_directories(const path& p, std::error_code& error)
-{
-    error.clear();
-    if(p.filename_is_dot() || p.filename_is_dot_dot())
-    {
-        create_directories(p.parent_path(), error);
-        return;
-    }
-
-    path parent = p.parent_path();
-    if(!parent.empty())
-    {
-        create_directories(parent, error);
-    }
-
-    if(!exists(p))
-    {
-        create_directory(p, error);
-    }
-}
-
-void move(const path& old_path, const path& new_path, std::error_code& error)
-{
-    error.clear();
-    if(old_path == new_path) { return; }
-
-    // TODO decide whether to create directory hierarchy or exit with error here
-    path parent = new_path.parent_path();
-    if(!parent.empty())
-    {
-        create_directories(parent, error);
-        if(error) { return; }
-    }
-
-#ifdef _WIN32
-    if(MoveFile(old_path.c_str(), new_path.c_str()) == 0)
-    {
-        util::assign_errno(error);
-        return;
-    }
-#else // _WIN32
-    if(::rename(old_path.c_str(), new_path.c_str()) != 0)
-    {
-        util::assign_errno(error);
-        return;
-    }
-#endif // _WIN32
-}
-
-void rename(const path& old_path, const path& new_path, std::error_code& error)
-{
-    move(old_path, new_path, error);
-}
-
-} // namespace fs
 
 // ----------
 // -- file --
@@ -398,17 +242,22 @@ void file::close()
     m_file_handle = INVALID_HANDLE_VALUE;
 }
 
-/*
-mmap_sink file::create_mmap_sink(
-    const int64_t file_offset, const int length, std::error_code& error)
+mmap_source file::create_mmap_source(const int64_t file_offset,
+    const int length, std::error_code& error)
 {
-    //before_mapping(file_offset, length, error);
+    before_mapping_source(file_offset, length, error);
+    if(error) { return {}; }
+
+    mmap_source mmap;
+    mmap.map(m_file_handle, file_offset, length, error);
+    return mmap;
 }
 
-mmap_source file::create_mmap_source(
-    const int64_t file_offset, const int length, std::error_code& error)
+/*
+mmap_sink file::create_mmap_sink(const int64_t file_offset,
+    const int length, std::error_code& error)
 {
-    //before_mapping(file_offset, length, error);
+    before_mapping(file_offset, length, error);
 }
 */
 
@@ -419,7 +268,7 @@ int file::read(view<uint8_t> buffer, int64_t file_offset, std::error_code& error
 
 int file::read(iovec buffer, int64_t file_offset, std::error_code& error)
 {
-    check_read_preconditions(file_offset, error);
+    before_reading(file_offset, error);
     if(!error)
     {
         return single_buffer_io([this](void* buffer, int length, int64_t offset) -> int
@@ -436,7 +285,7 @@ int file::write(view<uint8_t> buffer, int64_t file_offset, std::error_code& erro
 
 int file::write(iovec buffer, int64_t file_offset, std::error_code& error)
 {
-    check_write_preconditions(file_offset, error);
+    before_writing(file_offset, error);
     if(!error)
     {
         return single_buffer_io([this](void* buffer, int length, int64_t offset) -> int
@@ -446,8 +295,8 @@ int file::write(iovec buffer, int64_t file_offset, std::error_code& error)
     return 0;
 }
 
-template<typename IOFunction>
-int file::single_buffer_io(IOFunction io_fn, iovec buffer,
+template<typename PIOFunction>
+int file::single_buffer_io(PIOFunction pio_fn, iovec buffer,
     int64_t file_offset, std::error_code& error)
 {
     int total_transferred = 0;
@@ -457,7 +306,7 @@ int file::single_buffer_io(IOFunction io_fn, iovec buffer,
         // a read operation, we'll enlarge file
         const int num_to_transfer = std::min(buffer.iov_len,
             size_t(length() - file_offset));
-        const int num_transferred = io_fn(buffer.iov_base, num_to_transfer, file_offset);
+        const int num_transferred = pio_fn(buffer.iov_base, num_to_transfer, file_offset);
         if(num_transferred < 0)
         {
 #ifdef _WIN32
@@ -489,7 +338,7 @@ int file::read(view<iovec>& buffers, const int64_t file_offset, std::error_code&
 
 int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code& error)
 {
-    check_write_preconditions(file_offset, error);
+    before_writing(file_offset, error);
     if(error) { return 0; }
 
     // TODO this is an ugly hack, try to find a better way as it's error prone and
@@ -674,7 +523,20 @@ void file::sync_with_disk(std::error_code& error)
 #endif
 }
 
-inline void file::check_read_preconditions(
+inline void file::before_mapping_source(const int64_t file_offset, const int length,
+    std::error_code& error) const noexcept
+{
+    before_reading(file_offset, error);
+    if(!error)
+    {
+        if(file_offset + length > m_length)
+        {
+            error = std::make_error_code(std::errc::invalid_argument);
+        }
+    }
+}
+
+inline void file::before_reading(
     const int64_t file_offset, std::error_code& error) const noexcept
 {
     verify_file_offset(file_offset, error);
@@ -688,7 +550,7 @@ inline void file::check_read_preconditions(
     }
 }
 
-inline void file::check_write_preconditions(
+inline void file::before_writing(
     const int64_t file_offset, std::error_code& error) const noexcept
 {
     verify_file_offset(file_offset, error);

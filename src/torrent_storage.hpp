@@ -205,11 +205,11 @@ public:
      * are not, error is set and no mappings are returned.
      * In the case of read-write mode, files are opened and allocated if they haven't
      * already been.
+     */
     std::vector<mmap_source> create_mmap_source(
         const block_info& info, std::error_code& error);
     std::vector<mmap_sink> create_mmap_sink(
         const block_info& info, std::error_code& error);
-     */
 
     /**
      * Blocking scatter-gather IO.

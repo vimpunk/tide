@@ -17,13 +17,13 @@ namespace tide {
 disk_io::partial_piece::partial_piece(piece_index_t index_, int length_,
     int max_write_buffer_size, std::function<void(bool)> completion_handler_,
     asio::io_service& ios)
-    : index(index_)
+    : save_progress((length_ + (0x4000 - 1)) / 0x4000)
+    , index(index_)
     , length(length_)
-    , num_blocks((length_ + (0x4000 - 1)) / 0x4000)
     , completion_handler(std::move(completion_handler_))
     , buffer_expiry_timer(ios)
 {
-    const int to_reserve = std::min(num_blocks, max_write_buffer_size);
+    const int to_reserve = std::min(num_blocks(), max_write_buffer_size);
     buffer.reserve(to_reserve);
     work_buffer.reserve(to_reserve);
 }
@@ -37,7 +37,12 @@ disk_io::partial_piece::block::block(disk_buffer buffer_, int offset_,
 
 inline bool disk_io::partial_piece::is_complete() const noexcept
 {
-    return buffer.size() + num_saved_blocks == num_blocks;
+    return buffer.size() + num_saved_blocks == num_blocks();
+}
+
+inline int disk_io::partial_piece::num_blocks() const noexcept
+{
+    return save_progress.size();
 }
 
 inline int disk_io::partial_piece::num_hashable_blocks() const noexcept
@@ -68,23 +73,25 @@ inline interval disk_io::partial_piece::largest_contiguous_range() const noexcep
     assert(!buffer.empty());
     int max = 1;
     int n = 1;
-    auto begin = buffer.begin();
-    auto it = begin + 1;
-    while(it != buffer.end())
+    interval contiguous_range(0, 1);
+    for(auto i = 1; i < buffer.size(); ++i)
     {
-        if((it - 1)->offset + 0x4000 != it->offset)
-        {
-            if(n > max) { max = n; }
-            begin = it;
-            n = 1;
-        }
-        else
+        if(buffer[i - 1].offset + 0x4000 == buffer[i].offset)
         {
             ++n;
         }
-        ++it;
+        else
+        {
+            if(n > max)
+            {
+                max = n;
+                contiguous_range.begin = i - max;
+                contiguous_range.end = i;
+            }
+            n = 1;
+        }
     }
-    return {int(begin - buffer.begin()), int(it - buffer.begin())};
+    return contiguous_range;
 }
 
 inline void disk_io::partial_piece::move_blocks_to_work_buffer(const int n)
@@ -94,23 +101,23 @@ inline void disk_io::partial_piece::move_blocks_to_work_buffer(const int n)
 
 inline void disk_io::partial_piece::move_blocks_to_work_buffer(int begin, int end)
 {
-    const int num_blocks = end - begin;
-    assert(num_blocks <= buffer.size());
-    assert(num_blocks > 0);
+    const int num_to_move = end - begin;
+    assert(num_to_move <= buffer.size());
+    assert(num_to_move > 0);
 
-    if(buffer.size() == num_blocks)
+    if(buffer.size() == num_to_move)
     {
         buffer.swap(work_buffer);
     }
     else
     {
-        for(auto i = 0; i < num_blocks; ++i)
+        for(auto i = 0; i < num_to_move; ++i)
         {
             work_buffer.emplace_back(std::move(buffer[i]));
         }
         // TODO can we prevent buffer from shrinking its capacity? it should stay
         // allocated at its initial capacity at all times as its continually refilled
-        buffer.erase(buffer.begin(), buffer.begin() + num_blocks);
+        buffer.erase(buffer.begin(), buffer.begin() + num_to_move);
     }
 }
 
@@ -265,6 +272,7 @@ void disk_io::save_block(const torrent_id_t id,
     // if none is found, this is the first block in piece, i.e. a new piece download
     if(it == torrent.write_buffer.end())
     {
+        log(log_event::piece, "new piece(%i) in torrent(%i)", block_info.index, id);
         torrent.write_buffer.emplace_back(std::make_unique<partial_piece>(
             block_info.index, torrent.storage.piece_length(block_info.index),
             m_settings.write_cache_line_size, std::move(piece_completion_handler),
@@ -272,8 +280,10 @@ void disk_io::save_block(const torrent_id_t id,
         it = torrent.write_buffer.end() - 1;
     }
     partial_piece& piece = **it;
-    // insert new block such that the resulting set of blocks remains sorted by
-    // block offset; find the first block whose offset is larger than this block's
+    log(log_event::piece, "block(torrent: %i; index: %i; offset: %i; length: %i) save"
+        " issued", id, block_info.index, block_info.offset, block_info.length);
+    // insert new block such that the resulting set of blocks remain sorted by
+    // block::offset, so find the first block whose offset is larger than this block's
     piece.buffer.emplace(std::find_if(piece.buffer.begin(), piece.buffer.end(),
         [offset = block_info.offset](const auto& b) { return b.offset > offset; }),
         partial_piece::block(std::move(block_data), block_info.offset,
@@ -284,15 +294,13 @@ void disk_io::save_block(const torrent_id_t id,
 
 inline void disk_io::dispatch_write(torrent_entry& torrent, partial_piece& piece)
 {
-    // note: we use if-fallthrough so we don't have to calculate num_hashable_blocks and
-    // num_contiguous_blocks in the beginning of the function as they may not be used
-    // and they aren't *that* cheap // TODO fix, it's ugly
+    assert(!piece.buffer.empty());
     assert(piece.work_buffer.empty());
 
+    // even if a piece does not have write_cache_line_size blocks, if it's complete
+    // it is written to disk in order to save it asap
     if(piece.is_complete())
     {
-        // even if a piece does not have write_cache_line_size blocks, if it's complete
-        // it is written to disk in order to save it asap
         piece.is_busy = true;
         piece.buffer.swap(piece.work_buffer);
         log(log_event::piece, "piece(%i) complete, writing %i blocks",
@@ -302,28 +310,30 @@ inline void disk_io::dispatch_write(torrent_entry& torrent, partial_piece& piece
         return;
     }
 
+    // otherwise we're only interested in writing blocks to disk if piece's buffer has
+    // at least settings::write_cache_line_size blocks; if it doesn't, don't bother
+    if(piece.buffer.size() < m_settings.write_cache_line_size) { return; }
+
+    // if we have a full hash batch, flush those to disk, and if there are any other
+    // blocks in the write buffer, leave them there in hopes that the blocks needed to 
+    // make those hashable will arrive soon, likely helping us to avoid a readback
     const int num_hashable_blocks = piece.num_hashable_blocks();
     if(num_hashable_blocks == m_settings.write_cache_line_size)
     {
-        // we have a full hash batch, so flush those to disk, but if there are any other
-        // blocks in the write buffer leave those in buffer in hopes that the blocks 
-        // needed to make those hashable will arrive soon, likely helping us to avoid a 
-        // readback
         piece.is_busy = true;
         piece.move_blocks_to_work_buffer(num_hashable_blocks);
         log(log_event::piece, "hashing and saving %i blocks in piece(%i)",
-            piece.index, piece.work_buffer.size());
-        //piece.num_hashable_blocks = 0;
+            piece.work_buffer.size(), piece.index);
         m_thread_pool.post([this, &torrent, &piece]
             { hash_and_save_blocks(torrent, piece); });
         return;
     }
 
+    // if we couldn't collect enough contiguous blocks to write them in one batch but
+    // write buffer capacity has been reached, we must flush the whole thing and read
+    // back the blocks for hashing later
     if(piece.buffer.size() == m_settings.write_buffer_capacity)
     {
-        // we couldn't collect enough contiguous blocks to write them in one batch but
-        // write buffer capacity has been reached so we must flush the whole thing and
-        // read back the blocks for hashing later
         piece.is_busy = true;
         piece.buffer.swap(piece.work_buffer);
         log(log_event::piece, "piece(%i) buffer capacity reached, saving %i"
@@ -332,16 +342,16 @@ inline void disk_io::dispatch_write(torrent_entry& torrent, partial_piece& piece
         return;
     }
 
+    // if we have write cache line size contiguous blocks but we don't have enough
+    // space for the blocks needed to fill the gap between last hashed block and
+    // first block in the contiguous sequence, meaning we'll need to read back
+    // anyway, flush the contiguos blocks and leave the rest in piece's buffer
+    // TODO or should we flush the entire buffer?
     const interval contiguous_range = piece.largest_contiguous_range();
     const int num_contiguous_blocks = contiguous_range.length();
     if(num_contiguous_blocks == m_settings.write_cache_line_size
-       && !should_wait_for_hashing(piece, num_contiguous_blocks))
+       && !should_wait_for_hashing(piece, contiguous_range))
     {
-        // we have write cache line size contiguous blocks but we don't have enough
-        // space for the blocks needed to fill the gap between last hashed block and
-        // first block in the contiguous sequence, meaning we'll need to read back
-        // anyway, so flush the contiguos blocks and leave the rest in piece's buffer
-        // TODO or should we flush the entire buffer?
         piece.is_busy = true;
         piece.move_blocks_to_work_buffer(contiguous_range.begin, contiguous_range.end);
         log(log_event::piece, "saving %i contiguous blocks in piece(%i) (need readback)",
@@ -351,25 +361,13 @@ inline void disk_io::dispatch_write(torrent_entry& torrent, partial_piece& piece
 }
 
 inline bool disk_io::should_wait_for_hashing(const partial_piece& piece,
-    const int num_contiguous_blocks) const noexcept
+    const interval& contiguous_range) const noexcept
 {
     if(piece.buffer.size() < m_settings.write_buffer_capacity)
     {
-        // first find the blocks that constitute the contiguous block sequence
-        auto begin = piece.buffer.begin();
-        auto it = begin + 1;
-        const auto end = piece.buffer.end();
-        while((it != end) && (it - begin < num_contiguous_blocks))
-        {
-            if(it->offset - (it - 1)->offset != 0x4000)
-                begin = it++;
-            else
-                ++it;
-        }
-        assert(begin != end);
         // now check the size of the gap between the start of the contiguous sequence
         // and the last hashed block
-        const int gap_size = (begin->offset - piece.unhashed_offset) / 0x4000;
+        const int gap_size = contiguous_range.begin - (piece.unhashed_offset / 0x4000);
         // if we need more blocks than for what we have space to make a hash batch,
         // we'll just flush the entire write buffer, otherwise we'll wait
         return gap_size < m_settings.write_buffer_capacity - piece.buffer.size();
@@ -395,6 +393,8 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
         const sha1_hash hash = finish_hashing(torrent, piece, error);
         if(error)
         {
+            const auto reason = error.message();
+            log(log_event::piece, "error during piece readback: %s", reason.c_str());
             // finish_block only fails if it has to read back blocks for hashing, and
             // that may fail, so we couldn't fully hash blocks
             // TODO it's quite unclear how to proceed from here: put back blocks into
@@ -403,7 +403,8 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
             m_network_ios.post([&piece]
             {
                 piece.restore_buffer();
-                // TODO let someone know of the readback error--but who?
+                // TODO let someone know of the readback error--but who? it's not a save
+                // error, so we probably shouldn't call block's save handlers
             });
             return;
         }
@@ -417,11 +418,13 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
             // NOTE: must not capture reference to piece as it may be removed by
             // the save completion handler below and io_service does not guarantee in
             // order execution
+            log(log_event::piece, "piece(%i) passed hash test", piece.index);
             m_network_ios.post([handler = std::move(piece.completion_handler)]
                 { handler(true); });
         }
         else
         {
+            log(log_event::piece, "piece(%i) failed hash test", piece.index);
             m_network_ios.post([&torrent, piece_index = piece.index,
                 handler = std::move(piece.completion_handler)]
             { 
@@ -493,17 +496,19 @@ inline sha1_hash disk_io::finish_hashing(torrent_entry& torrent, partial_piece& 
             // for optimization, check how many blocks follow this one, so we can pull
             // them back in one
             int length = 0x4000;
-            for(auto i = block_index + 1; i < piece.num_blocks; ++i)
+            int num_contiguous = 1;
+            for(auto i = block_index + 1; i < piece.num_blocks(); ++i, ++num_contiguous)
             {
                 if(!piece.save_progress[i]) { break; }
-                if(i == piece.num_blocks - 1)
-                    length += piece.length - (piece.num_blocks - 1) * 0x4000;
+                if(i == piece.num_blocks() - 1)
+                    length += piece.length - (piece.num_blocks() - 1) * 0x4000;
                 else
                     length += 0x4000;
             }
 
+            log(log_event::piece, "reading back %i contiguous blocks for hashing",
+                num_contiguous);
             // memory mapping is used to avoid excessive copying
-            /*
             const block_info info(piece.index, piece.unhashed_offset, length);
             const std::vector<mmap_source> mmaps =
                 torrent.storage.create_mmap_source(info, error);
@@ -515,7 +520,6 @@ inline sha1_hash disk_io::finish_hashing(torrent_entry& torrent, partial_piece& 
                 piece.hasher.update(buffer);
                 piece.unhashed_offset += buffer.size();
             }
-            */
         }
     }
     return piece.hasher.finish();
@@ -559,6 +563,7 @@ void disk_io::flush_buffer(torrent_entry& torrent, partial_piece& piece)
             piece.unhashed_offset += block->buffer.size();
             ++block;
         }
+        log(log_event::piece, "hashed %i pieces in non-hash job", num_contiguous);
     }
 
     // now save buffers
@@ -590,11 +595,12 @@ void disk_io::on_blocks_saved(const std::error_code& error,
         {
             piece.save_progress[block.offset / 0x4000] = true;
         }
+        piece.num_saved_blocks += piece.work_buffer.size();
         // blocks were saved, safe to remove them
         piece.work_buffer.clear();
         // we may have received new blocks for this piece while this thread was
         // processing the current batch; if so, launch another op
-        dispatch_write(torrent, piece);
+        if(!piece.buffer.empty()) { dispatch_write(torrent, piece); }
     }
 }
 
@@ -622,6 +628,7 @@ inline void disk_io::save_contiguous_blocks(torrent_storage& storage,
     std::error_code& error)
 {
     assert(!blocks.is_empty());
+    log(log_event::piece, "saving %i contiguous blocks", blocks.size());
     // don't allocate an iovec vector if there is only a single buffer
     if(blocks.size() == 1)
     {

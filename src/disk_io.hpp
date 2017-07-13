@@ -116,14 +116,10 @@ private:
      * hashed and thus need to be pulled back for hashing later, when the missing blocks 
      * have been downloaded.
      *
-     TODO revise in accordance to threading changes
-     * Crucially, only a single thread may work on a piece at any given time. When piece
-     * has enough blocks for hashing and saving, those blocks are extracted from
-     * partial_piece::blocks, and once done, unhashed_offset is updated with the amount
-     * of blocks hashed.
+     * Crucially, only a single thread may work on a piece at any given time.
      *
      * If an error occurs while trying to write to disk, i.e. blocks could not be saved,
-     * they are placed back into blocks for future reattempt.
+     * they are placed back into piece's buffer for future reattempt.
      *
      * Once the piece is completed, its hashing is finished, and the resulting hash is 
      * compared to the piece's expected hash, and this result is passed along to 
@@ -214,9 +210,6 @@ private:
         const piece_index_t index;
         // The length of this piece in bytes.
         const int length;
-        // The number of blocks this piece has in total (i.e. how many blocks we expect).
-        // TODO this is no longer needed, number of blocks: save_progress.size()
-        const int num_blocks;
 
         // This is invoked once the piece has been hashed, which means that the piece
         // may not have been written to disk by the time of the invocation.
@@ -247,17 +240,23 @@ private:
          */
         bool is_complete() const noexcept;
 
+        int num_blocks() const noexcept;
+
         /**
          * The number of contiguous blocks following the last hashed block.
          * We can only hash the blocks that are in order and have no gaps, so this will
          * be 0 if buffer[0].offset > unhashed_offset, or it will be the number of
          * blocks until the first gap in buffer.
+         *
+         * NOTE: it's a somewhat expensive operation.
          */
         int num_hashable_blocks() const noexcept;
 
         /**
          * Returns a left-inclusive interval that represents the range of the largest
          * contiguous block sequence within buffer.
+         *
+         * NOTE: it's a somewhat expensive operation.
          */
         interval largest_contiguous_range() const noexcept;
 
@@ -476,7 +475,7 @@ private:
      * and the current number of blocks in buffer is within write buffer capacity.
      */
     bool should_wait_for_hashing(const partial_piece& piece,
-        const int num_contiguous_blocks) const noexcept;
+        const interval& contiguous_range) const noexcept;
 
     /**
      * This is called when piece has been completed by the most recent block that was
@@ -493,7 +492,7 @@ private:
 
     /**
      * Called by handle_complete_piece, hashes all unhashed blocks in piece, which means
-     * it may need to read back some blocks from disk. blocks in piece::work_buffer need 
+     * it may need to read back some blocks from disk. blocks in piece.work_buffer need 
      * not be contiguous.
      */
     sha1_hash finish_hashing(torrent_entry& torrent, partial_piece& piece,
@@ -518,7 +517,7 @@ private:
     void flush_buffer(torrent_entry& torrent, partial_piece& piece);
 
     /**
-     * Utility function that saves to disk the blocks in piece::work_buffer, which may
+     * Utility function that saves to disk the blocks in piece.work_buffer, which may
      * or may not be contiguous to disk.
      * The less fragmented the block sequence, the more efficient the operation.
      */
@@ -541,7 +540,7 @@ private:
     // -------------
 
     /**
-     * NOTE: these functions are executed by m_thread_pool.
+     * TODO documentation
      */
     void fetch_block(torrent_entry& torrent, const block_info& block_info, 
         std::function<void(const std::error_code&, block_source)> handler);
@@ -559,8 +558,10 @@ private:
     std::pair<std::vector<iovec>, int> prepare_iovec_buffers(
         view<partial_piece::block> blocks);
 
+    /** Counts the number of blocks that follow the first block in blocks. */
     static int count_contiguous_blocks(const_view<partial_piece::block> blocks) noexcept;
 
+    /** id must be valid, otherwise an assertion will fail. */
     torrent_entry& find_torrent_entry(const torrent_id_t id);
 
     enum class log_event

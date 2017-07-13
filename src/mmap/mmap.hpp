@@ -71,10 +71,6 @@ protected:
         size_type length,
         access_mode mode
     );
-
-    void map(
-
-    );
 };
 
 /**

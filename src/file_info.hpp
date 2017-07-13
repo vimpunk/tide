@@ -9,6 +9,8 @@ namespace tide {
 
 struct file_info
 {
+    // A relative path. This is so that when user moves torrent, no file data has to
+    // be changed, only a single internal root path field.
     // At this point path has been sanitized, so it is safe to use.
     class path path;
     // In bytes.

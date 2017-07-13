@@ -26,6 +26,11 @@ torrent_storage::torrent_storage(
     , m_piece_length(info->piece_length)
     , m_num_pieces(info->num_pieces)
 {
+    assert(!resume_data_path.empty());
+    assert(!m_piece_hashes.empty());
+    assert(!m_root_path.empty());
+    assert(m_piece_length > 0);
+    assert(m_num_pieces > 0);
     initialize_file_entries(info->files);
     create_directory_tree();
 }
@@ -72,10 +77,7 @@ interval torrent_storage::files_containing_pieces(const interval& pieces) const 
 file_slice torrent_storage::get_file_slice(
     const file_index_t file, const block_info& block) const noexcept
 {
-    if(!is_file_index_valid(file))
-    {
-        return {};
-    }
+    if(!is_file_index_valid(file)) { return {}; }
     // first check if block is actually in this file
     const int64_t piece_offset = block.index * m_piece_length;
     const file_entry& entry = m_files[file];
@@ -92,9 +94,10 @@ sha1_hash torrent_storage::expected_piece_hash(const piece_index_t piece) const 
 {
     if((piece >= 0) && (piece < m_num_pieces))
     {
+        assert(!m_piece_hashes.empty());
         sha1_hash hash;
-        string_view view(m_piece_hashes.data() + piece * m_piece_length, 20);
-        std::copy(view.begin(), view.end(), hash.begin());
+        const auto src = m_piece_hashes.data() + piece * 20;
+        std::copy(src, src + 20, hash.begin());
         return hash;
     }
     return {};
@@ -122,19 +125,15 @@ bmap torrent_storage::read_resume_data(std::error_code& error)
 {
     error.clear();
     before_reading(m_resume_data, error);
-    if(error)
-    {
-        return {};
-    }
+    if(error) { return {}; }
+
     std::string encoded(m_resume_data.length(), 0);
     iovec buffer;
     buffer.iov_base = &encoded[0];
     buffer.iov_len = encoded.length();
     m_resume_data.read(buffer, 0, error);
-    if(error)
-    {
-        return {};
-    }
+    if(error) { return {}; }
+
     return decode_bmap(std::move(encoded));
 }
 
@@ -145,19 +144,13 @@ void torrent_storage::write_resume_data(
     if(!m_resume_data.is_open())
     {
         m_resume_data.open(error);
-        if(error)
-        {
-            return;
-        }
+        if(error) { return; }
     }
     std::string encoded = resume_data.encode();
     if(!m_resume_data.is_allocated() || (m_resume_data.length() < encoded.length()))
     {
         m_resume_data.reallocate(encoded.length(), error);
-        if(error)
-        {
-            return;
-        }
+        if(error) { return; }
     }
     iovec buffer;
     buffer.iov_base = &encoded[0];
@@ -230,7 +223,6 @@ void torrent_storage::check_storage_integrity(bitfield& pieces, int first_piece,
     // TODO
 }
 
-/*
 std::vector<mmap_source> torrent_storage::create_mmap_source(
     const block_info& info, std::error_code& error)
 {
@@ -242,16 +234,10 @@ std::vector<mmap_source> torrent_storage::create_mmap_source(
          std::error_code& error) mutable -> int
         {
             before_reading(file, error);
-            if(error)
-            {
-                return 0;
-            }
+            if(error) { return 0; }
             mmaps.emplace_back(file.storage.create_mmap_source(
                 slice.offset, slice.length, error));
-            if(error)
-            {
-                return 0;
-            }
+            if(error) { return 0; }
             //assert(slice.length == mmaps.back().length());
             return slice.length;
         },
@@ -260,6 +246,7 @@ std::vector<mmap_source> torrent_storage::create_mmap_source(
     return mmaps;
 }
 
+/*
 std::vector<mmap_sink> torrent_storage::create_mmap_sink(
     const block_info& info, std::error_code& error)
 {
@@ -345,17 +332,11 @@ void torrent_storage::read(view<iovec> buffers,
          std::error_code& error) mutable -> int
         {
             before_reading(file, error);
-            if(error)
-            {
-                return 0;
-            }
+            if(error) { return 0; }
             // note that file::read trims buffers' front by num_read, so we must not do
             // it here again
             const int num_read = file.storage.read(buffers, slice.offset, error);
-            if(!error)
-            {
-                assert(num_read == slice.length);
-            }
+            if(!error) { assert(num_read == slice.length); }
             return num_read;
         },
         info,
@@ -453,10 +434,7 @@ void torrent_storage::for_each_file(Function fn,
         const int num_transferred = fn(file,
             get_file_slice(file, offset, num_left), error);
         num_left -= num_transferred;
-        if(error)
-        {
-            return;
-        }
+        if(error) { return; }
         // FIXME TODO something wrong with this fn, probably this
         //offset = file.torrent_offset + file.storage.length();
         offset += num_transferred;
@@ -478,10 +456,7 @@ void torrent_storage::before_writing(file& file, std::error_code& error)
     if(!file.is_open())
     {
         file.open(error);
-        if(error)
-        {
-            return;
-        }
+        if(error) { return; }
     }
     if(!file.is_allocated())
     {
@@ -504,10 +479,7 @@ void torrent_storage::before_reading(file& file, std::error_code& error)
     if(!file.is_open())
     {
         file.open(error);
-        if(error)
-        {
-            return;
-        }
+        if(error) { return; }
     }
     if(!file.is_allocated())
     {
@@ -553,11 +525,8 @@ void torrent_storage::create_directory_tree()
     std::error_code ec;
     // create directory will not fail if root directory already exists
     fs::create_directory(m_root_path, ec);
-    if(ec)
-    {
-        // this is called from the constructor, so we must throw here
-        throw ec;
-    }
+    // this is called from the constructor, so we must throw here
+    if(ec) { throw ec; }
     // then the subdirectories
     for(const file_entry& file : m_files)
     {
@@ -565,10 +534,7 @@ void torrent_storage::create_directory_tree()
         if(!dir_path.empty())
         {
             fs::create_directories(dir_path, ec);
-            if(ec)
-            {
-                throw ec;
-            }
+            if(ec) { throw ec; }
         }
     }
 }

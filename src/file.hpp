@@ -1,11 +1,13 @@
 #ifndef TIDE_FILE_HEADER
 #define TIDE_FILE_HEADER
 
+#include "filesystem.hpp"
 #include "flag_set.hpp"
 #include "iovec.hpp"
 #include "view.hpp"
 #include "time.hpp"
 #include "path.hpp"
+#include "mmap.hpp"
 
 #include <system_error>
 #include <cstdint>
@@ -20,57 +22,11 @@
 # include <unistd.h>
 # include <sys/mman.h>
 # include <sys/stat.h>
-# include <sys/uio.h> // TODO might need io.h
+# include <sys/uio.h>
 # define INVALID_HANDLE_VALUE -1 // this is the macro used on Windows
 #endif // _WIN32
 
 namespace tide {
-namespace fs { // filesystem utilities
-
-struct file_status
-{
-    enum
-    {
-#ifdef _WIN32
-        // TODO
-        fifo,
-        character_device,
-        directory,
-        regular_file,
-#else // _WIN32
-        socket = 0140000,
-        symbolic_link = 0120000,
-        regular_file = 0100000,
-        block_device = 0060000,
-        directory = 0040000,
-        character_device = 0020000,
-        fifo = 001000
-#endif // _WIN32
-    };
-
-    int64_t length;
-    int mode;
-    time_point last_access_time;
-    time_point last_modification_time;
-    time_point last_status_change_time;
-};
-
-file_status status(const path& path, std::error_code& error);
-
-bool exists(const path& path);
-bool exists(const path& path, std::error_code& error);
-bool is_directory(const path& path, std::error_code& error);
-
-int64_t file_length(const path& path, std::error_code& error);
-
-void create_directory(const path& path, std::error_code& error);
-void create_directories(const path& path, std::error_code& error);
-
-/** On Linux open file descriptors for old_path are unaffected. TODO check on Windows. */
-void move(const path& old_path, const path& new_path, std::error_code& error);
-void rename(const path& old_path, const path& new_path, std::error_code& error);
-
-} // namespace fs
 
 // TODO currently only linux is supported
 // TODO add optimization where user can tell file that only page aligned 16KiB blocks
@@ -104,11 +60,7 @@ struct file
         max
     };
 
-#ifdef _WIN32
-    using handle_type = HANDLE;
-#else
-    using handle_type = int;
-#endif
+    using handle_type = fs::file_handle_type;
     using open_mode_flags = flag_set<open_mode, open_mode::max>;
 
 private:
@@ -200,11 +152,11 @@ public:
      * An exception is thrown if file_offset and/or length are invalid. Any other IO
      * errors are reported via error. In both cases the returned mmap object is invalid/
      * uninitialized.
+     */
     mmap_source create_mmap_source(const int64_t file_offset,
         const int length, std::error_code& error);
     mmap_sink create_mmap_sink(const int64_t file_offset,
         const int length, std::error_code& error);
-     */
 
     /**
      * Reads or writes a single buffer and returns the number of bytes read/written, or
@@ -258,24 +210,24 @@ public:
 
 private:
 
-    void check_read_preconditions(
-        const int64_t file_offset, std::error_code& error) const noexcept;
-    void check_write_preconditions(
-        const int64_t file_offset, std::error_code& error) const noexcept;
+    void before_mapping_source(const int64_t file_offset, const int length,
+        std::error_code& error) const noexcept;
+    void before_reading(const int64_t file_offset, std::error_code& error) const noexcept;
+    void before_writing(const int64_t file_offset, std::error_code& error) const noexcept;
     void verify_handle(std::error_code& error) const;
     void verify_file_offset(const int64_t file_offset, std::error_code& error) const;
 
     /**
-     * Abstarcts away the plumbing behind a single pread/pwrite operation: repeatedly
-     * calls io_fn until it transfers min(buffer.iov_len, length() - file_offset) number
+     * Abstracts away the plumbing behind a single pread/pwrite operation: repeatedly
+     * calls pio_fn until it transfers min(buffer.iov_len, length() - file_offset) number
      * of bytes.
      *
-     * io_fn needs the following signature:
+     * pio_fn needs to have the following signature:
      * int pio_fn(void* buffer, int length, int64_t file_offset);
      * where the return value is the number of bytes that were transferred.
      */
-    template<typename IOFunction>
-    int single_buffer_io(IOFunction io_fn, iovec buffer,
+    template<typename PIOFunction>
+    int single_buffer_io(PIOFunction pio_fn, iovec buffer,
         int64_t file_offset, std::error_code& error);
 
     /**
@@ -325,12 +277,6 @@ namespace util {
  *             ^ and trim this buffer's front
  */
 void trim_buffers_front(view<iovec>& buffers, int num_to_trim) noexcept;
-
-/**
- * Assigns errno on UNIX and GetLastError() on Windows to error after a failed
- * operation.
- */
-void assign_errno(std::error_code& error) noexcept;
 
 } // namespace util
 
