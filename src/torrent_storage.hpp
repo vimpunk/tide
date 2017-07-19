@@ -208,8 +208,8 @@ public:
      */
     std::vector<mmap_source> create_mmap_source(
         const block_info& info, std::error_code& error);
-    std::vector<mmap_sink> create_mmap_sink(
-        const block_info& info, std::error_code& error);
+    //std::vector<mmap_sink> create_mmap_sink( // TODO
+        //const block_info& info, std::error_code& error);
 
     /**
      * Blocking scatter-gather IO.

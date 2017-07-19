@@ -2,6 +2,7 @@
 #define TIDE_DISK_IO_HEADER
 
 #include "torrent_storage_handle.hpp"
+#include "exponential_backoff.hpp"
 #include "average_counter.hpp"
 #include "torrent_storage.hpp"
 #include "disk_io_error.hpp"
@@ -10,13 +11,13 @@
 #include "thread_pool.hpp"
 #include "string_view.hpp"
 #include "sha1_hasher.hpp"
+#include "block_cache.hpp"
 #include "bitfield.hpp"
 #include "interval.hpp"
 #include "bdecode.hpp"
 #include "time.hpp"
 #include "path.hpp"
 
-#include <unordered_map>
 #include <system_error>
 #include <functional>
 #include <utility> // pair
@@ -47,37 +48,41 @@ public:
         int num_blocks_written = 0;
         int num_blocks_read = 0;
 
-        int num_write_cache_hits = 0;
         int num_read_cache_hits = 0;
+        int num_read_cache_misses = 0;
 
-        // Includes both the read and write caches. In bytes.
-        int cache_capacity = 0;
-        //int write_buffer_size = 0;
+        int read_cache_capacity = 0;
         int read_cache_size = 0;
 
-        int write_queue_size = 0;
-        int read_queue_size = 0;
-        int peak_write_queue_size = 0;
-        int peak_read_queue_size = 0;
+        //int write_queue_size = 0;
+        //int read_queue_size = 0;
+        //int peak_write_queue_size = 0;
+        //int peak_read_queue_size = 0;
 
         // How many of each jobs are currently being performed by threads.
-        int num_hashing_threads = 0;
-        int num_writing_threads = 0;
-        int num_reading_threads = 0;
+        // TODO since we merge hashing and writing in some cases, this would not be
+        // representative of the number of working threads
+        //int num_hashing_threads = 0;
+        //int num_writing_threads = 0;
+        //int num_reading_threads = 0;
 
-        int num_threads = 0;
+        //int num_threads = 0;
+
+        // The number of in-progress pieces and blocks buffered in disk_io.
+        int num_partial_pieces = 0;
+        int num_buffered_blocks = 0;
 
         // The average number of milliseconds a job is queued up (is waiting to be 
         // executed).
-        milliseconds avg_wait_time{0};
-        milliseconds avg_write_time{0};
-        milliseconds avg_read_time{0};
-        milliseconds avg_hash_time{0};
+        //milliseconds avg_wait_time{0};
+        //milliseconds avg_write_time{0};
+        //milliseconds avg_read_time{0};
+        //milliseconds avg_hash_time{0};
 
-        milliseconds total_job_time{0};
-        milliseconds total_write_time{0};
-        milliseconds total_read_time{0};
-        milliseconds total_hash_time{0};
+        //milliseconds total_job_time{0};
+        //milliseconds total_write_time{0};
+        //milliseconds total_read_time{0};
+        //milliseconds total_hash_time{0};
     };
 
 private:
@@ -87,16 +92,17 @@ private:
     // io_service is thread-safe.
     asio::io_service& m_network_ios;
 
+    const disk_io_settings& m_settings;
+
     // All disk jobs are posted to and executed by this thread pool. Note that anything
     // posted to this that accesses fields in disk_io will need to partake in mutual
     // exclusion.
     thread_pool m_thread_pool;
 
-    const disk_io_settings& m_settings;
-
-    // Statistics are gathered here. One copy persists throughout the entire application
-    // and copies for other modules are made on demand.
-    stats m_stats;
+    // Before we attempt to read in blocks from disk we first check whether it's not
+    // already in cache. Read in blocks are always placed in the cache. Cache is only
+    // ever accessed from the network thread.
+    block_cache m_read_cache;
 
     // Only disk_io can instantiate disk_buffers so that instances can be reused. All
     // buffers made by pool are 16KiB in size.
@@ -108,13 +114,13 @@ private:
      * processed (hashed and written to disk) in batches.
      *
      * For optimal performance, blocks should be supplied in contiguous batches (need
-     * not be in order within the batch) of settings::write_cache_line_size, so that
-     * these blocks can be hashed and written to disk by a single thread. However, 
-     * this is the optimum, otherwise  at most settings::max_write_cache_line_size blocks
-     * are kept in memory, after which they are flushed to disk, hashed or not. This 
-     * means that most of them (unless some follow the last hashed block) won't be
-     * hashed and thus need to be pulled back for hashing later, when the missing blocks 
-     * have been downloaded.
+     * not be in order within the batch) of settings::write_cache_line_size, following
+     * the last such batch, so that they may be hashed and written to disk by a single 
+     * thread. However, this is the optimum, otherwise  at most
+     * write_buffer_capacity blocks are kept in memory, after which they are flushed to 
+     * disk, hashed or not. This means that most of them (unless some follow the last 
+     * hashed block) won't be hashed and thus need to be pulled back for hashing later,
+     * when the missing blocks have been downloaded.
      *
      * Crucially, only a single thread may work on a piece at any given time.
      *
@@ -161,7 +167,7 @@ private:
         // disk_io_settings::write_cache_line_size contiguous, or even better, hashable
         // (which means contiguous and follows the last hashed block) blocks, but if
         // this is not fulfilled, blocks are buffered until the buffer size reaches
-        // disk_io_settings::max_write_cache_line_size blocks, after which the entire
+        // disk_io_settings::write_buffer_capacity blocks, after which the entire
         // buffer is flushed.
         // work_buffer is used to hold blocks that are being processed by a worker
         // thread.
@@ -240,6 +246,7 @@ private:
          */
         bool is_complete() const noexcept;
 
+        /** The total number of blocks in piece (i.e. not just the ones we have). */
         int num_blocks() const noexcept;
 
         /**
@@ -280,6 +287,8 @@ private:
 
     struct torrent_entry
     {
+        const torrent_id_t id;
+
         // Each torrent is associated with a torrent_storage instance which encapsulates
         // the implementation of instantiating the storage, saving and loading blocks
         // from disk, renaming/moving/deleting files etc. Higher level logic, like
@@ -298,7 +307,7 @@ private:
         // new entires from the network thread.
         std::vector<std::unique_ptr<partial_piece>> write_buffer;
 
-        struct piece_fetch_subscriber
+        struct fetch_subscriber
         {
             std::function<void(const std::error_code&, block_source)> handler;
             int requested_offset;
@@ -310,7 +319,7 @@ private:
         // pulled in with the first one (if read ahead is not disabled), which is common
         // when a peer sends us a request queue, they don't launch their own fetch ops,
         // but instead wait for the first operation to finish and notify them of their
-        // block. The piece_fetch_subscriber list has to be ordered by the requested
+        // block. The fetch_subscriber list has to be ordered by the requested
         // offset.
         //
         // After the operation is finished and all waiting requests are served, the
@@ -321,8 +330,7 @@ private:
         //
         // The original request handler is not stored in the subscriber list (so if only
         // a single request is issued for this block, we don't have to allocate torrent).
-        std::vector<std::pair<block_info,
-            std::vector<piece_fetch_subscriber>>> block_fetches;
+        std::vector<std::pair<block_info, std::vector<fetch_subscriber>>> block_fetches;
 
         // Every time a thread is launched to do some operation on torrent_entry, this
         // counter is incremented, and when the operation finished, it's decreased. It
@@ -331,12 +339,23 @@ private:
 
         torrent_entry(std::shared_ptr<torrent_info> info,
             string_view piece_hashes, path resume_data_path);
-        torrent_entry(torrent_entry&& other);
-        torrent_entry& operator=(torrent_entry&& other);
     };
 
-    // All torrents in engine have a corresponding torrent_entry.
-    std::map<torrent_id_t, torrent_entry> m_torrents;
+    // All torrents in engine have a corresponding torrent_entry. Entries are sorted
+    // in ascending order of torrent_entry::id.
+    std::vector<std::unique_ptr<torrent_entry>> m_torrents;
+
+    // Statistics are gathered here. One copy persists throughout the entire application
+    // and copies for other modules are made on demand.
+    stats m_stats;
+
+    // When we encounter a fatal disk error, we keep retrying. This timer is used to
+    // schedule retries.
+    deadline_timer m_retry_timer;
+
+    // This is used to calculate how much time to wait between retries. We wait at most
+    // 120 seconds.
+    exponential_backoff<120> m_retry_delay;
 
 public:
 
@@ -535,16 +554,34 @@ private:
     void save_contiguous_blocks(torrent_storage& storage, const piece_index_t piece_index,
         view<partial_piece::block> blocks, std::error_code& error);
 
+    /**
+     * If a piece's buffer could not be flushed in time, it is flushed to avoid lingering
+     * blocks in memory (see partial_piece::flush_timer comment).
+     */
+    void on_write_buffer_expiry(const std::error_code& error,
+        torrent_entry& torrent, partial_piece& piece);
+
     // -------------
     // -- reading --
     // -------------
 
     /**
-     * TODO documentation
+     * Depending on the configuration and the number of blocks left in piece starting at
+     * the requested block, we either read ahead or just read a single block.
      */
-    void fetch_block(torrent_entry& torrent, const block_info& block_info, 
+    void dispatch_read(torrent_entry& torrent, const block_info& info, 
         std::function<void(const std::error_code&, block_source)> handler);
+
+    void read_single_block(torrent_entry& torrent, const block_info& info,
+        std::function<void(const std::error_code&, block_source)> handler);
+
     void read_ahead(torrent_entry& torrent, const block_info& block_info,
+        std::function<void(const std::error_code&, block_source)> handler);
+
+    block_info make_mmap_read_ahead_info(torrent_entry &torrent,
+        const block_info& first_block) const noexcept;
+
+    void on_blocks_read_ahead(torrent_entry& torrent, std::vector<block_source> blocks,
         std::function<void(const std::error_code&, block_source)> handler);
 
     // -----------

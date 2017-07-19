@@ -219,10 +219,7 @@ inline void peer_session::connect()
 
 void peer_session::on_connected(const std::error_code& error)
 {
-    if(m_torrent_info)
-    {
-        --m_torrent_info->num_connecting_sessions;
-    }
+    if(m_torrent_info) { --m_torrent_info->num_connecting_sessions; }
 
     if(should_abort(error)) { return; }
 
@@ -258,7 +255,7 @@ void peer_session::on_connected(const std::error_code& error)
     if(m_settings.encryption_policy == peer_session_settings::no_encryption)
     {
         if(m_info.is_outbound) { send_handshake(); }
-        // otherwise send_handshake() is called after we received peer's handshake
+        // otherwise send_handshake() is called after we've received peer's handshake
         receive();
     }
     else
@@ -2365,9 +2362,7 @@ void peer_session::try_identify_client()
             {
                 // BitCometLite uses 6 digits for version number as opposed to the
                 // standard 4 for most other Azureus style peer ids
-                return m_info.peer_id[1 + 2 + 6] == '-'
-                     ? "BitCometLite"
-                     : "BitBlinder";
+                return m_info.peer_id[1 + 2 + 6] == '-' ? "BitCometLite" : "BitBlinder";
             }
             else if(matches("BP")) return "BitTorrent Pro";
             else if(matches("BR")) return "BitRocket";

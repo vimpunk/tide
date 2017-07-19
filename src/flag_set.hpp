@@ -1,6 +1,8 @@
 #ifndef TIDE_FLAG_SET_HEADER
 #define TIDE_FLAG_SET_HEADER
 
+#include "num_utils.hpp"
+
 #include <initializer_list>
 #include <type_traits>
 #include <cstdint>
@@ -13,49 +15,37 @@ template<typename Enum, Enum> struct flag_set;
 template<typename Enum, Enum N>
 bool operator==(const flag_set<Enum, N>&, const flag_set<Enum, N>&) noexcept;
 
-namespace util
+namespace util {
+
+constexpr size_t min_num_bits(const size_t n) noexcept
 {
-    /** Credit: https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2 */
-    constexpr uint32_t nearest_pow2(uint32_t x) noexcept
-    {
-        --x;
-        x |= x >> 1;
-        x |= x >> 2;
-        x |= x >> 4;
-        x |= x >> 8;
-        x |= x >> 16;
-        ++x;
-        return x;
-    }
+    return n < 8 ? 8 : n;
+}
 
-    constexpr size_t min_num_bits(const size_t n) noexcept
-    {
-        return n < 8 ? 8 : n;
-    }
+template<size_t N> struct integral_type_for
+{
+    using type = typename integral_type_for<min_num_bits(nearest_power_of_two(N))>::type;
+};
 
-    template<size_t N> struct integral_type_for
-    {
-        using type = typename integral_type_for<min_num_bits(nearest_pow2(N))>::type;
-    };
+template<> struct integral_type_for<64> { using type = uint64_t; };
+template<> struct integral_type_for<32> { using type = uint32_t; };
+template<> struct integral_type_for<16> { using type = uint16_t; };
+template<> struct integral_type_for<8> { using type = uint8_t; };
 
-    template<> struct integral_type_for<64> { using type = uint64_t; };
-    template<> struct integral_type_for<32> { using type = uint32_t; };
-    template<> struct integral_type_for<16> { using type = uint16_t; };
-    template<> struct integral_type_for<8> { using type = uint8_t; };
+template<
+    typename Integral,
+    typename Enum,
+    typename = typename std::enable_if<
+        std::is_convertible<
+            typename std::underlying_type<Enum>::type, 
+            Integral
+        >::value
+    >::type
+> constexpr Integral enum_cast(Enum e)
+{
+    return static_cast<Integral>(e);
+}
 
-    template<
-        typename Integral,
-        typename Enum,
-        typename = typename std::enable_if<
-            std::is_convertible<
-                typename std::underlying_type<Enum>::type, 
-                Integral
-            >::value
-        >::type
-    > constexpr Integral enum_cast(Enum e)
-    {
-        return static_cast<Integral>(e);
-    }
 } // namespace util
 
 /**

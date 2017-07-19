@@ -50,6 +50,7 @@ void file::allocate(std::error_code& error)
 
 void file::reallocate(const int64_t length, std::error_code& error)
 {
+    error.clear();
     verify_handle(error);
     // only (re)allocate if we're not allocated, or if we are if the requested length
     // to allocate is not equal to the currently allocated amount
@@ -122,6 +123,8 @@ void file::reallocate(const int64_t length, std::error_code& error)
 void file::erase(std::error_code& error)
 {
     error.clear();
+    verify_handle(error);
+    if(error) { return; }
     if(is_open())
     {
         // we shouldn't delete the file out from under us, even if the file is kept
@@ -163,10 +166,7 @@ void file::open(open_mode_flags open_mode, std::error_code& error)
     error.clear();
     if(is_open())
     {
-        if(open_mode == m_open_mode)
-        {
-            return;
-        }
+        if(open_mode == m_open_mode) { return; }
         // close file because we want to open it in a different mode
         close();
     }
@@ -245,6 +245,7 @@ void file::close()
 mmap_source file::create_mmap_source(const int64_t file_offset,
     const int length, std::error_code& error)
 {
+    error.clear();
     before_mapping_source(file_offset, length, error);
     if(error) { return {}; }
 
@@ -253,13 +254,17 @@ mmap_source file::create_mmap_source(const int64_t file_offset,
     return mmap;
 }
 
-/*
 mmap_sink file::create_mmap_sink(const int64_t file_offset,
     const int length, std::error_code& error)
 {
-    before_mapping(file_offset, length, error);
+    error.clear();
+    before_mapping_sink(file_offset, length, error);
+    if(error) { return {}; }
+
+    mmap_sink mmap;
+    mmap.map(m_file_handle, file_offset, length, error);
+    return mmap;
 }
-*/
 
 int file::read(view<uint8_t> buffer, int64_t file_offset, std::error_code& error)
 {
@@ -268,6 +273,7 @@ int file::read(view<uint8_t> buffer, int64_t file_offset, std::error_code& error
 
 int file::read(iovec buffer, int64_t file_offset, std::error_code& error)
 {
+    error.clear();
     before_reading(file_offset, error);
     if(!error)
     {
@@ -285,6 +291,7 @@ int file::write(view<uint8_t> buffer, int64_t file_offset, std::error_code& erro
 
 int file::write(iovec buffer, int64_t file_offset, std::error_code& error)
 {
+    error.clear();
     before_writing(file_offset, error);
     if(!error)
     {
@@ -330,6 +337,7 @@ int file::single_buffer_io(PIOFunction pio_fn, iovec buffer,
 
 int file::read(view<iovec>& buffers, const int64_t file_offset, std::error_code& error)
 {
+    error.clear();
     return positional_vector_io(
         [this](view<iovec>& buffers, int64_t file_offset) -> int
         { return preadv(m_file_handle, buffers.data(), buffers.size(), file_offset); },
@@ -338,6 +346,7 @@ int file::read(view<iovec>& buffers, const int64_t file_offset, std::error_code&
 
 int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code& error)
 {
+    error.clear();
     before_writing(file_offset, error);
     if(error) { return 0; }
 
@@ -431,10 +440,7 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
             buffers, file_offset, error);
     }
 
-    if(!error && m_open_mode[no_os_cache])
-    {
-        sync_with_disk(error);
-    }
+    if(!error && m_open_mode[no_os_cache]) { sync_with_disk(error); }
     return num_written;
 }
 
@@ -505,11 +511,8 @@ int file::positional_vector_io(PVIOFunction pvio_fn, view<iovec>& buffers,
 void file::sync_with_disk(std::error_code& error)
 {
     error.clear();
-    if(is_read_only())
-    {
-        // don't sync if we're not in write mode
-        return;
-    }
+    // no need to sync if we're not in write mode
+    if(is_read_only()) { return; }
 #ifdef _WIN32
     if(!FlushFileBuffers(m_file_handle))
     {
@@ -523,10 +526,23 @@ void file::sync_with_disk(std::error_code& error)
 #endif
 }
 
-inline void file::before_mapping_source(const int64_t file_offset, const int length,
-    std::error_code& error) const noexcept
+inline void file::before_mapping_source(const int64_t file_offset,
+    const int length, std::error_code& error) const noexcept
 {
     before_reading(file_offset, error);
+    if(!error)
+    {
+        if(file_offset + length > m_length)
+        {
+            error = std::make_error_code(std::errc::invalid_argument);
+        }
+    }
+}
+
+inline void file::before_mapping_sink(const int64_t file_offset,
+    const int length, std::error_code& error) const noexcept
+{
+    before_writing(file_offset, error);
     if(!error)
     {
         if(file_offset + length > m_length)
@@ -570,7 +586,6 @@ inline void file::before_writing(
 
 inline void file::verify_handle(std::error_code& error) const
 {
-    error.clear();
     if(!is_open())
     {
         error = std::make_error_code(std::errc::bad_file_descriptor);
@@ -580,8 +595,7 @@ inline void file::verify_handle(std::error_code& error) const
 inline void file::verify_file_offset(const int64_t file_offset,
     std::error_code& error) const
 {
-    error.clear();
-    if((file_offset > file::length()) || (file_offset < 0))
+    if((file_offset > length()) || (file_offset < 0))
     {
         error = std::make_error_code(std::errc::invalid_argument);
     }
@@ -594,16 +608,13 @@ void trim_buffers_front(view<iovec>& buffers, int num_to_trim) noexcept
     while(num_to_trim > 0)
     {
         const int buff_len = buffers.front().iov_len;
-        if(buff_len > num_to_trim)
-        {
-            break;
-        }
+        if(buff_len > num_to_trim) { break; }
         num_to_trim -= buff_len;
         buffers.trim_front(1);
     }
     if(num_to_trim > 0)
     {
-        assert(num_to_trim < buffers.front().iov_len);
+        assert(num_to_trim < int(buffers.front().iov_len));
         trim_iovec_front(buffers.front(), num_to_trim);
     }
 }

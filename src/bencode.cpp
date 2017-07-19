@@ -5,8 +5,8 @@
 #include <cassert>
 
 namespace tide {
-namespace util
-{
+namespace util {
+
     inline int bencoded_string_length(string_view s)
     {
         return s.length() + std::to_string(s.length()).length() + 1; /* + 1 for : */
@@ -28,7 +28,8 @@ namespace util
         std::copy(s.begin(), s.end(), begin);
         return encoded_len;
     }
-}
+
+} // namespace util
 
 std::string bencode_number(const int64_t n)
 {
@@ -126,7 +127,7 @@ void blist_encoder::push_back(const bmap_encoder& m)
 std::string blist_encoder::encode() const
 {
     std::string result(encoded_length(), 0);
-    result[0] = 'l';
+    result.front() = 'l';
     int i = 1;
     for(auto& s : m_list)
     {

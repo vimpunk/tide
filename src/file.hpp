@@ -68,8 +68,8 @@ private:
     handle_type m_file_handle = INVALID_HANDLE_VALUE;
     path m_absolute_path;
     bool m_is_allocated = false;
-    open_mode_flags m_open_mode;
     int64_t m_length;
+    open_mode_flags m_open_mode;
 
 public:
 
@@ -131,7 +131,7 @@ public:
     int64_t size() const noexcept;
     int64_t length() const noexcept;
 
-    path absolute_path() const;
+    const path& absolute_path() const;
     std::string filename() const;
 
     bool is_open() const noexcept;
@@ -211,6 +211,8 @@ public:
 private:
 
     void before_mapping_source(const int64_t file_offset, const int length,
+        std::error_code& error) const noexcept;
+    void before_mapping_sink(const int64_t file_offset, const int length,
         std::error_code& error) const noexcept;
     void before_reading(const int64_t file_offset, std::error_code& error) const noexcept;
     void before_writing(const int64_t file_offset, std::error_code& error) const noexcept;
@@ -295,14 +297,14 @@ inline int64_t file::length() const noexcept
     return m_length;
 }
 
-inline path file::absolute_path() const
+inline const path& file::absolute_path() const
 {
     return m_absolute_path;
 }
 
 inline std::string file::filename() const
 {
-    m_absolute_path.filename().native();
+    return m_absolute_path.filename().native();
 }
 
 inline bool file::is_open() const noexcept

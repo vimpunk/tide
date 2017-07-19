@@ -26,8 +26,9 @@ struct mmap_base
     //using reverse_iterator = std::reverse_iterator<iterator>;
     //using const_reverse_iterator = std::reverse_iterator<const_iterator>;
     using iterator_category = std::random_access_iterator_tag;
+    using handle_type = fs::file_handle_type;
 
-private:
+protected:
 
     // Points to the first requested byte, and not to the actual start of the mapping.
     pointer m_data = nullptr;
@@ -36,12 +37,10 @@ private:
     size_type m_length = 0;
     size_type m_mapped_length = 0;
 
-    fs::file_handle_type m_file_handle;
+    handle_type m_file_handle;
 #if defined(_WIN32)
-    fs::file_handle_type m_file_mapping_handle;
+    handle_type m_file_mapping_handle;
 #endif
-
-protected:
 
     enum class access_mode
     {
@@ -54,8 +53,8 @@ public:
     mmap_base() = default;
     mmap_base(const mmap_base&) = delete;
     mmap_base& operator=(const mmap_base&) = delete;
-    mmap_base(mmap_base&&) = default;
-    mmap_base& operator=(mmap_base&&) = default;
+    mmap_base(mmap_base&&);
+    mmap_base& operator=(mmap_base&&);
     ~mmap_base();
 
     void unmap();
@@ -76,8 +75,8 @@ public:
      * mapped_length returns the actual mapped length, which is usually a multiple of
      * the OS' page size.
      */
-    size_type length() const noexcept;
     size_type size() const noexcept;
+    size_type length() const noexcept;
     size_type mapped_length() const noexcept;
 
     const_pointer data() const noexcept;
@@ -87,9 +86,11 @@ public:
     const_iterator end() const noexcept;
     const_iterator cend() const noexcept;
 
+    const_reference operator[](const size_type i) const noexcept;
+
 protected:
 
-    void map(fs::file_handle_type file_handle, size_type offset, size_type length,
+    void map(const handle_type handle, const size_type offset, const size_type length,
         const access_mode mode, std::error_code& error);
     void sync(std::error_code& error);
 
@@ -100,7 +101,7 @@ private:
     /** NOTE: m_file_handle must be valid. */
     size_type query_file_size(std::error_code& error) noexcept;
 
-    void map(size_type offset, size_type length,
+    void map(const size_type offset, const size_type length,
         const access_mode mode, std::error_code& error);
 
     void verify_file_handle(std::error_code& error) const noexcept;
@@ -119,28 +120,29 @@ private:
  * Remapping a file is possible, but unmap must be called before that.
  *
  * For now, both classes may only be used with an existing open file by providing the 
- * file's file_handle.
+ * file's handle.
  *
- * Both classes' destructors unmap the file.
+ * Both classes' destructors unmap the file. However, mmap_sink's destructor does not
+ * sync the mapped file view to disk, this has to be done manually with sink.
  */
 
 /** A read-only file memory mapping. */
 struct mmap_source: public detail::mmap_base
 {
     mmap_source() = default;
-    mmap_source(fs::file_handle_type file_handle, size_type offset, size_type length);
-    void map(fs::file_handle_type file_handle, size_type offset,
-        size_type length, std::error_code& error);
+    mmap_source(const handle_type handle, const size_type offset, const size_type length);
+    void map(const handle_type handle, const size_type offset,
+        const size_type length, std::error_code& error);
 };
 
 /** A read-write file memory mapping. */
 struct mmap_sink: public detail::mmap_base
 {
     mmap_sink() = default;
-    mmap_sink(fs::file_handle_type file_handle, size_type offset, size_type length);
+    mmap_sink(const handle_type handle, const size_type offset, const size_type length);
 
-    void map(fs::file_handle_type file_handle, size_type offset,
-        size_type length, std::error_code& error);
+    void map(const handle_type handle, const size_type offset,
+        const size_type length, std::error_code& error);
 
     /** Flushes the memory mapped page to disk. */
     void sync(std::error_code& error);
@@ -148,6 +150,8 @@ struct mmap_sink: public detail::mmap_base
     pointer data() noexcept;
     iterator begin() noexcept;
     iterator end() noexcept;
+
+    reference operator[](const size_type i) noexcept;
 };
 
 // ---------------
@@ -220,49 +224,59 @@ inline mmap_base::const_iterator mmap_base::cend() const noexcept
     return end();
 }
 
+inline mmap_base::const_reference mmap_base::operator[](const size_type i) const noexcept
+{
+    return m_data[i];
+}
+
 } // namespace detail
 
 // -----------------
 // -- mmap_source --
 // -----------------
 
-inline mmap_source::mmap_source(fs::file_handle_type file_handle,
-    size_type offset, size_type length)
+inline mmap_source::mmap_source(const handle_type handle,
+    const size_type offset, const size_type length)
 {
     std::error_code error;
-    map(file_handle, offset, length, error);
+    map(handle, offset, length, error);
     if(error) { throw error; }
 }
 
-inline void mmap_source::map(fs::file_handle_type file_handle, size_type offset,
-    size_type length, std::error_code& error)
+inline void mmap_source::map(const handle_type handle, const size_type offset,
+    const size_type length, std::error_code& error)
 {
-    mmap_base::map(file_handle, offset, length, access_mode::read_only, error);
+    mmap_base::map(handle, offset, length, access_mode::read_only, error);
 }
 
 // ---------------
 // -- mmap_sink --
 // ---------------
 
-inline mmap_sink::mmap_sink(fs::file_handle_type file_handle,
-    size_type offset, size_type length)
+inline mmap_sink::mmap_sink(const handle_type handle,
+    const size_type offset, const size_type length)
 {
     std::error_code error;
-    map(file_handle, offset, length, error);
+    map(handle, offset, length, error);
     if(error) { throw error; }
 }
 
-inline void mmap_sink::map(fs::file_handle_type file_handle, size_type offset,
-    size_type length, std::error_code& error)
+inline void mmap_sink::map(const handle_type handle, const size_type offset,
+    const size_type length, std::error_code& error)
 {
-    mmap_base::map(file_handle, offset, length, access_mode::read_write, error);
+    mmap_base::map(handle, offset, length, access_mode::read_write, error);
 }
 
 inline void mmap_sink::sync(std::error_code& error) { mmap_base::sync(error); }
 
-inline mmap_sink::pointer mmap_sink::data() noexcept { return mmap_base::data(); }
-inline mmap_sink::iterator mmap_sink::begin() noexcept { return mmap_base::begin(); }
-inline mmap_sink::iterator mmap_sink::end() noexcept { return mmap_base::end(); }
+inline mmap_sink::pointer mmap_sink::data() noexcept { return m_data; }
+inline mmap_sink::iterator mmap_sink::begin() noexcept { return data(); }
+inline mmap_sink::iterator mmap_sink::end() noexcept { return data() + length(); }
+
+inline mmap_sink::reference mmap_sink::operator[](const size_type i) noexcept
+{
+    return m_data[i];
+}
 
 } // namespace tide
 

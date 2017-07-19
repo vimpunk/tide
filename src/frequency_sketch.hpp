@@ -1,32 +1,14 @@
-/* Copyright 2017 https://github.com/mandreyel
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of this
- * software and associated documentation files (the "Software"), to deal in the Software
- * without restriction, including without limitation the rights to use, copy, modify,
- * merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be included in all copies
- * or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
- * PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
- * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
- * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
-
 #ifndef FREQUENCY_SKETCH_HEADER
 #define FREQUENCY_SKETCH_HEADER
 
-#include "detail.hpp"
+#include "num_utils.hpp"
 
 #include <vector>
 #include <cmath>
 #include <stdexcept>
 #include <limits>
+
+namespace tide {
 
 /**
  * A probabilistic set for estimating the popularity (frequency) of an element within an
@@ -66,7 +48,7 @@ public:
                 "frequency_sketch capacity must be larger than 0"
             );
         }
-        m_table.resize(detail::nearest_power_of_two(capacity));
+        m_table.resize(util::nearest_power_of_two(capacity));
         m_size = 0;
     }
 
@@ -77,7 +59,7 @@ public:
 
     int frequency(const T& t) const noexcept
     {
-        const uint32_t hash = detail::hash(t);
+        const uint32_t hash = util::hash(t);
         int frequency = std::numeric_limits<int>::max();
 
         for(auto i = 0; i < 4; ++i)
@@ -90,7 +72,7 @@ public:
 
     void record_access(const T& t) noexcept
     {
-        const uint32_t hash = detail::hash(t);
+        const uint32_t hash = util::hash(t);
         bool was_added = false;
 
         for(auto i = 0; i < 4; ++i)
@@ -98,10 +80,7 @@ public:
             was_added |= try_increment_counter_at(hash, i);
         }
 
-        if(was_added && (++m_size == sampling_size()))
-        {
-            reset();
-        }
+        if(was_added && (++m_size == sampling_size())) { reset(); }
     }
 
 protected:
@@ -114,9 +93,9 @@ protected:
     }
 
     /**
-     * Returns the table index where the counter associated with $hash at
-     * $counter_index resides (since each item is mapped to four different counters in
-     * $m_table, an index is necessary to differentiate between each).
+     * Returns the table index where the counter associated with hash at
+     * counter_index resides (since each item is mapped to four different counters in
+     * m_table, an index is necessary to differentiate between each).
      */
     int table_index(const uint32_t hash, const int counter_index) const noexcept
     {
@@ -132,7 +111,7 @@ protected:
     }
 
     /**
-     * Increments ${counter_index}th counter by 1 if it's below the maximum value (15).
+     * Increments {counter_index}th counter by 1 if it's below the maximum value (15).
      * Returns true if the counter was incremented.
      */
     bool try_increment_counter_at(const uint32_t hash, const int counter_index)
@@ -148,11 +127,11 @@ protected:
     }
 
     /**
-     * $m_table holds 64 bit blocks, while counters are 4 bit wide, i.e. there are 16
+     * m_table holds 64 bit blocks, while counters are 4 bit wide, i.e. there are 16
      * counters in a block.
-     * This function determines the start offset of the ${counter_index}th counter
-     * associated with $hash.
-     * Offset may be [0, 60] and is a multiple of 4. $counter_index must be [0, 3].
+     * This function determines the start offset of the counter_indexth counter
+     * associated with hash.
+     * Offset may be [0, 60] and is a multiple of 4. counter_index must be [0, 3].
      */
     int counter_offset(const uint32_t hash, const int counter_index) const noexcept
     {
@@ -160,7 +139,7 @@ protected:
     }
 
     /**
-     * $m_table holds 64 bit blocks, and each block is partitioned into four 16 bit
+     * m_table holds 64 bit blocks, and each block is partitioned into four 16 bit
      * parts, starting at 0, 16, 32 and 48. Each part is further divided into four 4 bit
      * sub-parts (e.g. 0, 4, 8, 12), which are the start offsets of the counters.
      *
@@ -183,7 +162,7 @@ protected:
         return (m_table[table_index] & mask) != mask;
     }
 
-    /** Halves every counter and adjusts $m_size. */
+    /** Halves every counter and adjusts m_size. */
     void reset() noexcept
     {
         for(auto& counters : m_table)
@@ -197,7 +176,7 @@ protected:
     }
 
     /**
-     * The reset operation is launched when $m_size reaches the value returned by this
+     * The reset operation is launched when m_size reaches the value returned by this
      * function.
      */
     int sampling_size() const noexcept
@@ -205,5 +184,7 @@ protected:
         return m_table.size() * 10;
     }
 };
+
+} // namespace tide
 
 #endif

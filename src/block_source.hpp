@@ -36,6 +36,8 @@ struct block_source : public block_info
     {
         buffers.emplace_back(std::move(buffer));
     }
+
+    operator bool() const noexcept { return !buffers.empty(); }
 };
 
 // TODO make a specialization for when only a single buffer is used to represent block

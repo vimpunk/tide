@@ -108,7 +108,7 @@ struct disk_io_settings
     // The upper bound of the piece cache in number of 16KiB blocks. The write buffer
     // (which is basically a write cache, deferring writes as much as possible) is
     // counted here as well.
-    int cache_capacity;
+    int read_cache_capacity;
 
     // This determines how many blocks should be read ahead, including the originally
     // requested block. If it's 0, it disables read ahead and only one block will be
@@ -138,7 +138,7 @@ struct disk_io_settings
     // This enforces an upper bound on how long blocks may stay in memory. This is to
     // avoid lingering blocks, which may occur if the client started downloading a piece
     // from the only peer that has it, then disconnected.
-    seconds write_buffer_expiry_timeout;
+    seconds write_buffer_expiry_timeout{5 * 60};
 
     // All metadata of the application (torrent states, preferences etc) are saved here.
     // This must be specified.

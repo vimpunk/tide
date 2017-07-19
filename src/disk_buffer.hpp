@@ -10,7 +10,7 @@
 #include <boost/pool/pool.hpp>
 
 namespace tide {
-namespace util {
+namespace detail {
 
 struct buffer
 {
@@ -37,9 +37,9 @@ struct buffer
     virtual size_type size() const = 0;
 };
 
-} // namespace util
+} // namespace detail
 
-class mmap_source_buffer : public util::buffer
+class mmap_source_buffer : public detail::buffer
 {
     mmap_source m_source;
 public:
@@ -72,8 +72,10 @@ using disk_buffer_pool = boost::pool<>;
  *
  * NOTE: the pool that allocates memory for disk_buffer must outlive disk_buffer.
  */
-class disk_buffer : public util::buffer
+class disk_buffer : public detail::buffer
 {
+    // TODO make this a unique_ptr but unfortunately asio handlers don't accept
+    // move-only types so have to either manually reference count or use something else
     std::shared_ptr<value_type> m_data;
     // Reflects the desired size, not the amount of memory, which is always 16KiB.
     int m_size = 0;
@@ -110,13 +112,15 @@ public:
  * a disk_buffer, but in the end the usage and the purpose is the same.
  *
  * It has shared_ptr semantics because blocks are stored in the disk cache as
- * source_buffers as they too may be either memory mappings or disk_buffers.
+ * source_buffers (they too may be either memory mappings or disk_buffers), which means
+ * a source_buffer may be referred to by both the disk cache and one or more
+ * peer_sessions using it.
  */
 class source_buffer
 {
 public:
 
-    using buffer_type = util::buffer;
+    using buffer_type = detail::buffer;
     using value_type = buffer_type::value_type;
     using size_type = buffer_type::size_type;
     using difference_type = buffer_type::difference_type;
@@ -132,7 +136,7 @@ private:
     std::shared_ptr<buffer_type> m_buffer;
 public:
     
-    source_buffer(std::shared_ptr<buffer_type> buffer) : m_buffer(buffer) {}
+    source_buffer(std::shared_ptr<buffer_type> buffer) : m_buffer(std::move(buffer)) {}
 
     operator bool() const noexcept { return m_buffer != nullptr; }
 
