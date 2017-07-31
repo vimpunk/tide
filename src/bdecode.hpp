@@ -195,7 +195,7 @@ public:
         return m_head ? m_head->length : 0;
     }
 
-    bool is_empty() const noexcept
+    bool empty() const noexcept
     {
         return size() == 0;
     }

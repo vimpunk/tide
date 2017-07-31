@@ -17,7 +17,7 @@ piece_download::piece_download(const piece_index_t index, const int piece_length
 bool piece_download::has_block(const block_info& block) const noexcept
 {
     const int index = block_index(block);
-    if(index >= num_blocks()) { return false; }
+    if(index >= m_blocks.size()) { return false; }
     return m_blocks[index].status == block::status::received;
 }
 
@@ -26,20 +26,20 @@ void piece_download::got_block(const peer_id_t& peer, const block_info& block,
 {
     verify_block(block);
 
-    const int elapsed = total_milliseconds(
-        cached_clock::now() - m_last_received_request_time);
-    if(m_avg_request_rtt_ms == 0)
-        m_avg_request_rtt_ms = elapsed;
-    else
-        m_avg_request_rtt_ms = m_avg_request_rtt_ms * 0.7 + elapsed * 0.3;
-
     const int index = block_index(block);
     if(m_blocks[index].status == block::status::received) { return; }
+
+    const milliseconds elapsed = duration_cast<milliseconds>(
+        cached_clock::now() - m_blocks[index].request_time);
+    if(m_avg_request_rtt == milliseconds(0))
+        m_avg_request_rtt = elapsed;
+    else
+        m_avg_request_rtt = (m_avg_request_rtt / 10) * 7 + (elapsed / 10) * 3;
 
     m_blocks[index].status = block::status::received;
     --m_num_blocks_left;
 
-    // register this peer as a participant if we haven't already
+    // register this peer as a participant if it's the first block from it
     if(std::find_if(m_peers.begin(), m_peers.end(),
         [&peer](const auto& p) { return p.id == peer; }) == m_peers.end())
     {
@@ -118,16 +118,17 @@ void piece_download::remove_peer(const peer_id_t& peer)
 bool piece_download::can_request() const noexcept
 {
     if(num_blocks_left() == 0) { return false; }
-    // if there is only a single block left and it's in the beginning of the piece,
-    // it likely timed out before but we didn't time it out because there were other 
-    // blocks to pick, but it still hasn't been downloaded, we want to re-request it
     if((num_blocks_left() > 0) && (m_num_pickable_blocks == 0))
     {
-        //if(num_blocks_left() == 1)
-            //return true;
-        //else
-            return cached_clock::now() - m_last_eviction_time
-                 > milliseconds(m_avg_request_rtt_ms);
+        // if we've requested all blocks but haven't received all of them, we might be
+        // able to time out some of them
+        for(const auto& block : m_blocks)
+        {
+            if((block.status == block::status::requested) && has_timed_out(block))
+            {
+                return true;
+            }
+        }
     }
     else
     {
@@ -140,36 +141,39 @@ block_info piece_download::pick_block(int offset_hint)
     assert(offset_hint % 0x4000 == 0);
     assert(offset_hint >= 0);
 
-    if(!can_request()) { return invalid_block; }
+    if(num_blocks_left() == 0) { return invalid_block; }
 
     // see comment in can_request
     if((num_blocks_left() == 1) && (m_num_pickable_blocks == 0))
     {
         auto it = std::find_if(m_blocks.begin(), m_blocks.end(),
             [](const auto& b) { return b.status == block::status::requested; });
-        // since we have a block left but none are pickable, it means we must have a
-        // single requested block left
         assert(it != m_blocks.end());
         const int offset = (it - m_blocks.begin()) * 0x4000;
+        it->request_time = cached_clock::now();
         return {piece_index(), offset, block_length(offset)};
     }
 
-    if(offset_hint >= m_piece_length)
+    if((offset_hint >= m_piece_length) || (offset_hint < 0))
     {
         offset_hint = 0;
     }
 
-    for(auto i = offset_hint / 0x4000; i < num_blocks(); ++i)
+    for(auto i = offset_hint / 0x4000; i < m_blocks.size(); ++i)
     {
-        if(m_blocks[i].status == block::status::free)
+        block& block = m_blocks[i];
+        if(block.status == block::status::requested)
         {
-            m_blocks[i].status = block::status::requested;
+            if(has_timed_out(block))
+                block.status == block::status::free;
+            else
+                continue;
+        }
+        else if(block.status == block::status::free)
+        {
+            block.status = block::status::requested;
             --m_num_pickable_blocks;
             const int offset = i * 0x4000;
-            if(num_blocks_left() == num_blocks())
-            {
-                m_last_received_request_time = cached_clock::now();
-            }
             return {piece_index(), offset, block_length(offset)};
         }
     }
@@ -180,25 +184,29 @@ std::vector<block_info> piece_download::make_request_queue(const int n)
 {
     std::vector<block_info> request_queue;
     for(auto i = 0, hint = 0;
-        (i  < num_blocks()) && (int(request_queue.size()) < n);
-        ++i, hint += 0x4000)
+        (i  < m_blocks.size()) && (int(request_queue.size()) < n);
+        ++i)
     {
         auto block = pick_block(hint);
         if(block == invalid_block) { break; }
         request_queue.emplace_back(block);
+        hint = block.offset + 0x4000;
     }
     return request_queue;
 }
 
+inline bool piece_download::has_timed_out(const block& block) const noexcept
+{
+    return cached_clock::now() - block.request_time >= 2 * m_avg_request_rtt;
+}
+
 inline void piece_download::verify_block(const block_info& block) const
 {
-    if(block.index != m_index
-       || block.offset % 0x4000 != 0
-       || block.offset >= m_piece_length
-       || block.length > m_piece_length - block.offset)
-    {
-        throw std::invalid_argument("block is invalid");
-    }
+    // use asserts as peer_session verifies block; this is really just a sanity check
+    assert(block.index == m_index);
+    assert(block.offset % 0x4000 == 0);
+    assert(block.offset < m_piece_length);
+    assert(block.length <= m_piece_length - block.offset);
 }
 
 inline int piece_download::block_index(const block_info& block) const noexcept

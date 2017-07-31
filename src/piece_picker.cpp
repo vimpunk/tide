@@ -79,13 +79,13 @@ private:
 
         group(type_t type) : m_type(type) {}
 
-        bool is_empty() const noexcept { return m_pieces.empty(); }
+        bool empty() const noexcept { return m_pieces.empty(); }
 
         bool is_complete() const noexcept
         {
             // since pieces are ordered by their frequency, the group can only be fully
             // available if the first piece's frequency is not zero.
-            return !is_empty() && (m_pieces.cbegin()->frequency > 0);
+            return !empty() && (m_pieces.cbegin()->frequency > 0);
         }
 
         type_t type() const noexcept { return m_type; }
@@ -261,7 +261,7 @@ public:
         );
         adjust_interval(interval);
         make_priority(interval, priority_group);
-        if(priority_group->is_empty())
+        if(priority_group->empty())
         {
             m_groups.erase(priority_group);
         }
@@ -272,7 +272,7 @@ public:
         auto priority_group = m_groups.emplace(m_default_group, group::type_t::priority);
         adjust_interval(interval);
         make_priority(interval, priority_group);
-        if(priority_group->is_empty())
+        if(priority_group->empty())
         {
             m_groups.erase(priority_group);
         }
@@ -407,7 +407,7 @@ private:
 
     bool should_delete_group(groups::iterator group) const noexcept
     {
-        return group->is_empty() && (group->type() != group::type_t::normal);
+        return group->empty() && (group->type() != group::type_t::normal);
     }
 
     // groups represent the group of pieces that constitute a file. But since files are

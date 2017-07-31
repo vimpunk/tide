@@ -4,7 +4,7 @@
 #include "address.hpp"
 #include "endian.hpp"
 
-#include <iostream>
+#include <sstream>
 #include <algorithm>
 #include <stdexcept>
 #include <cassert>
@@ -62,16 +62,25 @@ tracker::tracker(std::string url, asio::io_service& ios, const settings& setting
 template<typename... Args>
 void tracker::log(const log_event event, const char* format, Args&&... args) const
 {
-    std::cerr << '[' << url() << '|';
+    log(event, log::priority::normal, format, std::forward<Args>(args)...);
+}
+
+template<typename... Args>
+void tracker::log(const log_event event, const log::priority priority,
+    const char* format, Args&&... args) const
+{
+    std::stringstream ss;
+    ss << url() << '|';
     switch(event)
     {
-    case log_event::connecting: std::cerr << "CONNECTING"; break;
-    case log_event::incoming: std::cerr << "IN"; break;
-    case log_event::outgoing: std::cerr << "OUT"; break;
-    case log_event::invalid_message: std::cerr << "INVALID MESSAGE"; break;
-    case log_event::timeout: std::cerr << "TIMEOUT"; break;
+    case log_event::connecting: ss << "CONNECTING"; break;
+    case log_event::incoming: ss << "IN"; break;
+    case log_event::outgoing: ss << "OUT"; break;
+    case log_event::invalid_message: ss << "INVALID MESSAGE"; break;
+    case log_event::timeout: ss << "TIMEOUT"; break;
     }
-    std::cerr << "] - " << util::format(format, std::forward<Args>(args)...) << '\n';
+    log::log_engine(ss.str(), util::format(format,
+        std::forward<Args>(args)...), priority);
 }
 
 // ------------------

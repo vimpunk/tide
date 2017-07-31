@@ -37,11 +37,8 @@ view<uint8_t> message_parser::get_receive_buffer(const int n)
 
 void message_parser::record_received_bytes(const int n) noexcept
 {
-    if(size() + n > buffer_size())
-    {
-        throw std::invalid_argument(
-            "recorded the receipt of more bytes in message parser than possible");
-    }
+    assert(n > 0);
+    assert(size() + n <= buffer_size());
     m_unused_begin += n;
 }
 

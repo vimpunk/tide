@@ -132,14 +132,15 @@ constexpr uint64_t host_to_network_u64(const uint64_t h) noexcept
 }
 
 /**
- * Parses a bytesequence and reconstructs into an integer of type T, converting from
- * Network Byte Order to Host Byte Order.
+ * Parses a byte sequence and reconstructs into an integer of type T, converting from
+ * Network Byte Order to Host Byte Order. The byte sequence must have at least sizeof(T)
+ * bytes.
  */
 template<typename T, typename InputIt>
 constexpr T parse(InputIt it) noexcept
 {
     T h = 0;
-    for(auto i = 0; i < int(sizeof(T)); ++i)
+    for(auto i = 0; i < int(sizeof h); ++i)
     {
         h <<= 8;
         h |= static_cast<uint8_t>(*it++);
@@ -148,13 +149,14 @@ constexpr T parse(InputIt it) noexcept
 }
 
 /**
- * Writes an integer of type T to the bytesequence, converting it from Host Byte
- * Order to Network Byte Order.
+ * Writes an integer of type T to the byte sequence pointed to by it, converting it from
+ * Host Byte Order to Network Byte Order. The byte sequence must have space for sizeof(T)
+ * bytes.
  */
 template<typename T, typename OutputIt>
 constexpr void write(T h, OutputIt it) noexcept
 {
-    for(int shift = 8 * (int(sizeof(T)) - 1); shift >= 0; shift -= 8)
+    for(int shift = 8 * (int(sizeof h) - 1); shift >= 0; shift -= 8)
     {
         *it++ = static_cast<uint8_t>((h >> shift) & 0xff);
     }

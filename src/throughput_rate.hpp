@@ -1,7 +1,6 @@
 #ifndef TIDE_THROUGHPUT_RATE_HEADER
 #define TIDE_THROUGHPUT_RATE_HEADER
 
-#include "sliding_average.hpp"
 #include "time.hpp"
 
 #include <cassert>
@@ -20,17 +19,19 @@ namespace tide {
  *
  * NOTE: due to using cached_clock the values are only estimates (which also means that
  * cached_clock must be updated at regular intervals).
+ *
+ * NOTE: it has a 1 second granularity, meaning its value is recalculated only every
+ * 1 second. Therefore it should not be used where a finer granularity is required.
  */
 class throughput_rate
 {
-
     // Updated every time m_rate is updated with a time value aligned to one second
     // compared to the starting point.
     mutable time_point m_last_update_time;
 
     // m_rate is updated at every second, so if a full second hasn't yet elapsed since
     // m_last_update_time, the bytes are buffered here until then.
-    mutable int64_t m_num_bytes_left = 0;
+    mutable int64_t m_accumulator = 0;
     mutable int m_rate = 0;
     mutable int m_peak = 0;
     mutable int m_prev_second_rate = 0;
@@ -42,7 +43,7 @@ public:
     void reset()
     {
         m_last_update_time = cached_clock::now();
-        m_rate = m_prev_second_rate = m_num_bytes_left = m_peak = 0;
+        m_rate = m_prev_second_rate = m_accumulator = m_peak = 0;
     }
 
     /**
@@ -89,38 +90,57 @@ private:
      * a const update method is provided, so that the publicly exposed update method is
      * not marked const which would be semantically incorrect.
      */
-    void update_impl(const int num_bytes) const noexcept // TODO verify(noexcept)
+    void update_impl(int num_bytes) const noexcept
     {
-        m_num_bytes_left += num_bytes;
-        const time_point now = cached_clock::now();
-        const duration elapsed = now - m_last_update_time;
-
-        if(elapsed >= seconds(1))
+        // make sure to round down to seconds as we only care about full second values
+        // (see comment below)
+        const milliseconds elapsed_ms = duration_cast<milliseconds>(
+            cached_clock::now() - m_last_update_time);
+        if((elapsed_ms >= seconds(1)) && (elapsed_ms < seconds(2)))
         {
-            // the number of bytes that was transferred over the link in the time
-            // elapsed is partitioned up in proportion to the number of full and the
-            // fraction of a second that passed, and only update m_rate with the full
-            // second's number of bytes and leave the fraction second's ratio for the
-            // next update (this ensures that the running average accumulator records
-            // consistent values)
-            const auto elapsed_ms = total_milliseconds(elapsed);
-            const int full_elapsed_s = elapsed_ms / 1000;
-            assert(full_elapsed_s >= 1);
-            // the number of bytes that was transmitted in a full second
-            const int full_second_num_bytes = m_num_bytes_left / full_elapsed_s;
-            for(auto i = 0; i < full_elapsed_s; ++i)
-            {
-                m_prev_second_rate = m_rate;
-                m_rate = m_rate * 0.6 + full_second_num_bytes * 0.4;
-                //m_rate.update(full_second_num_bytes);
-                m_num_bytes_left -= full_second_num_bytes;
-            }
-            // updates happen at full seconds and since the bytes left over here are
-            // going to be added when the next full second is reached, we must keep the
+            // if a full second has elapsed since the last update time, but less than 2,
+            // we only have to do one update, and restart accumulation with num_bytes
+            update_rate(m_accumulator);
+            m_accumulator = num_bytes;
+            m_last_update_time += seconds(1);
+        }
+        else if(elapsed_ms == seconds(2))
+        {
+            // exactly 2 seconds elapsed, which means we have to update the rate in the
+            // first second with's left in m_accumulator, the second with num_bytes, and
+            // reset m_accumulator to 0
+            update_rate(m_accumulator);
+            update_rate(num_bytes);
+            m_accumulator = 0;
+            m_last_update_time += seconds(2);
+        }
+        else if(elapsed_ms > seconds(2))
+        {
+            // more than 2 seconds elapsed, meaning that there was no throughput for
+            // at least elapsed_ms - seconds(1) time, therefore, update the upload rate in
+            // the first second of the elapsed time with whatever is left in
+            // m_accumulator, then simulate a throughput of 0 bytes for the remaining
+            // seconds
+            const seconds elapsed_s = duration_cast<seconds>(elapsed_ms);
+            update_rate(m_accumulator);
+            for(auto i = 0; i < elapsed_s.count() - 1; ++i) { update_rate(0); }
+            m_accumulator = num_bytes;
+            // updates happen at full seconds and since the bytes left in m_accumulator
+            // are going added when the next full second is reached, we must keep the
             // update time points aligned at full seconds (relative to our starting
             // point) as well
-            m_last_update_time = m_last_update_time + seconds(full_elapsed_s);
+            m_last_update_time += elapsed_s;
         }
+        else
+        {
+            m_accumulator += num_bytes;
+        }
+    }
+
+    void update_rate(const int value) const noexcept
+    {
+        m_prev_second_rate = m_rate;
+        m_rate = m_rate * 0.6 + value * 0.4;
     }
 };
 

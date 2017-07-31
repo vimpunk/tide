@@ -6,8 +6,16 @@ std::string disk_io_error_category::message(int env) const
 {
     switch(static_cast<disk_io_errc>(env))
     {
-    default:
-        return "unknown error";
+    case disk_io_errc::unknown: return "Unknown";
+    case disk_io_errc::tried_unwanted_file_read: return "Tried unwanted file read";
+    case disk_io_errc::tried_unwanted_file_write: return "Tried unwanted file write";
+    case disk_io_errc::tried_unallocated_file_read: return "Tried unallocated file read";
+    case disk_io_errc::tried_unallocated_file_write: return "Tried unallocated file write";
+    case disk_io_errc::tried_read_only_file_write: return "Tried read only file write";
+    case disk_io_errc::invalid_file_offset: return "Invalid file offset";
+    case disk_io_errc::null_transfer: return "Transfer of 0 bytes";
+    case disk_io_errc::operation_aborted: return "Operation aborted";
+    default: return "Unknown";
     }
 }
 

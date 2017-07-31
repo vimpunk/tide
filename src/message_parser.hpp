@@ -36,6 +36,13 @@ enum {
     cancel         = 8,
     // -- DHT extension messages --
     port           = 9,
+    // -- Fast extension messages --
+    suggest_piece  = 13,
+    have_all       = 14,
+    have_none      = 15,
+    reject_request = 16,
+    allowed_fast   = 17,
+
 };
 
 } // namespace message_type
@@ -84,7 +91,7 @@ class message_parser
 public:
 
     bool is_full() const noexcept;
-    bool is_empty() const noexcept;
+    bool empty() const noexcept;
 
     /** The number of message bytes in receive buffer. */
     int size() const noexcept;
@@ -237,7 +244,7 @@ private:
     void shift_last_message_to_front();
 };
 
-inline bool message_parser::is_empty() const noexcept
+inline bool message_parser::empty() const noexcept
 {
     return size() == 0;
 }

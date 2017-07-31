@@ -34,6 +34,10 @@ std::string peer_session_error_category::message(int env) const
         return "No request received despite peer's interest";
     case peer_session_errc::looking_for_other_peer:
         return "trying our fortune with other peers";
+    case peer_session_errc::too_many_connections:
+        return "Too many connections";
+    case peer_session_errc::unsupported_extension:
+        return "Peer sent unsupported extension message";
     case peer_session_errc::invalid_info_hash:
         return "Peer's torrent info hash was invalid";
     case peer_session_errc::message_too_big:
@@ -62,8 +66,20 @@ std::string peer_session_error_category::message(int env) const
         return "Invalid 'block' (or formally, 'piece') message";
     case peer_session_errc::invalid_cancel_message:
         return "Invalid 'cancel' message";
+    case peer_session_errc::invalid_suggest_piece_message:
+        return "Invalid 'suggest piece' message";
+    case peer_session_errc::invalid_have_all_message:
+        return "Invalid 'have all' message";
+    case peer_session_errc::invalid_have_none_message:
+        return "Invalid 'have none' message";
+    case peer_session_errc::invalid_reject_request_message:
+        return "Invalid 'reject' message";
+    case peer_session_errc::invalid_allow_fast_message:
+        return "Invalid 'allow fast' message";
     case peer_session_errc::unknown_message:
         return "Could not identify message";
+    case peer_session_errc::no_piece_availability_message:
+        return "No piece availability message after handshake";
     case peer_session_errc::sent_requests_when_choked:
         return "Choked peer sent too many requests";
     case peer_session_errc::corrupt_piece:

@@ -11,7 +11,7 @@ struct interval
     interval() = default;
     interval(int begin_, int end_) : begin(begin_), end(end_) {}
 
-    bool is_empty() const noexcept
+    bool empty() const noexcept
     {
         return length() == 0;
     }

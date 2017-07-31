@@ -42,11 +42,10 @@ public:
 
     void change_capacity(const int capacity)
     {
-        if(capacity <= 0)
+        if(capacity < 0)
         {
             throw std::invalid_argument(
-                "frequency_sketch capacity must be larger than 0"
-            );
+                "frequency_sketch capacity must be larger than 0");
         }
         m_table.resize(util::nearest_power_of_two(capacity));
         m_size = 0;

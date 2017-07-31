@@ -1,8 +1,8 @@
 #ifndef TIDE_FILE_HEADER
 #define TIDE_FILE_HEADER
 
-#include "filesystem.hpp"
 #include "flag_set.hpp"
+#include "system.hpp"
 #include "iovec.hpp"
 #include "view.hpp"
 #include "time.hpp"
@@ -28,16 +28,6 @@
 
 namespace tide {
 
-// TODO currently only linux is supported
-// TODO add optimization where user can tell file that only page aligned 16KiB blocks
-// will be written at a time as an open_mode flag or something
-// TODO think about the situation where we've given out mmap objects but the file is
-// closed. do we pass the responsibility of disposing of those mmap instances to user?
-// plus files will periodically be flushed and perhaps closed (on windows there might
-// be issues with syncing to disk but look into this)
-// TODO comment about length() vs actual file size (i.e. we keep the requested length
-// and that's what's returned when queried but some other process may change file size
-// in which case we're f-ed)
 struct file
 {
     enum open_mode : uint8_t
@@ -60,15 +50,16 @@ struct file
         max
     };
 
-    using handle_type = fs::file_handle_type;
+    using handle_type = sys::file_handle_type;
     using open_mode_flags = flag_set<open_mode, open_mode::max>;
+    using size_type = int64_t;
 
 private:
 
     handle_type m_file_handle = INVALID_HANDLE_VALUE;
     path m_absolute_path;
     bool m_is_allocated = false;
-    int64_t m_length;
+    size_type m_length;
     open_mode_flags m_open_mode;
 
 public:
@@ -81,7 +72,7 @@ public:
      * allocate() separately, in this order.
      */
     file() = default;
-    file(path path, int64_t length, open_mode_flags open_mode);
+    file(path path, size_type length, open_mode_flags open_mode);
     file(const file&) = delete;
     file& operator=(const file&) = delete;
     file(file&& other) = default;
@@ -105,19 +96,16 @@ public:
      * moved, because the internal path member needs to be updated to match file's path
      * in the filesystem. file_path is an absolute path to the new location of the file.
      */
-    void on_parent_moved(path file_path);
+    void set_path(path file_path);
 
     /**
      * Instructs the OS to allocate length number of bytes on the hardware for this
      * file, if file hasn't been allocated the correct size yet. If the reallocation
      * caused it to shrink, the truncated data is lost, but the rest is the same as
      * before, and if file grew, the new bytes are 0.
-     *
-     * NOTE: this must be called before the first time any operation is done on
-     * file and the file must already be opened.
      */
     void allocate(std::error_code& error);
-    void reallocate(const int64_t length, std::error_code& error);
+    void allocate(const size_type length, std::error_code& error);
 
     /**
      * Removes the data associated with this file from disk. After the successful
@@ -128,8 +116,13 @@ public:
     void erase(std::error_code& error);
     void move(const path& new_path, std::error_code& error);
 
-    int64_t size() const noexcept;
-    int64_t length() const noexcept;
+    /**
+     * Note that the returned value is not the one retrieved from the OS, but the
+     * one that was supplied in the constructor, so if another process changes the
+     * underlying file, the returned value will not reflect the actual file size.
+     */
+    size_type size() const noexcept;
+    size_type length() const noexcept;
 
     const path& absolute_path() const;
     std::string filename() const;
@@ -153,9 +146,9 @@ public:
      * errors are reported via error. In both cases the returned mmap object is invalid/
      * uninitialized.
      */
-    mmap_source create_mmap_source(const int64_t file_offset,
+    mmap_source create_mmap_source(const size_type file_offset,
         const int length, std::error_code& error);
-    mmap_sink create_mmap_sink(const int64_t file_offset,
+    mmap_sink create_mmap_sink(const size_type file_offset,
         const int length, std::error_code& error);
 
     /**
@@ -166,10 +159,10 @@ public:
      *
      * An exception is thrown if file_offset is invalid.
      */
-    int read(view<uint8_t> buffer, int64_t file_offset, std::error_code& error);
-    int read(iovec buffer, int64_t file_offset, std::error_code& error);
-    int write(view<uint8_t> buffer, int64_t file_offset, std::error_code& error);
-    int write(iovec buffer, int64_t file_offset, std::error_code& error);
+    int read(view<uint8_t> buffer, size_type file_offset, std::error_code& error);
+    int read(iovec buffer, size_type file_offset, std::error_code& error);
+    int write(view<uint8_t> buffer, size_type file_offset, std::error_code& error);
+    int write(iovec buffer, size_type file_offset, std::error_code& error);
 
     /**
      * These two functions are scatter-gather operations in that multiple buffers may
@@ -202,51 +195,53 @@ public:
      * be written to/filled with by the contents of several consecutive files, so when 
      * these functions return, the buffers view can just be passed to the next file.
      */
-    int read(view<iovec>& buffers, const int64_t file_offset, std::error_code& error);
-    int write(view<iovec>& buffers, const int64_t file_offset, std::error_code& error);
+    int read(view<iovec>& buffers, const size_type file_offset, std::error_code& error);
+    int write(view<iovec>& buffers, const size_type file_offset, std::error_code& error);
 
     /** If we're in write mode, syncs the file buffer in the OS page cache with disk. */
     void sync_with_disk(std::error_code& error);
 
 private:
 
-    void before_mapping_source(const int64_t file_offset, const int length,
+    void before_mapping_source(const size_type file_offset, const int length,
         std::error_code& error) const noexcept;
-    void before_mapping_sink(const int64_t file_offset, const int length,
+    void before_mapping_sink(const size_type file_offset, const int length,
         std::error_code& error) const noexcept;
-    void before_reading(const int64_t file_offset, std::error_code& error) const noexcept;
-    void before_writing(const int64_t file_offset, std::error_code& error) const noexcept;
+    void before_reading(const size_type file_offset,
+        std::error_code& error) const noexcept;
+    void before_writing(const size_type file_offset,
+        std::error_code& error) const noexcept;
     void verify_handle(std::error_code& error) const;
-    void verify_file_offset(const int64_t file_offset, std::error_code& error) const;
+    void verify_file_offset(const size_type file_offset, std::error_code& error) const;
 
     /**
      * Abstracts away the plumbing behind a single pread/pwrite operation: repeatedly
-     * calls pio_fn until it transfers min(buffer.iov_len, length() - file_offset) number
+     * calls fn until it transfers min(buffer.iov_len, length() - file_offset) number
      * of bytes.
      *
-     * pio_fn needs to have the following signature:
-     * int pio_fn(void* buffer, int length, int64_t file_offset);
+     * fn needs to have the following signature:
+     * int fn(void* buffer, int length, size_type file_offset);
      * where the return value is the number of bytes that were transferred.
      */
     template<typename PIOFunction>
-    int single_buffer_io(PIOFunction pio_fn, iovec buffer,
-        int64_t file_offset, std::error_code& error);
+    int single_buffer_io(iovec buffer, size_type file_offset,
+        std::error_code& error, PIOFunction fn);
 
     /**
      * Abstracts away scatter-gather IO by repeatedly calling the supplied pread or
      * pwrite (like) function. Use this if preadv/pwritev is slower than repeated calls
      * on the current system.
      *
-     * pio_fn will be called for every buffer processed, and its signature must be:
-     * int pio_fn(void* buffer, int length, int64_t file_offset);
+     * fn will be called for every buffer processed, and its signature must be:
+     * int fn(void* buffer, int length, size_type file_offset);
      * where the return value is the number of bytes transferred.
      *
      * Note that unlike preadv/pwritev, this is not atomic, so other processes may be
-     * able to write to a file between calls to pio_fn.
+     * able to write to a file between calls to fn.
      */
     template<typename PIOFunction>
-    int repeated_positional_io(PIOFunction pio_fn, view<iovec>& buffers,
-        int64_t file_offset, std::error_code& error);
+    int repeated_positional_io(view<iovec>& buffers, size_type file_offset,
+        std::error_code& error, PIOFunction fn);
 
     /**
      * Abstraction around preadv/writev functions, which imparts the responsibility of
@@ -257,12 +252,12 @@ private:
      *
      * pvio_fn will be called until it transfers all the bytes requested, usually once.
      * It must have the following signature:
-     * int vpo_fn(view<iovec>& buffers, int64_t file_offset);
+     * int vpo_fn(view<iovec>& buffers, size_type file_offset);
      * where the return value is the number of bytes transferred.
      */
     template<typename PVIOFunction>
-    int positional_vector_io(PVIOFunction pvio_fn, view<iovec>& buffers,
-        int64_t file_offset, std::error_code& error);
+    int positional_vector_io(view<iovec>& buffers, size_type file_offset,
+        std::error_code& error, PVIOFunction pvio_fn);
 };
 
 namespace util {
@@ -282,17 +277,17 @@ void trim_buffers_front(view<iovec>& buffers, int num_to_trim) noexcept;
 
 } // namespace util
 
-inline void file::on_parent_moved(path file_path)
+inline void file::set_path(path file_path)
 {
     m_absolute_path = file_path;
 }
 
-inline int64_t file::size() const noexcept
+inline file::size_type file::size() const noexcept
 {
     return length();
 }
 
-inline int64_t file::length() const noexcept
+inline file::size_type file::length() const noexcept
 {
     return m_length;
 }

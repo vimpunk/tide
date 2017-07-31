@@ -8,6 +8,7 @@
 #include "socket.hpp"
 #include "types.hpp"
 #include "time.hpp"
+#include "log.hpp"
 
 #include <unordered_map>
 #include <system_error>
@@ -293,6 +294,9 @@ protected:
 
     template<typename... Args>
     void log(const log_event event, const char* format, Args&&... args) const;
+    template<typename... Args>
+    void log(const log_event event, const log::priority priority,
+        const char* format, Args&&... args) const;
 };
 
 /** Currently not implemented. */

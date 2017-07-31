@@ -6,6 +6,7 @@
 #ifdef _WIN32
 // emulate UNIX syscalls on windows so we can use the same api
 // TODO
+// TODO currently only linux is supported
 
 int pread(handle_type file_handle, void* buffer,
     const int count, const int64_t file_offset)
@@ -32,7 +33,7 @@ namespace tide {
 // -- file --
 // ----------
 
-file::file(path path, int64_t length, open_mode_flags open_mode)
+file::file(path path, size_type length, open_mode_flags open_mode)
     : m_absolute_path(std::move(path))
     , m_length(length)
     , m_open_mode(open_mode)
@@ -45,25 +46,22 @@ file::~file()
 
 void file::allocate(std::error_code& error)
 {
-    reallocate(length(), error);
+    allocate(length(), error);
 }
 
-void file::reallocate(const int64_t length, std::error_code& error)
+void file::allocate(const size_type length, std::error_code& error)
 {
     error.clear();
     verify_handle(error);
     // only (re)allocate if we're not allocated, or if we are if the requested length
     // to allocate is not equal to the currently allocated amount
-    if(error || (is_allocated() && (length == this->length())))
-    {
-        return;
-    }
+    if(error || (is_allocated() && (length == this->length()))) { return; }
 
 #ifdef _WIN32
     LARGE_INTEGER size;
     if(GetFileSizeEx(m_file_handle, &size) == FALSE)
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
         return;
     }
 
@@ -73,12 +71,12 @@ void file::reallocate(const int64_t length, std::error_code& error)
         distance.QuadPart = length;
         if(SetFilePointerEx(m_file_handle, distance, &distance, FILE_BEGIN) == FALSE)
         {
-            util::assign_errno(error);
+            error = sys::latest_error();
             return;
         }
         if(SetEndOfFile(m_file_handle) == FALSE)
         {
-            util::assign_errno(error);
+            error = sys::latest_error();
             return;
         }
     }
@@ -86,7 +84,7 @@ void file::reallocate(const int64_t length, std::error_code& error)
     struct stat stat;
     if(fstat(m_file_handle, &stat) != 0)
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
         return;
     }
 
@@ -99,7 +97,7 @@ void file::reallocate(const int64_t length, std::error_code& error)
 
     if(ftruncate(m_file_handle, length) < 0)
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
         return;
     }
 
@@ -135,21 +133,15 @@ void file::erase(std::error_code& error)
     }
 #ifdef _WIN32
     // TODO filepath name might be restricted
-    if(DeleteFile(m_absolute_path.c_str()) == 0)
-    {
-        util::assign_errno(error);
-    }
+    if(DeleteFile(m_absolute_path.c_str()) == 0) { error = sys::latest_error(); }
 #else // _WIN32
-    if(unlink(m_absolute_path.c_str()) != 0)
-    {
-        util::assign_errno(error);
-    }
+    if(unlink(m_absolute_path.c_str()) != 0) { error = sys::latest_error(); }
 #endif // _WIN32
 }
 
 void file::move(const path& new_path, std::error_code& error)
 {
-    fs::move(m_absolute_path, new_path, error);
+    sys::move(m_absolute_path, new_path, error);
     if(!error)
     {
         m_absolute_path = new_path;
@@ -221,7 +213,7 @@ void file::open(open_mode_flags open_mode, std::error_code& error)
 
     if(m_file_handle == INVALID_HANDLE_VALUE)
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
         return;
     }
 #endif // _WIN32
@@ -230,10 +222,7 @@ void file::open(open_mode_flags open_mode, std::error_code& error)
 
 void file::close()
 {
-    if(!is_open())
-    {
-        return;
-    }
+    if(!is_open()) { return; }
 #ifdef _WIN32
     ::CloseHandle(m_file_handle);
 #else
@@ -242,7 +231,7 @@ void file::close()
     m_file_handle = INVALID_HANDLE_VALUE;
 }
 
-mmap_source file::create_mmap_source(const int64_t file_offset,
+mmap_source file::create_mmap_source(const size_type file_offset,
     const int length, std::error_code& error)
 {
     error.clear();
@@ -254,7 +243,7 @@ mmap_source file::create_mmap_source(const int64_t file_offset,
     return mmap;
 }
 
-mmap_sink file::create_mmap_sink(const int64_t file_offset,
+mmap_sink file::create_mmap_sink(const size_type file_offset,
     const int length, std::error_code& error)
 {
     error.clear();
@@ -266,67 +255,71 @@ mmap_sink file::create_mmap_sink(const int64_t file_offset,
     return mmap;
 }
 
-int file::read(view<uint8_t> buffer, int64_t file_offset, std::error_code& error)
+int file::read(view<uint8_t> buffer, size_type file_offset, std::error_code& error)
 {
     return read(iovec{buffer.data(), buffer.length()}, file_offset, error);
 }
 
-int file::read(iovec buffer, int64_t file_offset, std::error_code& error)
+int file::read(iovec buffer, size_type file_offset, std::error_code& error)
 {
     error.clear();
     before_reading(file_offset, error);
     if(!error)
     {
-        return single_buffer_io([this](void* buffer, int length, int64_t offset) -> int
-            { return pread(m_file_handle, buffer, length, offset); },
-            buffer, file_offset, error);
+        return single_buffer_io(buffer, file_offset, error,
+            [this](void* buffer, int length, size_type offset) -> int
+            { return pread(m_file_handle, buffer, length, offset); });
     }
     return 0;
 }
 
-int file::write(view<uint8_t> buffer, int64_t file_offset, std::error_code& error)
+int file::write(view<uint8_t> buffer, size_type file_offset, std::error_code& error)
 {
     return write(iovec{buffer.data(), buffer.length()}, file_offset, error);
 }
 
-int file::write(iovec buffer, int64_t file_offset, std::error_code& error)
+int file::write(iovec buffer, size_type file_offset, std::error_code& error)
 {
     error.clear();
     before_writing(file_offset, error);
     if(!error)
     {
-        return single_buffer_io([this](void* buffer, int length, int64_t offset) -> int
-            { return pwrite(m_file_handle, buffer, length, offset); },
-            buffer, file_offset, error);
+        return single_buffer_io(buffer, file_offset, error,
+            [this](void* buffer, int length, size_type offset) -> int
+            { return pwrite(m_file_handle, buffer, length, offset); });
     }
     return 0;
 }
 
 template<typename PIOFunction>
-int file::single_buffer_io(PIOFunction pio_fn, iovec buffer,
-    int64_t file_offset, std::error_code& error)
+int file::single_buffer_io(iovec buffer, size_type file_offset,
+    std::error_code& error, PIOFunction fn)
 {
     int total_transferred = 0;
     while(buffer.iov_len > 0)
     {
         // make sure not to transfer more than what's left in file because if this is
-        // a read operation, we'll enlarge file
-        const int num_to_transfer = std::min(buffer.iov_len,
-            size_t(length() - file_offset));
-        const int num_transferred = pio_fn(buffer.iov_base, num_to_transfer, file_offset);
+        // a write operation, we'll enlarge file
+        assert(length() - file_offset > 0);
+        const int num_to_transfer = std::min(
+            buffer.iov_len, size_t(length() - file_offset));
+        assert(num_to_transfer > 0);
+        const int num_transferred = fn(buffer.iov_base, num_to_transfer, file_offset);
         if(num_transferred < 0)
         {
-#ifdef _WIN32
-            // TODO
-#else
-            if(errno == EINTR) { continue; }
-#endif
-            util::assign_errno(error);
+            const std::error_code ec = sys::latest_error();
+            if(ec == std::errc::interrupted) { continue; }
+            error = ec;
             break;
         }
         else if(num_transferred == 0)
         {
-            // TODO short transfer or eof
+            const std::error_code ec = sys::latest_error();
+            if(ec)
+                error = ec;
+            else
+                error = make_error_code(disk_io_errc::null_transfer);
+            break;
         }
         file_offset += num_transferred;
         total_transferred += num_transferred;
@@ -335,16 +328,15 @@ int file::single_buffer_io(PIOFunction pio_fn, iovec buffer,
     return total_transferred;
 }
 
-int file::read(view<iovec>& buffers, const int64_t file_offset, std::error_code& error)
+int file::read(view<iovec>& buffers, const size_type file_offset, std::error_code& error)
 {
     error.clear();
-    return positional_vector_io(
-        [this](view<iovec>& buffers, int64_t file_offset) -> int
-        { return preadv(m_file_handle, buffers.data(), buffers.size(), file_offset); },
-        buffers, file_offset, error);
+    return positional_vector_io(buffers, file_offset, error,
+        [this](view<iovec>& buffers, size_type file_offset) -> int
+        { return preadv(m_file_handle, buffers.data(), buffers.size(), file_offset); });
 }
 
-int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code& error)
+int file::write(view<iovec>& buffers, const size_type file_offset, std::error_code& error)
 {
     error.clear();
     before_writing(file_offset, error);
@@ -366,11 +358,11 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
     // trim everything after file_end, but save this partial buffer because it will
     // ruin the caller's iovec
     const int adjusted_file_length = length() - file_offset;
-    int buff_offset = 0;
+    int buff_offset = file_offset;
     auto it = buffers.begin();
     const auto end = buffers.end();
     // if buffers has more bytes than adjusted_file_length, then find the last buffer
-    // that is used for writing
+    // that can be written to file without extending file's size
     for(; it != end; ++it)
     {
         const int buff_end = buff_offset + it->iov_len;
@@ -384,8 +376,8 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
     int num_written = 0;
     if(it != end)
     {
-        // we were stopped from iterating all the way through, so buffers has more bytes
-        // than file
+        // we were stopped from iterating all the way through buffers, so buffers has
+        // more bytes than file
         // -1 because we don't want to trim off buffer pointed to by 'it'
         const int num_buffs_to_trim = end - it - 1;
         buffers.trim_back(num_buffs_to_trim);
@@ -397,26 +389,23 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
         const int num_bytes_to_trim = buff_offset + it->iov_len - adjusted_file_length;
         it->iov_len -= num_bytes_to_trim;
 
-        num_written = positional_vector_io(
-            [this](view<iovec>& buffers, int64_t file_offset) -> int
+        num_written = positional_vector_io(buffers, file_offset, error,
+            [this](view<iovec>& buffers, size_type file_offset) -> int
             {
                 return pwritev(m_file_handle, buffers.data(),
                     buffers.size(), file_offset);
-            },
-            buffers, file_offset, error);
+            });
 
         if(num_bytes_to_trim > 0)
         {
             // since buffers was trimmed to have as many bytes as can be written to
             // file, and since positional_vector_io trims off from the front of buffers 
-            // the number of bytes written, the result is an empty buffers sequence
-            // (i.e. buffers.size() == 0), so we need to get back the last buffer by 
-            // decrementing the internal pointer in buffers, unless the last buffer was 
-            // fully drained, i.e. num_bytes_to_trim is 0, which means we don't need to 
-            // restore this buffer
-            assert(buffers.is_empty());
+            // the number of bytes written, the result is an empty buffers sequence, so
+            // we need to get back the last buffer by decrementing the internal pointer
+            // in buffers, unless the last buffer was fully drained, i.e. 
+            // num_bytes_to_trim is 0, which means we don't need to restore this buffer
+            assert(buffers.empty());
             buffers = view<iovec>(buffers.data() - 1, 1);
-            assert(buffers.size() == 1);
 
             // now that we have the last buffer back from which we wrote, we need to 
             // restore it, like so:
@@ -431,13 +420,12 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
     }
     else
     {
-        num_written = positional_vector_io(
-            [this](view<iovec>& buffers, int64_t file_offset) -> int
+        num_written = positional_vector_io(buffers, file_offset, error,
+            [this](view<iovec>& buffers, size_type file_offset) -> int
             {
                 return pwritev(m_file_handle, buffers.data(),
                     buffers.size(), file_offset);
-            },
-            buffers, file_offset, error);
+            });
     }
 
     if(!error && m_open_mode[no_os_cache]) { sync_with_disk(error); }
@@ -449,33 +437,41 @@ int file::write(view<iovec>& buffers, const int64_t file_offset, std::error_code
 // to perform better under repeated calls to pread/pwrite (some personal anecdotes
 // indicated that this seems to be the case)
 template<typename PIOFunction>
-int file::repeated_positional_io(PIOFunction pio_fn, view<iovec>& buffers,
-    int64_t file_offset, std::error_code& error)
+int file::repeated_positional_io(view<iovec>& buffers, size_type file_offset,
+    std::error_code& error, PIOFunction fn)
 {
     int file_length_left = length() - file_offset;
     int total_transferred = 0;
     for(iovec& buffer : buffers)
     {
-        // pio_fn is not guaranteed to transfer all of buffer, so retry until everything
+        // fn is not guaranteed to transfer all of buffer, so retry until everything
         // has been sent
         while(buffer.iov_len > 0)
         {
             const int num_to_transfer = std::min(file_length_left, int(buffer.iov_len));
-            const int num_transferred = pio_fn(buffer.iov_base,
+            const int num_transferred = fn(buffer.iov_base,
                 num_to_transfer, file_offset);
             if(num_transferred < 0)
             {
-                util::assign_errno(error);
+                const std::error_code ec = sys::latest_error();
+                if(ec == std::errc::interrupted) { continue; }
+                error = ec;
+                return total_transferred;
+            }
+            else if(num_transferred == 0)
+            {
+                const std::error_code ec = sys::latest_error();
+                if(ec)
+                    error = ec;
+                else
+                    error = make_error_code(disk_io_errc::null_transfer);
                 return total_transferred;
             }
 
             total_transferred += num_transferred;
             file_offset += num_transferred;
             file_length_left -= num_transferred;
-            if(file_length_left == 0)
-            {
-                return total_transferred;
-            }
+            if(file_length_left == 0) { return total_transferred; }
 
             util::trim_iovec_front(buffer, num_transferred);
         }
@@ -484,20 +480,31 @@ int file::repeated_positional_io(PIOFunction pio_fn, view<iovec>& buffers,
 }
 
 template<typename PVIOFunction>
-int file::positional_vector_io(PVIOFunction pvio_fn, view<iovec>& buffers,
-    int64_t file_offset, std::error_code& error)
+int file::positional_vector_io(view<iovec>& buffers, size_type file_offset,
+    std::error_code& error, PVIOFunction fn)
 {
-    int file_length_left = length() - file_offset;
+    size_type file_length_left = length() - file_offset;
     int total_transferred = 0;
     // ideally this will loop once but preadv/pwritev are not guaranteed to transfer
     // the requested bytes so we have to call it again until all requested bytes are
     // transferred
-    while(!buffers.is_empty() && (file_length_left > 0))
+    while(!buffers.empty() && (file_length_left > 0))
     {
-        const int num_transferred = pvio_fn(buffers, file_offset);
+        const int num_transferred = fn(buffers, file_offset);
         if(num_transferred < 0)
         {
-            util::assign_errno(error);
+            const std::error_code ec = sys::latest_error();
+            if(ec == std::errc::interrupted) { continue; }
+            error = ec;
+            break;
+        }
+        else if(num_transferred == 0)
+        {
+            const std::error_code ec = sys::latest_error();
+            if(ec)
+                error = ec;
+            else
+                error = make_error_code(disk_io_errc::null_transfer);
             break;
         }
         total_transferred += num_transferred;
@@ -516,17 +523,17 @@ void file::sync_with_disk(std::error_code& error)
 #ifdef _WIN32
     if(!FlushFileBuffers(m_file_handle))
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
     }
 #else
     if(fdatasync(m_file_handle) != 0)
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
     }
 #endif
 }
 
-inline void file::before_mapping_source(const int64_t file_offset,
+inline void file::before_mapping_source(const size_type file_offset,
     const int length, std::error_code& error) const noexcept
 {
     before_reading(file_offset, error);
@@ -539,7 +546,7 @@ inline void file::before_mapping_source(const int64_t file_offset,
     }
 }
 
-inline void file::before_mapping_sink(const int64_t file_offset,
+inline void file::before_mapping_sink(const size_type file_offset,
     const int length, std::error_code& error) const noexcept
 {
     before_writing(file_offset, error);
@@ -552,8 +559,8 @@ inline void file::before_mapping_sink(const int64_t file_offset,
     }
 }
 
-inline void file::before_reading(
-    const int64_t file_offset, std::error_code& error) const noexcept
+inline void file::before_reading(const size_type file_offset,
+    std::error_code& error) const noexcept
 {
     verify_file_offset(file_offset, error);
     if(error) { return; }
@@ -566,8 +573,8 @@ inline void file::before_reading(
     }
 }
 
-inline void file::before_writing(
-    const int64_t file_offset, std::error_code& error) const noexcept
+inline void file::before_writing(const size_type file_offset,
+    std::error_code& error) const noexcept
 {
     verify_file_offset(file_offset, error);
     if(error) { return; }
@@ -580,7 +587,7 @@ inline void file::before_writing(
     }
     else if(is_read_only())
     {
-        error = std::make_error_code(std::errc::read_only_file_system);
+        error = make_error_code(disk_io_errc::tried_read_only_file_write);
     }
 }
 
@@ -592,12 +599,12 @@ inline void file::verify_handle(std::error_code& error) const
     }
 }
 
-inline void file::verify_file_offset(const int64_t file_offset,
+inline void file::verify_file_offset(const size_type file_offset,
     std::error_code& error) const
 {
-    if((file_offset > length()) || (file_offset < 0))
+    if((file_offset >= length()) || (file_offset < 0))
     {
-        error = std::make_error_code(std::errc::invalid_argument);
+        error = make_error_code(disk_io_errc::invalid_file_offset);
     }
 }
 
@@ -617,15 +624,6 @@ void trim_buffers_front(view<iovec>& buffers, int num_to_trim) noexcept
         assert(num_to_trim < int(buffers.front().iov_len));
         trim_iovec_front(buffers.front(), num_to_trim);
     }
-}
-
-void assign_errno(std::error_code& error) noexcept
-{
-#ifdef _WIN32
-    error.assign(GetLastError(), std::system_category());
-#else
-    error.assign(errno, std::system_category());
-#endif
 }
 
 } // namespace util

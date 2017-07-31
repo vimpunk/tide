@@ -15,6 +15,11 @@ struct stats
 {
     // These values are weighed running averages, the last ~5 seconds having the largest
     // weight. These are strictly the throughput rates of piece byte transfers.
+    //
+    // NOTE: since throughput_rate has a 1 second granularity, its value should not be
+    // relied upon if it's needed at a finer granularity. Thus it is only used to
+    // inform user of a torrent's and a peer_session's performance, but not for
+    // calculations where the exact value is required, possibly more than once a second.
     throughput_rate upload_rate;
     throughput_rate download_rate;
 

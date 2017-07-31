@@ -8,12 +8,13 @@
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
+#include <string>
 
 namespace tide {
 
-template<typename Enum, Enum> struct flag_set;
-template<typename Enum, Enum N>
-bool operator==(const flag_set<Enum, N>&, const flag_set<Enum, N>&) noexcept;
+template<typename Flag, Flag> struct flag_set;
+template<typename Flag, Flag N>
+constexpr bool operator==(const flag_set<Flag, N>&, const flag_set<Flag, N>&) noexcept;
 
 namespace util {
 
@@ -33,17 +34,14 @@ template<> struct integral_type_for<16> { using type = uint16_t; };
 template<> struct integral_type_for<8> { using type = uint8_t; };
 
 template<
-    typename Integral,
-    typename Enum,
+    typename To,
+    typename From,
     typename = typename std::enable_if<
-        std::is_convertible<
-            typename std::underlying_type<Enum>::type, 
-            Integral
-        >::value
+        std::is_integral<From>::value || std::is_enum<From>::value
     >::type
-> constexpr Integral enum_cast(Enum e)
+> constexpr To int_cast(From i)
 {
-    return static_cast<Integral>(e);
+    return static_cast<To>(i);
 }
 
 } // namespace util
@@ -57,8 +55,9 @@ template<
  * values is large enough to hold all flags. This, however, is limited to 64 bits,
  * because it uses an integer as its underlying type (thus max int64_t).
  *
- * This class should be used over a std::bitset<> whenever the maximum number of states
- * is relatively small, in which case this class should be faster.
+ * This class should be used over a std::bitset whenever the maximum number of states
+ * is relatively small, in which case this class should be faster (std::bitset's minimum
+ * size is 8 bytes in most implementations).
  *
  * Example
  * -------
@@ -73,23 +72,23 @@ template<
  * if(op_state[op_t::send]) { ... }
  */
 template<
-    typename Enum,
-    Enum NumFlags
+    typename Flag,
+    Flag NumFlags
 > struct flag_set
 {
-    static_assert(
-        util::enum_cast<size_t>(NumFlags) <= 64, "The maximum number of flags is 64.");
+    static_assert(util::int_cast<size_t>(NumFlags) <= 64,
+        "The maximum number of flags is 64.");
 
     using value_type = bool;
     using size_type = size_t;
     using const_reference = value_type;
-    using enum_type = Enum;
-    // note: we can't just use std::underlying_type<Enum> because an int representation
+    using flag_type = Flag;
+    // note: we can't just use std::underlying_type<Flag> because an int representation
     // of an enum value does not map to the number of bits needed express that many
     // flags (e.g. the value 64 can be represented by a single 8-bit int, but we'd need
     // an uint64_t to represent 64 flags)
     using underlying_type = typename util::integral_type_for<
-        util::enum_cast<size_type>(NumFlags)
+        util::int_cast<size_type>(NumFlags)
     >::type;
 
     class reference
@@ -140,79 +139,97 @@ private:
 public:
 
     flag_set() = default;
-    flag_set(const std::initializer_list<enum_type>& flags)
+    constexpr flag_set(underlying_type flags) : m_flags(flags) {}
+    constexpr flag_set(const std::initializer_list<flag_type>& flags) { assign(flags); }
+
+    constexpr void assign(underlying_type flags) { m_flags = flags; }
+
+    constexpr void assign(const std::initializer_list<flag_type>& flags)
     {
-        for(const auto flag : flags)
-        {
-            set(flag);
-        }
+        for(const auto flag : flags) { set(flag); }
     }
 
-    size_type size() const noexcept
+    constexpr size_type size() const noexcept
     {
-        return util::enum_cast<size_type>(NumFlags);
+        return util::int_cast<size_type>(NumFlags);
     }
 
-    bool is_empty() const noexcept
+    constexpr bool empty() const noexcept
     {
         return m_flags == 0;
     }
 
-    bool is_full() const noexcept
+    constexpr bool is_full() const noexcept
     {
         return m_flags == std::numeric_limits<underlying_type>::max();
     }
 
     /** Used to query whether any flags are set. */
-    operator bool() const noexcept
-    {
-        return !is_empty();
-    }
+    constexpr operator bool() const noexcept { return !empty(); }
+
+    constexpr underlying_type data() const noexcept { return m_flags; }
 
     /** Used to query whether flag is active. */
-    const_reference operator[](const enum_type flag) const noexcept
+    constexpr const_reference operator[](const flag_type flag) const noexcept
     {
         return m_flags & bit_mask(flag);
     }
 
-    reference operator[](const enum_type flag) noexcept
+    constexpr reference operator[](const flag_type flag) noexcept
     {
         return reference(m_flags, bit_mask(flag));
     }
 
-    void set(const enum_type flag) noexcept
+    constexpr void set(const flag_type flag) noexcept
     {
         m_flags |= bit_mask(flag);
     }
 
-    void unset(const enum_type flag) noexcept
+    constexpr void unset(const flag_type flag) noexcept
     {
         m_flags &= ~bit_mask(flag);
     }
 
-    void clear() noexcept
+    constexpr void clear() noexcept
     {
         m_flags = 0;
     }
 
-    friend bool operator==<Enum, NumFlags>(const flag_set&, const flag_set&) noexcept;
+    /**
+     * Returns a bit-by-bit representation of the flag_set, ordered from least significant
+     * to the most significant bit.
+     */
+    std::string to_string() const
+    {
+        std::string s(size(), '0');
+        for(int i = 0; i < size(); ++i)
+        {
+            if(operator[](i))
+            {
+                s[size() - 1 - i] = '1';
+            }
+        }
+        return s;
+    }
+
+    friend bool operator==<Flag, NumFlags>(const flag_set&, const flag_set&) noexcept;
 
 private:
 
-    static underlying_type bit_mask(const enum_type flag) noexcept
+    static underlying_type bit_mask(const flag_type flag) noexcept
     {
-        return 1 << util::enum_cast<underlying_type>(flag);
+        return underlying_type(1) << util::int_cast<underlying_type>(flag);
     }
 };
 
-template<typename Enum, Enum N>
-inline bool operator==(const flag_set<Enum, N>& a, const flag_set<Enum, N>& b) noexcept
+template<typename Flag, Flag N>
+constexpr bool operator==(const flag_set<Flag, N>& a, const flag_set<Flag, N>& b) noexcept
 {
     return a.m_flags == b.m_flags;
 }
 
-template<typename Enum, Enum N>
-inline bool operator!=(const flag_set<Enum, N>& a, const flag_set<Enum, N>& b) noexcept
+template<typename Flag, Flag N>
+constexpr bool operator!=(const flag_set<Flag, N>& a, const flag_set<Flag, N>& b) noexcept
 {
     return !(a == b);
 }

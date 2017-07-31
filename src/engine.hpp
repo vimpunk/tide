@@ -1,19 +1,21 @@
 #ifndef TIDE_ENGINE_HEADER
 #define TIDE_ENGINE_HEADER
 
-#include "event_queue.hpp"
+#include "bandwidth_controller.hpp"
+#include "endpoint_filter.hpp"
 #include "torrent_handle.hpp"
 #include "torrent_args.hpp"
+#include "event_queue.hpp"
 #include "settings.hpp"
 #include "metainfo.hpp"
 #include "disk_io.hpp"
 #include "torrent.hpp"
-#include "units.hpp"
+#include "types.hpp"
 
 #include <unordered_map>
 #include <system_error>
 #include <functional>
-#include <cstding>
+#include <cstdint>
 #include <thread>
 #include <vector>
 #include <mutex>
@@ -101,8 +103,8 @@ public:
     bool is_listening() const noexcept;
     uint16_t listen_port() const noexcept;
 
-    disk_io_info get_disk_io_stats() const;
-    engine_info get_engine_stats() const;
+    disk_io::stats get_disk_io_stats() const;
+    //engine_info get_engine_stats() const;
     settings get_settings() const;
     void apply_settings(const settings& s);
 
@@ -162,7 +164,7 @@ public:
     void remove_torrent(const torrent_handle& torrent, remove_options options);
 
     torrent_handle find_torrent(const sha1_hash& info_hash);
-    torrent_handle find_torrent(const torrent_id_t& id);
+    torrent_handle find_torrent(const torrent_id_t id);
 
     // TODO perhaps rename these {set,{in,de}crement,etc}_torrent_queue_position
     void set_torrent_priority(const torrent_handle& torrent, const int queue_pos);

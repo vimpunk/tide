@@ -1,6 +1,7 @@
 #ifndef TIDE_GLOBAL_SETTINGS_HEADER
 #define TIDE_GLOBAL_SETTINGS_HEADER
 
+#include "extensions.hpp"
 #include "types.hpp"
 #include "time.hpp"
 #include "path.hpp"
@@ -34,9 +35,9 @@ struct engine_settings
     // TODO currently not implemented
     bool discard_piece_picker_on_completion = true;
 
-    // TODO desc.
-    // TODO maybe this is a per torrent setting?
-    bool prefer_udp_trackers = true;
+    // Pick UDP trackers over HTTP trackers, even if HTTP trackers have a higher
+    // priority in the metainfo's announce-list.
+    bool prefer_udp_trackers = false;
 
     // The initial port to which the torrent engine will attempt to bind. If met with
     // failure or no port is specified, it falls back to the OS provided random port.
@@ -86,7 +87,6 @@ struct engine_settings
     // Should be between 100 and 1000.
     milliseconds bandwidth_distribution_interval{150};
 
-    // TODO add choking algorithm choices
     enum class choking_algorithm_t
     {
         // In leech mode, it chooses the peers that had the best upload rate in the
@@ -107,13 +107,14 @@ struct disk_io_settings
 
     // The upper bound of the piece cache in number of 16KiB blocks. The write buffer
     // (which is basically a write cache, deferring writes as much as possible) is
-    // counted here as well.
-    int read_cache_capacity;
+    // counted here as well. A value of -1 means that this is automatically set by
+    // tide based on the available memory in client's system.
+    int read_cache_capacity = -1;
 
     // This determines how many blocks should be read ahead, including the originally
     // requested block. If it's 0, it disables read ahead and only one block will be
     // pulled in a time. This is not recommended, but might help to conserve memory.
-    int read_cache_line_size;
+    int read_cache_line_size = 4;
 
     // The number of contiguous 16KiB blocks that are buffered before written to disk.
     // If the piece is smaller than this, the number of blocks in piece replaces this
@@ -156,10 +157,6 @@ struct torrent_settings
     // fully downloaded. Take everything, give nothing back?
     bool stop_when_downloaded = false;
 
-    // Pick UDP trackers over HTTP trackers, even if HTTP trackers have a higher
-    // priority in metainfo's announce-list.
-    bool prefer_udp_trackers = false;
-
     // The number of peers to which we upload pieces. This should probably be left at
     // the default value (4) for better performance.
     int max_upload_slots = 4;
@@ -182,6 +179,9 @@ struct peer_session_settings
     // trackers and when interacting with peers that support the extension.
     // It is 20 bytes long.
     peer_id_t client_id;
+
+    // The extensions this client wishes to support.
+    extensions::flags extensions;// = {extensions::fast, extensions::dht};
 
     // The number of seconds we should wait for a peer (regardless of the last sent
     // message type) before concluding it to have timed out and closing the connection.
@@ -219,14 +219,13 @@ struct peer_session_settings
 
     enum encryption_policy_t
     {
-        // TODO add encryption
         // Only encrypted connections are made, incoming non-encrypted connections are
-        // not allowed.
-        //encryption_only,
+        // dropped.
+        encryption_only,
 
         // Both encrypted and plaintext connections are allowed. If an encrypted
         // connection fails, a plaintext one is attempted.
-        //mixed,
+        mixed,
 
         // Only non-encrypted connections are allowed.
         no_encryption

@@ -17,6 +17,7 @@
 #include "bdecode.hpp"
 #include "time.hpp"
 #include "path.hpp"
+#include "log.hpp"
 
 #include <system_error>
 #include <functional>
@@ -266,13 +267,6 @@ private:
          * NOTE: it's a somewhat expensive operation.
          */
         interval largest_contiguous_range() const noexcept;
-
-        /**
-         * Moves n blocks or the blocks in the range [begin, end) from buffer to 
-         * work_buffer.
-         */
-        void move_blocks_to_work_buffer(const int n);
-        void move_blocks_to_work_buffer(int begin, int end);
 
         /**
          * This is used when, after extracting blocks from buffer to work_buffer, we
@@ -606,13 +600,29 @@ private:
         cache,
         metainfo,
         torrent,
-        piece,
+        write,
+        read,
         resume_data,
         integrity_check
     };
 
+    enum class invoked_on
+    {
+        network_thread,
+        thread_pool
+    };
+
     template<typename... Args>
     void log(const log_event event, const char* format, Args&&... args) const;
+    template<typename... Args>
+    void log(const log_event event, const log::priority priority,
+        const char* format, Args&&... args) const;
+    template<typename... Args>
+    void log(const invoked_on thread, const log_event event,
+        const char* format, Args&&... args) const;
+    template<typename... Args>
+    void log(const invoked_on thread, const log_event event,
+        const log::priority priority, const char* format, Args&&... args) const;
 };
 
 } // namespace tide

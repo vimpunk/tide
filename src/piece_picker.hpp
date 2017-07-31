@@ -44,11 +44,10 @@ public:
     bool has_no_pieces() const noexcept;
     bool has_all_pieces() const noexcept;
 
-    /** Returns the total number of pieces in this torrent (== my_bitfield().size()). */
+    /** Returns the total number of pieces in this torrent (my_bitfield().size()). */
     int num_pieces() const noexcept;
+    int num_pieces_left() const noexcept;
     const bitfield& my_bitfield() const noexcept;
-    // TODO rename above to:
-    //const bitfield& my_available_pieces() const noexcept;
 
     /** Index corresponds to piece index, and the value at index is the frequency. */
     std::vector<int> piece_availability() const;
@@ -168,6 +167,11 @@ private:
 inline int piece_picker::num_pieces() const noexcept
 {
     return m_downloaded_pieces.size();
+}
+
+inline int piece_picker::num_pieces_left() const noexcept
+{
+    return m_num_pieces_left;
 }
 
 inline

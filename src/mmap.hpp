@@ -1,7 +1,7 @@
 #ifndef TIDE_MMAP_HEADER
 #define TIDE_MMAP_HEADER
 
-#include "filesystem.hpp"
+#include "system.hpp"
 
 #include <iterator>
 
@@ -26,7 +26,7 @@ struct mmap_base
     //using reverse_iterator = std::reverse_iterator<iterator>;
     //using const_reverse_iterator = std::reverse_iterator<const_iterator>;
     using iterator_category = std::random_access_iterator_tag;
-    using handle_type = fs::file_handle_type;
+    using handle_type = sys::file_handle_type;
 
 protected:
 
@@ -68,7 +68,7 @@ public:
      */
     bool is_open() const noexcept;
     bool is_mapped() const noexcept;
-    bool is_empty() const noexcept;
+    bool empty() const noexcept;
 
     /**
      * size/length returns the logical length (i.e. the one user requested), while
@@ -179,7 +179,7 @@ inline bool mmap_base::is_mapped() const noexcept
 #endif
 }
 
-inline bool mmap_base::is_empty() const noexcept
+inline bool mmap_base::empty() const noexcept
 {
     return length() == 0;
 }

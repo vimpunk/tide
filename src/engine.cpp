@@ -7,6 +7,7 @@
 
 namespace tide {
 
+// TODO FIXME race condition here
 std::vector<torrent_handle> engine::torrents()
 {
     std::vector<torrent_handle> torrents;
@@ -78,7 +79,7 @@ void engine::add_torrent(torrent_args args)
     {
         // torrent calls disk_io::allocate_torrent() so we don't have to here
         const torrent_id_t torrent_id = get_torrent_id();
-        auto it = m_torrents.emplace(torrent_id, torrent( torrent_id,
+        auto it = m_torrents.emplace(torrent_id, torrent(torrent_id,
                 m_disk_io, m_bandwidth_controller, m_settings,
                 get_trackers(args.metainfo), m_endpoint_filter, m_event_queue,
                 std::move(args))).first;
@@ -91,7 +92,7 @@ void engine::add_torrent(torrent_args args)
 inline void engine::verify_torrent_args(torrent_args& args) const
 {
     // TODO this is mostly a rough outline just to have something for the time being
-    if(args.metainfo.source.is_empty())
+    if(args.metainfo.source.empty())
         throw std::invalid_argument("torrent_args::metainfo must not be empty");
     if(args.path.empty())
         throw std::invalid_argument("torrent_args::path must not be empty");

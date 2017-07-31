@@ -22,7 +22,7 @@
 #endif // _WIN32
 
 namespace tide {
-namespace fs { // filesystem utilities
+namespace sys {
 
 using file_handle_type =
 #ifdef _WIN32
@@ -31,13 +31,6 @@ using file_handle_type =
     int
 #endif
 ;
-
-/**
- * Returns the operating system's page granularity. Since this value is not expected
- * to change, only the first invocation of this function makes a syscall, caches the
- * returned value, enabling all other invocations to serve the cached value.
- */
-size_t page_size();
 
 struct file_status
 {
@@ -82,18 +75,17 @@ void create_directories(const path& path, std::error_code& error);
 void move(const path& old_path, const path& new_path, std::error_code& error);
 void rename(const path& old_path, const path& new_path, std::error_code& error);
 
-
-} // namespace fs
-
-namespace util {
-
 /**
- * Assigns errno on UNIX and GetLastError() on Windows to error after a failed
- * operation.
+ * Returns the operating system's page granularity. Since this value is not expected
+ * to change, only the first invocation of this function makes a syscall, caches the
+ * returned value, enabling all other invocations to serve the cached value.
  */
-void assign_errno(std::error_code& error) noexcept;
+size_t page_size();
 
-} // namespace util
+/** Returns errno on UNIX and GetLastError() on Windows. */
+std::error_code latest_error() noexcept;
+
+} // namespace sys
 } // namespace tide
 
 #endif // TIDE_FILE_SYSTEM_HEADER

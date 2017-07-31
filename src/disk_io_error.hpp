@@ -15,6 +15,9 @@ enum class disk_io_errc
     tried_unwanted_file_write,
     tried_unallocated_file_read,
     tried_unallocated_file_write,
+    tried_read_only_file_write,
+    invalid_file_offset,
+    null_transfer,
     // Used when we abort a block read.
     operation_aborted
 };

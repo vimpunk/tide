@@ -1,24 +1,26 @@
 #include "bandwidth_controller.hpp"
 #include "piece_download.hpp"
+#include "disk_io_error.hpp"
 #include "piece_picker.hpp"
 #include "peer_session.hpp"
 #include "torrent_info.hpp"
 #include "string_utils.hpp"
+#include "sha1_hasher.hpp"
 #include "settings.hpp"
 #include "payload.hpp"
 #include "endian.hpp"
 #include "view.hpp"
-#include "disk_io_error.hpp"
 
 #include <algorithm>
 #include <stdexcept>
 #include <cassert>
 #include <string>
 #include <cmath> // min, max
+#ifdef TIDE_ENABLE_LOGGING
+# include <sstream>
+#endif // TIDE_ENABLE_LOGGING
 
 #include <asio/io_service.hpp>
-
-#include <iostream>
 
 namespace tide {
 
@@ -160,10 +162,7 @@ void peer_session::start()
         m_info.state = state_t::connected;
         // if we're not receiving, and not writing to disk (in which case the disk write
         // handler would call receive), we need to resuscitate the receive cycle
-        if(!m_op_state[op_t::receive] && !m_op_state[op_t::disk_write])
-        {
-            receive();
-        }
+        if(!m_op_state[op_t::receive] && !m_op_state[op_t::disk_write]) { receive(); }
         // TODO verify; I don't think it's enough to check whether socket is open,
         // as it may be still connecting, in which case we can't just continue the
         // session, so stronger guarantees are necessary
@@ -194,7 +193,7 @@ void peer_session::abort()
 inline void peer_session::connect()
 {
     std::error_code ec;
-    log(log_event::connecting, "opening socket");
+    log(log_event::connecting, log::priority::low, "opening socket");
     m_socket->open(m_info.remote_endpoint.protocol(), ec);
     if(ec)
     {
@@ -214,7 +213,7 @@ inline void peer_session::connect()
 
     start_timer(m_connect_timeout_timer, m_settings.peer_connect_timeout,
         [SHARED_THIS](const std::error_code& error) { on_connect_timeout(error); });
-    log(log_event::connecting, "started establishing connection");
+    log(log_event::connecting, log::priority::low, "started establishing connection");
 }
 
 void peer_session::on_connected(const std::error_code& error)
@@ -232,7 +231,7 @@ void peer_session::on_connected(const std::error_code& error)
         return;
     }
 
-    log(log_event::connecting, "setting non-blocking io mode");
+    log(log_event::connecting, log::priority::low, "setting non-blocking io mode");
     m_socket->non_blocking(true, ec);
     if(ec)
     {
@@ -262,12 +261,6 @@ void peer_session::on_connected(const std::error_code& error)
     {
         assert(false && "currently only no_encryption policy is supported");
     }
-
-    // TODO maybe we should reset download rate when we get unchoked?
-    m_info.download_rate.reset();
-    m_info.download_rate.reset();
-    m_avg_request_rtt.reset(); // TODO consider whether to reset these
-    m_avg_disk_write_time.reset();
 }
 
 inline bool peer_session::should_abort(const std::error_code& error) const noexcept
@@ -281,10 +274,13 @@ void peer_session::disconnect(const std::error_code& error)
 
     //m_info.state = state_t::disconnecting;
     const auto reason = error.message();
-    log(log_event::disconnecting, "preparing to disconnect; reason: %s (#%i)",
+    log(log_event::disconnecting, log::priority::high,
+        "preparing to disconnect; reason: %s (#%i)",
         reason.c_str(), error.value());
 
     std::error_code ec;
+    m_connect_timeout_timer.cancel(ec);
+    m_request_timeout_timer.cancel(ec);
     m_keep_alive_timer.cancel(ec);
     m_inactivity_timeout_timer.cancel(ec);
 
@@ -292,23 +288,23 @@ void peer_session::disconnect(const std::error_code& error)
     // we won't get the blocks and to remove this peer from their participant registry
     abort_outgoing_requests();
     detach_downloads();
-    if(m_piece_picker != nullptr)
-    {
-        m_piece_picker->decrease_frequency(m_info.available_pieces);
-    }
+    if(m_piece_picker) { m_piece_picker->decrease_frequency(m_info.available_pieces); }
 
     m_socket->close(ec);
     m_info.state = state_t::disconnected;
-    if(m_torrent_info)
+    //TODO are there more outstanding bytes (disk etc) that we need to subtract here?
+    //m_torrent_info->num_outstanding_bytes -= m_info.num_outstanding_bytes;
+    if(m_torrent_info) { ++m_torrent_info->num_lingering_disconnected_sessions; }
+
+    // if we have some block data in message buffer but are disconnecting,
+    // we won't finish downloading it, so tally the wasted bytes
+    if(m_info.in_transit_block != invalid_block)
     {
-        m_torrent_info->num_outstanding_bytes -= m_info.num_outstanding_bytes;
-        ++m_torrent_info->num_lingering_disconnected_sessions;
+        m_info.total_wasted_bytes += m_message_parser.size();
+        if(m_torrent_info) m_torrent_info->total_wasted_bytes += m_message_parser.size();
     }
 
-    log(log_event::disconnecting, "tore down connection");
-
     // TODO tell disk_io to stop serving peer's outstanding requests
-    // TODO record partially received payload as wasted
     // TODO clear pending sent and received requests queue
 }
 
@@ -320,7 +316,7 @@ inline void peer_session::abort_outgoing_requests()
     // TODO VERIFY THIS
     piece_download* download = nullptr;
     // tell each download that we won't get our requested blocks
-    for(const pending_block& block : m_sent_requests)
+    for(const pending_block& block : m_outgoing_requests)
     {
         // it is likely that most of the current requests belong to one piece download,
         // so we're caching it in download above, but still need to check it
@@ -328,14 +324,12 @@ inline void peer_session::abort_outgoing_requests()
         {
             download = &find_download(block.index);
         }
-        if(download)
-        {
-            download->cancel_request(static_cast<const block_info&>(block));
-        }
+        assert(download);
+        download->cancel_request(static_cast<const block_info&>(block));
     }
     m_info.num_outstanding_bytes = 0;
     m_torrent_info->num_outstanding_bytes = 0;
-    m_sent_requests.clear();
+    m_outgoing_requests.clear();
 }
 
 inline void peer_session::detach_downloads()
@@ -346,7 +340,7 @@ inline void peer_session::detach_downloads()
     }
     if(m_parole_download)
     {
-        if(m_parole_download->num_blocks_left() < m_parole_download->num_blocks())
+        if(m_parole_download->num_blocks_left() < m_parole_download->blocks().size())
         {
             // if download of this piece has been begun, it means we have passed a
             // reference to this piece download to disk_io::save_block's completion
@@ -415,19 +409,22 @@ void peer_session::get_detailed_stats(detailed_stats& s) const noexcept
     }
 }
 
+bool peer_session::is_extension_enabled(const int extension) const noexcept
+{
+    return m_info.extensions[extension] && m_settings.extensions[extension];
+}
+
 void peer_session::choke_peer()
 {
-    if(!is_read_for_message_exchange() || is_peer_choked())
-    {
-        return;
-    }
-    // TODO abort serving requests
-    for(const auto& block : m_received_requests)
-    {
-        // TODO
-    }
-    m_received_requests.clear();
+    if(!is_read_for_message_exchange() || is_peer_choked()) { return; }
     send_choke();
+    for(const auto& block : m_incoming_requests)
+    {
+        // TODO we should tell disk_io and other components of this
+        // TODO if block is in the allowed fast set, don't reject
+        send_reject_request(block);
+    }
+    m_incoming_requests.clear();
 }
 
 void peer_session::unchoke_peer()
@@ -435,6 +432,15 @@ void peer_session::unchoke_peer()
     if(is_read_for_message_exchange() && is_peer_choked())
     {
         send_unchoke();
+        m_info.upload_rate.reset();
+    }
+}
+
+void peer_session::suggest_piece(const piece_index_t piece)
+{
+    if(is_extension_enabled(extensions::fast) && !m_info.available_pieces[piece])
+    {
+        send_suggest_piece(piece);
     }
 }
 
@@ -446,10 +452,7 @@ void peer_session::announce_new_piece(const piece_index_t piece)
     if(is_read_for_message_exchange())
     {
         // don't send a have msg if peer already has the piece
-        if(!m_info.available_pieces[piece])
-        {
-            send_have(piece);
-        }
+        if(!m_info.available_pieces[piece]) { send_have(piece); }
         // send_have() is called by torrent when a new piece is received, so recalculate
         // whether we're interested in this peer, for we may have received the only piece
         // peer has in which we were interested TODO what if we're receiving that piece?
@@ -476,7 +479,7 @@ void peer_session::update_interest()
         std::error_code ec;
         m_inactivity_timeout_timer.cancel(ec);
         send_interested();
-        if(can_send_requests()) { send_requests(); }
+        if(can_make_requests()) { make_requests(); }
     }
     else if(was_interested && !am_interested)
     {
@@ -491,10 +494,7 @@ void peer_session::update_interest()
                 { on_inactivity_timeout(error); });
         }
     }
-    if(am_seeder() && m_info.is_peer_seed)
-    {
-        disconnect(peer_session_errc::both_seeders);
-    }
+    if(am_seeder() && is_peer_seed()) { disconnect(peer_session_errc::both_seeders); }
 }
 
 inline bool peer_session::am_seeder() const noexcept
@@ -520,25 +520,26 @@ void peer_session::send()
 
     m_op_state.set(op_t::send);
 
-    log(log_event::outgoing, "sending: %i; available: %i; quota: %i",
+    log(log_event::outgoing, log::priority::low,
+        "sending: %i; available: %i; quota: %i",
         num_bytes_to_send, m_send_buffer.size(), m_info.send_quota);
 }
 
 bool peer_session::can_send() const noexcept
 {
-    if(m_send_buffer.is_empty())
+    if(m_send_buffer.empty())
     {
-        log(log_event::outgoing, "CAN'T SEND, buffer empty");
+        log(log_event::outgoing, log::priority::low, "CAN'T SEND, buffer empty");
         return false;
     }
     else if(m_op_state[op_t::send])
     {
-        log(log_event::outgoing, "CAN'T SEND, already sending");
+        log(log_event::outgoing, log::priority::low, "CAN'T SEND, already sending");
         return false;
     }
     else if(m_info.send_quota <= 0)
     {
-        log(log_event::outgoing, "CAN'T SEND, no quota left");
+        log(log_event::outgoing, log::priority::low, "CAN'T SEND, no quota left");
         return false;
     }
     return true;
@@ -585,10 +586,7 @@ void peer_session::on_sent(const std::error_code& error, size_t num_bytes_sent)
     // there were more bytes in send buffer to send than we had quota for, and since the
     // first thing in send is asking for more bandwidth quota, we may be able to send
     // off the rest of the send buffer's contents
-    if(!m_send_buffer.is_empty())
-    {
-        send();
-    }
+    if(!m_send_buffer.empty()) { send(); }
 }
 
 inline void peer_session::update_send_stats(const int num_bytes_sent) noexcept
@@ -609,7 +607,7 @@ void peer_session::receive()
 
     if(m_op_state[op_t::receive])
     {
-        log(log_event::incoming, "CAN'T RECEIVE, already receiving");
+        log(log_event::incoming, log::priority::low, "CAN'T RECEIVE, already receiving");
         return;
     }
 
@@ -625,7 +623,8 @@ void peer_session::receive()
 
     m_op_state.set(op_t::receive);
 
-    log(log_event::incoming, "receiving: %i; receive buffer free space: %i; quota: %i",
+    log(log_event::incoming, log::priority::low,
+        "receiving: %i; receive buffer free space: %i; quota: %i",
         num_to_receive, m_message_parser.free_space_size(), m_info.receive_quota);
 }
 
@@ -653,7 +652,7 @@ inline int peer_session::get_num_to_receive() const noexcept
 {
     if(m_info.receive_quota <= 0)
     {
-        log(log_event::incoming, "CAN'T RECEIVE, no receive quota");
+        log(log_event::incoming, log::priority::low, "CAN'T RECEIVE, no receive quota");
         return 0;
     }
     // pending bytes written to disk are also counted as part of the receive buffer
@@ -667,7 +666,7 @@ inline int peer_session::get_num_to_receive() const noexcept
         // otherwise downloads would crawl to a halt and saving this amount should be
         // manageable by disk_io under most loads
         max_receive_size = 1 * 0x4000;
-        log(log_event::disk,
+        log(log_event::disk, log::priority::high,
             "session disk bound, receive buffer capacity reached, using reserves");
     }
     // this function will choose the max capacity if we have enough quota, which we
@@ -716,6 +715,7 @@ void peer_session::on_received(const std::error_code& error, size_t num_bytes_re
         return;
     }
 
+    assert(num_bytes_received > 0);
     m_message_parser.record_received_bytes(num_bytes_received);
     // if we completely filled up receive buffer it may mean socket has some bytes left
     if(m_message_parser.is_full())
@@ -783,7 +783,8 @@ inline void peer_session::adjust_receive_buffer(const bool was_choked)
                 m_settings.max_receive_buffer_size));
         }
         if(old_buffer_size != m_message_parser.buffer_size())
-            log(log_event::incoming, "grew receive buffer from %i to %i",
+            log(log_event::incoming, log::priority::low,
+                "grew receive buffer from %i to %i",
                 old_buffer_size, m_message_parser.buffer_size());
     }
     else if(got_choked && old_buffer_size > 1024)
@@ -793,7 +794,8 @@ inline void peer_session::adjust_receive_buffer(const bool was_choked)
         // (if we have unfinished messages in receive buffer it will not shrink below
         // the last valid message byte)
         m_message_parser.shrink_to_fit(100);
-        log(log_event::incoming, "shrunk receive buffer from %i to %i",
+        log(log_event::incoming, log::priority::low,
+            "shrunk receive buffer from %i to %i",
             old_buffer_size, m_message_parser.buffer_size());
     }
 }
@@ -823,7 +825,8 @@ inline int peer_session::flush_socket()
         if((ec == asio::error::would_block) || (ec == asio::error::try_again))
         {
             // this is not an error, just ignore
-            log(log_event::incoming, "couldn't sync read from socket");
+            log(log_event::incoming, log::priority::low,
+                "couldn't sync read from socket");
         }
         else if(ec)
         {
@@ -831,7 +834,9 @@ inline int peer_session::flush_socket()
         }
         else
         {
-            log(log_event::incoming, "sync read %i bytes from socket", num_bytes_read);
+            assert(num_bytes_read > 0);
+            log(log_event::incoming, log::priority::low,
+                "sync read %i bytes from socket", num_bytes_read);
             m_message_parser.record_received_bytes(num_bytes_read);
             return num_bytes_read;
         }
@@ -850,35 +855,50 @@ inline void peer_session::handle_messages()
         if(m_message_parser.has_handshake())
         {
             handle_handshake();
-            // error in peer's handshake
             if(is_disconnected()) { return; }
         }
         else
         {
             // otherwise we don't have the full handshake yet, so receive more bytes and
-            // come back to try again (receive is called  after this function returns)
+            // come back later to try again
             return;
         }
     }
-    if(m_message_parser.has_message() && (m_info.state == state_t::bitfield_exchange))
+
+    if(m_info.state == state_t::bitfield_exchange)
     {
+        if(!m_message_parser.has_message()) { return; }
         if(m_message_parser.type() == message_type::bitfield)
         {
             handle_bitfield();
-            // error in peer's bitfield
+            if(is_disconnected()) { return; }
+        }
+        else if(is_extension_enabled(extensions::fast))
+        {
+            // if the fast extension is set, peer MUST send a piece availability
+            // related message after the handshake; otherwise this is optional
+            if(m_message_parser.type() == message_type::have_all)
+                handle_have_all();
+            else if(m_message_parser.type() == message_type::have_none)
+                handle_have_none();
+            else
+                disconnect(peer_session_errc::no_piece_availability_message);
             if(is_disconnected()) { return; }
         }
         m_info.state = state_t::connected;
     }
+
     while(!is_disconnected()
           && m_message_parser.has_message()
           && m_send_buffer.size() <= m_settings.max_send_buffer_size)
     {
-        switch(m_message_parser.type())
-        {
-        // bitfield messages may only be sent after the handshake, in the bitfield
-        // exchange state in state_t
-        case message_type::bitfield: handle_illicit_bitfield(); break;
+        switch(m_message_parser.type()) {
+        // -- standard BitTorrent messages --
+        // bitfield messages may only be sent after the handshake
+        case message_type::bitfield:
+            log(log_event::invalid_message, "BITFIELD not after handshake");
+            disconnect(peer_session_errc::invalid_message);
+            break;
         case message_type::keep_alive: handle_keep_alive(); break;
         case message_type::choke: handle_choke(); break;
         case message_type::unchoke: handle_unchoke(); break;
@@ -888,6 +908,20 @@ inline void peer_session::handle_messages()
         case message_type::request: handle_request(); break;
         case message_type::block: handle_block(); break;
         case message_type::cancel: handle_cancel(); break;
+        // -- DHT extension messages --
+        // -- Fast extension messages --
+        case message_type::suggest_piece: handle_suggest_piece(); break;
+        // like bitfield, these messages may only be exchanged after the handshake
+        case message_type::have_all:
+            log(log_event::invalid_message, "HAVE ALL not after handshake");
+            disconnect(peer_session_errc::invalid_message);
+            break;
+        case message_type::have_none:
+            log(log_event::invalid_message, "HAVE NONE not after handshake");
+            disconnect(peer_session_errc::invalid_message);
+            break;
+        case message_type::reject_request: handle_reject_request(); break;
+        case message_type::allowed_fast: handle_allowed_fast(); break;
         default: handle_unknown_message();
         }
     }
@@ -969,8 +1003,7 @@ void peer_session::handle_handshake()
         // the connection was initiated by peer, we still need to send our handshake
         send_handshake();
     }
-    std::copy(handshake.reserved.cbegin(),
-        handshake.reserved.cend(), m_info.extensions.begin());
+    m_info.extensions.assign(endian::parse<uint64_t>(handshake.reserved.cbegin()));
     std::copy(handshake.peer_id.cbegin(),
         handshake.peer_id.cend(), m_info.peer_id.begin());
 
@@ -982,27 +1015,18 @@ void peer_session::handle_handshake()
         m_info.max_outgoing_request_queue_size = 50;
     }
 
-    char extensions_str[65];
-    extensions_str[64] = '\0';
-    int offset = 0;
-    for(const char b : m_info.extensions)
-    {
-        for(int shift = 7; shift >= 0; --shift)
-        {
-            extensions_str[offset++] = (b >> shift) ? '1' : '0';
-        }
-    }
+    const auto extensions_str = extensions::to_string(m_info.extensions);
     if(m_info.client.empty())
     {
-        log(log_event::incoming,
+        log(log_event::incoming, log::priority::high,
             "HANDSHAKE (protocol: %s; extensions: %s; client_id: %s)",
-            handshake.protocol.data(), extensions_str, m_info.peer_id.data());
+            handshake.protocol.data(), extensions_str.c_str(), m_info.peer_id.data());
     }
     else
     {
-        log(log_event::outgoing,
+        log(log_event::incoming, log::priority::high,
             "HANDSHAKE (protocol: %s; extensions: %s; client_id: %s; client: %s)",
-            handshake.protocol.data(), extensions_str, m_info.peer_id.data(),
+            handshake.protocol.data(), extensions_str.c_str(), m_info.peer_id.data(),
             m_info.client.c_str());
     }
 
@@ -1073,7 +1097,9 @@ inline void peer_session::handle_choke()
     {
         m_info.am_choked = true;
         m_op_state.unset(op_t::slow_start);
-        abort_outgoing_requests();
+        // the Fast extension modifies the choke semantics in that being choked no
+        // longer implicitly rejects requests, this is done explicitly
+        if(!is_extension_enabled(extensions::fast)) { abort_outgoing_requests(); }
     }
     m_info.last_incoming_choke_time = cached_clock::now();
 }
@@ -1090,9 +1116,16 @@ inline void peer_session::handle_unchoke()
         disconnect(peer_session_errc::invalid_unchoke_message);
         return;
     }
-    m_info.am_choked = false;
+    if(m_info.am_choked)
+    {
+        // reset these values so that they aren't biased towards earlier values
+        // TODO needs more consideration
+        m_info.per_second_downloaded_bytes.reset();
+        m_info.download_rate.reset();
+        m_info.am_choked = false;
+    }
     m_info.last_incoming_unchoke_time = cached_clock::now();
-    if(can_send_requests()) { send_requests(); }
+    if(can_make_requests()) { make_requests(); }
 }
 
 // ------------------
@@ -1163,16 +1196,13 @@ inline void peer_session::handle_have()
         disconnect(peer_session_errc::invalid_have_message);
         return;
     }
-    // got a redundant have message
+    // redundant have message (return so as not to falsely increase piece's frequency)
     if(m_info.available_pieces[piece]) { return; }
 
     m_piece_picker->increase_frequency(piece);
     m_info.available_pieces.set(piece);
     // only need to recalculate if we're not already interested
-    if(!m_info.am_interested)
-    {
-        update_interest();
-    }
+    if(!m_info.am_interested) { update_interest(); }
 }
 
 // ---------------------------------------------
@@ -1188,12 +1218,7 @@ inline void peer_session::handle_request()
         return;
     }
 
-    if(is_peer_choked())
-    {
-        handle_illicit_request();
-        return;
-    }
-    else if(!is_peer_interested())
+    if(!is_peer_interested())
     {
         // peer is not choked but according to our data it is not interested either, so
         // pretend that we got an interested message as peer's may have gotten lost
@@ -1210,7 +1235,20 @@ inline void peer_session::handle_request()
         disconnect(peer_session_errc::invalid_request_message);
         return;
     }
-    log(log_event::incoming, "REQUEST (piece: %i, offset: %i, length: %i)",
+
+    // if block is in the allowed fast set, we can serve this request
+    if(is_peer_choked()
+       && (!is_extension_enabled(extensions::fast)
+           || m_outgoing_allowed_pieces.end() == std::find_if(
+               m_outgoing_allowed_pieces.begin(), m_outgoing_allowed_pieces.end(),
+                    [piece = block_info.index](const auto& p) { return p == piece; })))
+    {
+        handle_illicit_request(block_info);
+        return;
+    }
+
+    log(log_event::incoming, log::priority::high,
+        "REQUEST (piece: %i, offset: %i, length: %i)",
         block_info.index, block_info.offset, block_info.length);
 
     if(should_accept_request(block_info))
@@ -1218,7 +1256,7 @@ inline void peer_session::handle_request()
         // at this point we can serve the request
         // TODO don't issue request to disk if it's overwhelmed
         m_info.last_incoming_request_time = cached_clock::now();
-        m_received_requests.emplace_back(block_info);
+        m_incoming_requests.emplace_back(block_info);
 
         m_disk_io.fetch_block(block_info,
             [SHARED_THIS](const std::error_code& error, block_source block)
@@ -1228,7 +1266,7 @@ inline void peer_session::handle_request()
         m_info.num_pending_disk_read_bytes += block_info.length;
         m_torrent_info->num_pending_disk_read_bytes += block_info.length;
 
-        log(log_event::disk,
+        log(log_event::disk, log::priority::high,
             "disk read launched, serving request (piece: %i, offset: %i, length: %i)",
             block_info.index, block_info.offset, block_info.length);
     }
@@ -1239,7 +1277,7 @@ inline bool peer_session::should_accept_request(const block_info& block) const n
     // TODO check if max block size is still enforced
     // don't serve request if peer reached its max allowed outstanding requests or
     // if the requested block is larger than 16KiB
-    return m_received_requests.size() < m_settings.max_incoming_request_queue_size
+    return m_incoming_requests.size() < m_settings.max_incoming_request_queue_size
         || block.length <= 0x4000;
 }
 
@@ -1268,13 +1306,14 @@ inline void peer_session::handle_cancel()
     log(log_event::incoming, "CANCEL (piece: %i, offset: %i, length: %i)",
         block_info.index, block_info.offset, block_info.length);
 
-    auto request = std::find_if(m_received_requests.begin(), m_received_requests.end(),
+    auto request = std::find_if(m_incoming_requests.begin(), m_incoming_requests.end(),
         [&block_info](const auto& request) { return request == block_info; });
-    if(request != m_received_requests.cend())
+    if(request != m_incoming_requests.cend())
     {
         // TODO we likely launched a disk read for this block, so cancel it
-        m_received_requests.erase(request);
+        m_incoming_requests.erase(request);
         log(log_event::disk, "disk abort launched, cancelling request");
+        if(is_extension_enabled(extensions::fast)) { send_reject_request(block_info); }
     }
 }
 
@@ -1305,47 +1344,38 @@ void peer_session::handle_block()
         disconnect(peer_session_errc::invalid_block_message);
         return;
     }
-    log(log_event::incoming, "BLOCK (piece: %i, offset: %i, length: %i)",
+    log(log_event::incoming, log::priority::high,
+        "BLOCK (piece: %i, offset: %i, length: %i)",
         block_info.index, block_info.offset, block_info.length);
 
-    auto request = std::find_if(m_sent_requests.begin(), m_sent_requests.end(),
+    auto request = std::find_if(m_outgoing_requests.begin(), m_outgoing_requests.end(),
         [&block_info](const pending_block& request) { return request == block_info; });
-    if(request == m_sent_requests.cend())
+    if(request == m_outgoing_requests.cend())
     {
-        // we don't want this block (give 2 second slack as it may be an old request)
-        if(!m_info.am_interested
-           && cached_clock::now() - m_info.last_outgoing_uninterest_time > seconds(2))
-        {
-            handle_illicit_block();
-        }
-        else
-        {
-            handle_unexpected_block(block_info, std::move(msg));
-        }
+        handle_illicit_block(block_info);
         return;
     }
     // erase request from queue as we either got it or no longer expect it
-    m_sent_requests.erase(request);
+    m_outgoing_requests.erase(request);
 
     if(block_info.length == 0)
     {
-        // this is used by BitComet to reject messages, I think // TODO
-        //handle_rejected_request(block_info);
-        //find piece_download and cancel_request
+        // this is used by BitComet to reject messages
+        handle_rejected_request(block_info);
         return;
     }
 
-    // NOTE: we must upload stats before adjustign request timeout as we adjust request
-    // timeout based on stats TODO this is error prone, perhaps move 
-    // adjust_request_timeout into update_download_stats
+    // NOTE: we must upload stats before adjusting request timeout and request queue
+    // size as we adjust request timeout based on stats
     update_download_stats(block_info.length);
     adjust_request_timeout();
+    adjust_best_request_queue_size();
     m_info.in_transit_block = invalid_block;
 
     if(m_piece_picker->my_bitfield()[block_info.index])
     {
         // we already have this piece
-        log(log_event::incoming, "already have block");
+        log(log_event::incoming, "received block for piece we already have");
         m_info.total_wasted_bytes += block_info.length;
         m_torrent_info->total_wasted_bytes += block_info.length;
     }
@@ -1365,7 +1395,7 @@ void peer_session::handle_block()
         save_block(block_info, std::move(block), download);
     }
 
-    if(can_send_requests()) { send_requests(); }
+    if(can_make_requests()) { make_requests(); }
 }
 
 inline void peer_session::update_download_stats(const int num_bytes)
@@ -1374,21 +1404,21 @@ inline void peer_session::update_download_stats(const int num_bytes)
     m_info.num_outstanding_bytes -= num_bytes;
     m_info.total_downloaded_piece_bytes += num_bytes;
     m_info.download_rate.update(num_bytes);
+    m_info.per_second_downloaded_bytes.update(num_bytes);
     m_torrent_info->num_outstanding_bytes -= num_bytes;
     m_torrent_info->total_downloaded_piece_bytes += num_bytes;
     m_torrent_info->download_rate.update(num_bytes);
     m_num_downloaded_piece_bytes += num_bytes;
-    log(log_event::request, "download rate: %i bytes/s",
-        m_info.download_rate.rate());
 }
 
 inline void peer_session::adjust_request_timeout() // TODO rename
 {
     const auto request_rtt = cached_clock::now() - m_info.last_outgoing_request_time;
     m_avg_request_rtt.update(total_milliseconds(request_rtt));
-    log(log_event::request, "request rtt: %lims", total_milliseconds(request_rtt));
+    log(log_event::request, log::priority::high, "request rtt: %lims",
+        total_milliseconds(request_rtt));
 
-    const auto timeout = request_timeout();
+    const auto timeout = calculate_request_timeout();
     if((request_rtt < timeout) && m_info.has_peer_timed_out)
     {
         // peer has timed out before but managed to deliver this time
@@ -1398,9 +1428,8 @@ inline void peer_session::adjust_request_timeout() // TODO rename
     {
         m_info.has_peer_timed_out = true;
     }
-    adjust_best_request_queue_size();
 
-    if(m_sent_requests.empty())
+    if(m_outgoing_requests.empty())
     {
         // we don't expect more requests, stop the timer
         std::error_code ec;
@@ -1419,21 +1448,29 @@ inline void peer_session::adjust_best_request_queue_size() noexcept
     if(m_info.has_peer_timed_out)
     {
         m_info.best_request_queue_size = 1;
-        m_op_state.unset(op_t::slow_start);
+        m_op_state[op_t::slow_start] = false;
         return;
     }
 
+    // only adjust download rate if at least a second has passed
+    if(!m_info.per_second_downloaded_bytes.is_round_over()) { return; }
+
     const int old_best_request_queue_size = m_info.best_request_queue_size;
-    const int download_rate = m_info.download_rate.rate();
-    const int deviation = m_info.download_rate.deviation();
+    const int num_downloaded = m_info.per_second_downloaded_bytes.value();
+    const int deviation = m_info.per_second_downloaded_bytes.deviation();
+
+    log(log_event::request, log::priority::high,
+        "downloaded this second: %i b (deviation: %i b)", num_downloaded, deviation);
+
     if(m_op_state[op_t::slow_start])
     {
+        // FIXME this is wrong, again, since we should be comparing the number of
+        // seconds downloaded at the and of a second, not when a block arrives...
         // if our download rate is not increasing significantly anymore, exit slow start
         if(deviation < 5000)
         {
-            log(log_event::request,
-                "leaving slow start (download rate: %i b/s; deviation: %i b)",
-                download_rate, deviation);
+            log(log_event::request, log::priority::high,
+                "leaving slow start (per second deviation: %i b)", deviation);
             m_op_state[op_t::slow_start] = false;
             return;
         }
@@ -1442,7 +1479,7 @@ inline void peer_session::adjust_best_request_queue_size() noexcept
     else
     {
         // TODO figure out good formula, this is just a placeholder
-        m_info.best_request_queue_size = (download_rate + (0x4000 - 1)) / 0x4000;
+        m_info.best_request_queue_size = (num_downloaded + (0x4000 - 1)) / 0x4000;
     }
 
     if(m_info.best_request_queue_size > m_info.max_outgoing_request_queue_size)
@@ -1456,7 +1493,8 @@ inline void peer_session::adjust_best_request_queue_size() noexcept
 
     if(m_info.best_request_queue_size != old_best_request_queue_size)
     {
-        log(log_event::request, "ideal request queue size changed from %i to %i",
+        log(log_event::request, log::priority::high,
+            "ideal request queue size changed from %i to %i",
             old_best_request_queue_size, m_info.best_request_queue_size);
     }
 }
@@ -1479,24 +1517,14 @@ inline bool peer_session::is_piece_index_valid(const piece_index_t index) const 
     return (index >= 0) && (index < m_torrent_info->num_pieces);
 }
 
-inline void peer_session::handle_unexpected_block(const block_info& block, message msg)
-{
-    m_info.total_wasted_bytes += block.length;
-    m_torrent_info->total_wasted_bytes += block.length;
-    // TODO uhm, we should probably do more here
-}
-
-inline void peer_session::handle_illicit_request()
+inline void peer_session::handle_illicit_request(const block_info& block)
 {
     ++m_info.num_illicit_requests;
     log(log_event::incoming, "%i illicit requests", m_info.num_illicit_requests);
 
-    if(cached_clock::now() - seconds(2) <= m_info.last_outgoing_choke_time)
-    {
-        // don't mind request messages (though don't serve them) up to 2 seconds after
-        // choking peer
-        return;
-    }
+    // don't mind request messages (though don't serve them) up to 2 seconds after
+    // choking peer, to give it some slack
+    if(cached_clock::now() - seconds(2) <= m_info.last_outgoing_choke_time) { return; }
 
     if((m_info.num_illicit_requests % 10 == 0) && is_peer_choked())
     {
@@ -1508,25 +1536,228 @@ inline void peer_session::handle_illicit_request()
         // don't tolerate this forever
         disconnect(peer_session_errc::sent_requests_when_choked);
     }
+
+    if(is_extension_enabled(extensions::fast)) { send_reject_request(block); }
 }
 
-inline void peer_session::handle_illicit_block()
+// -----------------------------------------
+// SUGGEST PIECE <len=5><id=13><piece index>
+// -----------------------------------------
+inline void peer_session::handle_suggest_piece()
 {
-    log(log_event::incoming, "%i unwanted blocks", m_info.num_unwanted_blocks);
-    if(++m_info.num_unwanted_blocks > 50)
+    if(!is_extension_enabled(extensions::fast))
     {
-        disconnect(peer_session_errc::unwanted_blocks);
+        log(log_event::invalid_message, "SUGGEST PIECE message not supported");
+        disconnect(peer_session_errc::unsupported_extension);
+        return;
+    }
+
+    message msg = m_message_parser.extract_message();
+    if(msg.data.size() != 4)
+    {
+        log(log_event::invalid_message, "wrong SUGGEST PIECE message length");
+        disconnect(peer_session_errc::invalid_suggest_piece_message);
+        return;
+    }
+
+    const piece_index_t piece = endian::parse<int32_t>(msg.data.begin());
+
+    log(log_event::incoming, "SUGGEST PIECE %i", piece);
+
+    if(!is_piece_index_valid(piece))
+    {
+        log(log_event::invalid_message, "invalid piece index in SUGGEST PIECE message");
+        disconnect(peer_session_errc::invalid_suggest_piece_message);
+        return;
+    }
+
+    if(!m_piece_picker->my_bitfield()[piece])
+    {
+        // TODO check if we're alreayd downloading this piece from other peers
+        // then decide whether we want to download this piece from peer
     }
 }
 
-inline void peer_session::handle_illicit_bitfield()
+// -----------------------
+// HAVE ALL <len=1><id=14>
+// -----------------------
+inline void peer_session::handle_have_all()
 {
-    log(log_event::invalid_message, "bitfield not after handshake");
-    disconnect(peer_session_errc::invalid_bitfield_message);
+    assert(m_info.state == state_t::bitfield_exchange);
+
+    if(!is_extension_enabled(extensions::fast))
+    {
+        log(log_event::invalid_message, "HAVE ALL message not supported");
+        disconnect(peer_session_errc::unsupported_extension);
+        return;
+    }
+
+    if(m_message_parser.extract_message().data.size() != 0)
+    {
+        log(log_event::invalid_message, "wrong HAVE ALL message length");
+        disconnect(peer_session_errc::invalid_have_all_message);
+        return;
+    }
+
+    assert(m_info.available_pieces.size() == m_torrent_info->num_pieces);
+    m_info.available_pieces.fill();
+    m_info.is_peer_seed = true;
+
+    log(log_event::incoming, "HAVE ALL");
+
+    // check if we're interested in peer now that we know its piece availability
+    update_interest();
+}
+
+// ------------------------
+// HAVE NONE <len=1><id=15>
+// ------------------------
+inline void peer_session::handle_have_none()
+{
+    assert(m_info.state == state_t::bitfield_exchange);
+
+    if(!is_extension_enabled(extensions::fast))
+    {
+        log(log_event::invalid_message, "HAVE NONE message not supported");
+        disconnect(peer_session_errc::unsupported_extension);
+        return;
+    }
+
+    if(m_message_parser.extract_message().data.size() != 0)
+    {
+        log(log_event::invalid_message, "wrong HAVE NONE message length");
+        disconnect(peer_session_errc::invalid_have_all_message);
+        return;
+    }
+
+    assert(m_info.available_pieces.size() == m_torrent_info->num_pieces);
+    m_info.available_pieces.clear();
+    m_info.is_peer_seed = false;
+    // we don't need to update interest as peer has no pieces and a connection starts
+    // out as not interested, so
+
+    log(log_event::incoming, "HAVE NONE");
+}
+
+// -----------------------------------------------------
+// REJECT REQUEST <len=13><id=16><index><offset><length>
+// -----------------------------------------------------
+inline void peer_session::handle_reject_request()
+{
+    message msg = m_message_parser.extract_message();
+
+    if(!is_extension_enabled(extensions::fast))
+    {
+        log(log_event::invalid_message, "REJECT REQUEST message not supported");
+        disconnect(peer_session_errc::unsupported_extension);
+        return;
+    }
+
+    if(msg.data.size() != 1 + 3 * 4)
+    {
+        log(log_event::invalid_message, "wrong REJECT REQUEST message length");
+        disconnect(peer_session_errc::invalid_reject_request_message);
+        return;
+    }
+
+    const block_info block_info = parse_block_info(msg.data);
+    if(!is_block_info_valid(block_info))
+    {
+        log(log_event::invalid_message,
+            "invalid REJECT REQUEST (piece: %i, offset: %i, length: %i)",
+            block_info.index, block_info.offset, block_info.length);
+        disconnect(peer_session_errc::invalid_cancel_message);
+        return;
+    }
+    handle_rejected_request(block_info);
+}
+
+inline void peer_session::handle_rejected_request(const block_info& block)
+{
+    log(log_event::incoming, "REJECT REQUEST (piece: %i, offset: %i, length: %i)",
+        block.index, block.offset, block.length);
+    auto request = std::find_if(m_outgoing_requests.begin(), m_outgoing_requests.end(),
+        [&block](const auto& b) { return b == block; });
+    if(request != m_outgoing_requests.end())
+    {
+        // find_download must not trigger the assertion as request is only valid as long
+        // as no peer_session in torrent has downloaded it--as soon as we receive it
+        // from another peer, we cancel the request from this peer, which removes the
+        // request from m_outgoing_requests TODO verify
+        find_download(request->index).cancel_request(*request);
+        m_outgoing_requests.erase(request);
+    }
+    // we don't have other requests, so stop the timer
+    if(m_outgoing_requests.empty())
+    {
+        std::error_code ec;
+        m_request_timeout_timer.cancel(ec);
+    }
+}
+
+// ----------------------------------------
+// ALLOWED FAST <len=5><id=17><piece index>
+// ----------------------------------------
+inline void peer_session::handle_allowed_fast()
+{
+    if(!is_extension_enabled(extensions::fast))
+    {
+        log(log_event::invalid_message, "ALLOWED FAST message not supported");
+        disconnect(peer_session_errc::unsupported_extension);
+        return;
+    }
+
+    message msg = m_message_parser.extract_message();
+    if(msg.data.size() != 4)
+    {
+        log(log_event::invalid_message, "wrong ALLOWED FAST message length");
+        disconnect(peer_session_errc::invalid_allow_fast_message);
+        return;
+    }
+
+    const piece_index_t piece = endian::parse<int32_t>(msg.data.begin());
+
+    log(log_event::incoming, "ALLOWED FAST %i", piece);
+
+    if(!is_piece_index_valid(piece))
+    {
+        log(log_event::invalid_message, "invalid piece index in ALLOWED FAST message");
+        disconnect(peer_session_errc::invalid_allow_fast_message);
+        return;
+    }
+
+    //if(m_piece_picker->my_bitfield()[piece]) { return; }
+
+    if(std::find_if(m_outgoing_allowed_pieces.begin(), m_outgoing_allowed_pieces.end(),
+        [piece](const auto& p) { return p == piece; }) == m_outgoing_allowed_pieces.end())
+    {
+        m_outgoing_allowed_pieces.emplace_back(piece);
+        //// TODO if peer has this piece we may consider downloading it
+        //if(m_info.available_pieces[piece])
+    }
+}
+
+inline void peer_session::handle_illicit_block(const block_info& block)
+{
+    // we don't want this block (give 2 second slack as it may be an old request)
+    if(!m_info.am_interested
+       && cached_clock::now() - m_info.last_outgoing_uninterest_time > seconds(2))
+    {
+        if(++m_info.num_unwanted_blocks > 50)
+        {
+            disconnect(peer_session_errc::unwanted_blocks);
+        }
+    }
+    log(log_event::incoming, "%i unwanted blocks", m_info.num_unwanted_blocks);
+    m_info.total_wasted_bytes += block.length;
+    m_torrent_info->total_wasted_bytes += block.length;
 }
 
 inline void peer_session::handle_unknown_message()
 {
+    // later when we support custom extensions we'll first pass the current message
+    // there and see if they can handle it
+    m_message_parser.skip_message();
     log(log_event::invalid_message, "unknown message");
     disconnect(peer_session_errc::unknown_message);
 }
@@ -1550,42 +1781,49 @@ inline void peer_session::save_block(const block_info& block_info,
         [SHARED_THIS, block_info, start_time = cached_clock::now()]
         (const std::error_code& ec) { on_block_saved(ec, block_info, start_time); });
 
-    log(log_event::disk, 
+    log(log_event::disk, log::priority::high,
         "launched disk write, saving block (piece: %i, offset: %i, length: %i)",
         block_info.index, block_info.offset, block_info.length);
 }
 
-void peer_session::on_piece_hashed(
+inline void peer_session::on_piece_hashed(
     const piece_download& download, const bool is_piece_good)
 {
     // TODO this is an async op as well -- should we finish this in graceful disconnect
     // mode or just exit?
     is_piece_good ? handle_valid_piece(download) : handle_corrupt_piece(download);
+    if(&download != m_parole_download.get())
+    {
+        auto it = std::find_if(m_downloads.begin(), m_downloads.end(),
+            [piece = download.piece_index()](const auto& pd)
+            { return pd->piece_index() == piece; });
+        assert(it != m_downloads.end());
+        m_downloads.erase(it);
+    }
 }
 
 inline void peer_session::handle_valid_piece(const piece_download& download)
 {
-    log(log_event::disk, "piece (%i) passed hash test", download.piece_index());
+    log(log_event::disk, log::priority::high,
+        "piece(%i) passed hash test", download.piece_index());
     if(is_peer_on_parole())
     {
         // peer cleared itself, so it's no longer on parole
+        assert(m_parole_download);
         assert(&download == m_parole_download.get());
         m_parole_download.reset();
         m_info.is_peer_on_parole = false;
-        log(log_event::parole, "peer cleared suspicion, no longer on parole");
+        log(log_event::parole, log::priority::high,
+            "peer cleared suspicion, no longer on parole");
     }
     m_info.total_verified_piece_bytes += get_piece_length(
         *m_torrent_info, download.piece_index());
-    auto it = std::find_if(m_downloads.begin(), m_downloads.end(),
-        [piece = download.piece_index()](const auto& pd)
-        { return pd->piece_index() == piece; });
-    assert(it != m_downloads.end());
-    m_downloads.erase(it);
 }
 
 inline void peer_session::handle_corrupt_piece(const piece_download& download)
 {
-    log(log_event::parole, "piece (%i) failed hash test (%i fails)",
+    log(log_event::parole, log::priority::high,
+        "piece(%i) failed hash test (%i fails)",
         download.piece_index(), m_info.num_hash_fails);
 
     ++m_info.num_hash_fails;
@@ -1595,10 +1833,13 @@ inline void peer_session::handle_corrupt_piece(const piece_download& download)
     {
         if(is_peer_on_parole()) 
         {
+            assert(m_parole_download);
             assert(&download == m_parole_download.get());
             // delete parole piece download
             m_parole_download.reset();
         }
+        log(log_event::parole, log::priority::high,
+            "confirmed suspicion, disconnecting peer");
         // this peer was the sole participant in this download so we know that it
         // sent us a corrupt piece
         disconnect(peer_session_errc::corrupt_piece);
@@ -1622,7 +1863,9 @@ void peer_session::on_block_saved(const std::error_code& error,
         // TODO this means we cannot serve peer's request. should we try again?
         ++m_info.num_disk_io_failures;
         ++m_torrent_info->num_disk_io_failures;
-        log(log_event::disk, "disk failure #%i", m_info.num_disk_io_failures);
+        const auto reason = error.message();
+        log(log_event::disk, log::priority::high, "disk failure #%i (%s)",
+            m_info.num_disk_io_failures, reason.c_str());
         if(m_info.num_disk_io_failures > 100)
         {
             disconnect(error);
@@ -1635,7 +1878,7 @@ void peer_session::on_block_saved(const std::error_code& error,
     m_torrent_info->total_bytes_written_to_disk += block.length;
     m_avg_disk_write_time.update(total_milliseconds(cached_clock::now() - start_time));
 
-    log(log_event::disk,
+    log(log_event::disk, log::priority::high,
         "saved block to disk (piece: %i, offset: %i, length: %i) - "
         "disk write stats (total: %i; pending: %i)",
         block.index, block.offset, block.length, m_info.total_bytes_written_to_disk,
@@ -1672,7 +1915,8 @@ void peer_session::on_block_read(const std::error_code& error, const block_sourc
     {
         ++m_info.num_disk_io_failures;
         ++m_torrent_info->num_disk_io_failures;
-        log(log_event::disk, "disk failure #%i", m_info.num_disk_io_failures);
+        log(log_event::disk, log::priority::high,
+            "disk failure #%i", m_info.num_disk_io_failures);
         if(m_info.num_disk_io_failures > 100)
         {
             disconnect(error);
@@ -1687,7 +1931,7 @@ void peer_session::on_block_read(const std::error_code& error, const block_sourc
     m_torrent_info->total_bytes_read_from_disk += block.length;
     m_torrent_info->num_pending_disk_read_bytes -= block.length;
 
-    log(log_event::disk,
+    log(log_event::disk, log::priority::high,
         "read block from disk (piece: %i, offset: %i, length: %i) - "
         "disk read stats (total: %i; pending: %i)",
         block.index, block.offset, block.length, m_info.total_bytes_read_from_disk,
@@ -1732,28 +1976,17 @@ void peer_session::send_handshake()
 {
     static constexpr char protocol[] = "BitTorrent protocol";
     static constexpr char protocol_length = sizeof(protocol) - 1;
-    // currently no support for extensions
-    const uint8_t extensions[8] = { 0,0,0,0,0,0,0,0 };
     m_send_buffer.append(fixed_payload<protocol_length + 49>()
         .i8(protocol_length)
         .range(protocol, protocol + protocol_length)
-        .buffer(extensions)
+        .u64(m_settings.extensions.data())
         .buffer(m_torrent_info->info_hash)
         .buffer(m_settings.client_id));
     send();
 
-    char extensions_str[65];
-    extensions_str[64] = '\0';
-    int offset = 0;
-    for(const uint8_t b : extensions)
-    {
-        for(int shift = 7; shift >= 0; --shift)
-        {
-            extensions_str[offset++] = (b >> shift) ? '1' : '0';
-        }
-    }
+    const auto extensions_str = extensions::to_string(m_info.extensions);
     log(log_event::outgoing, "HANDSHAKE (protocol: %s; extensions: %s; client_id: %s)",
-        protocol, extensions_str, m_settings.client_id.data());
+        protocol, extensions_str.c_str(), m_settings.client_id.data());
 }
 
 // ----------------------------------
@@ -1762,16 +1995,13 @@ void peer_session::send_handshake()
 // Only ever sent as the first message. Optional, and need not be sent if a client has
 // no pieces.
 //
-// Variable length, where X is the length of the bitfield. The payload is the bitfield
-// representing the pieces that have been successfully downloaded. The high bit in the
-// first byte corresponds to piece index 0.
-// Bits that are cleared indicate a missing piece, and set bits indicate a valid and
-// available piece. Spare bits at the end are set to zero.
+// The high bit in the first byte corresponds to piece index 0. Spare bits at the end 
+// must be set to zero.
 // If a peer receives a bitfield of the wrong length, it should drop the connection, or
 // if the bitfield has any of the spare bits set.
 void peer_session::send_bitfield()
 {
-    assert(m_piece_picker != nullptr);
+    assert(m_piece_picker);
 
     if(m_piece_picker->has_no_pieces()) { return; }
 
@@ -1859,7 +2089,7 @@ inline void peer_session::send_have(const piece_index_t piece)
         .i8(message_type::have)
         .i32(piece));
     send();
-    log(log_event::outgoing, "HAVE (piece: %i)", piece);
+    log(log_event::outgoing, "HAVE %i", piece);
 }
 
 // ---------------------------------------------
@@ -1870,226 +2100,20 @@ inline void peer_session::send_have(const piece_index_t piece)
 // to serve this amount.
 void peer_session::send_request(const block_info& block)
 {
-    assert(can_send_requests());
     m_send_buffer.append(fixed_payload<17>()
         .i32(13)
         .i8(message_type::request)
         .i32(block.index)
         .i32(block.offset)
         .i32(block.length));
-    m_sent_requests.emplace_back(block.index, block.offset, block.length);
     send();
 
     log(log_event::outgoing, "REQUEST (piece: %i, offset: %i, length: %i)",
         block.index, block.offset, block.length);
 
     m_info.last_outgoing_request_time = cached_clock::now();
-    start_timer(m_request_timeout_timer, request_timeout(),
+    start_timer(m_request_timeout_timer, calculate_request_timeout(),
         [SHARED_THIS](const std::error_code& error) { on_request_timeout(error); });
-}
-
-void peer_session::send_requests()
-{
-    if(m_sent_requests.size() == 1)
-    {
-        const auto& lingering_block = static_cast<const block_info&>(m_sent_requests[0]);
-        // we have a single pending block left, and it's a block that's supposed to
-        // come before the block we received just now; even though peer is not required
-        // to serve blocks in order, they have a tendency not to send the first
-        // requested block
-        if(lingering_block.offset == 0)
-        {
-            log(log_event::request, "peer hasn't sent the first block, rerequesting");
-            send_request(lingering_block);
-            return;
-        }
-    }
-    log(log_event::request,
-        "preparing request queue (outstanding requests: %i, ideal queue size: %i)",
-        m_sent_requests.size(), m_info.best_request_queue_size);
-    assert(m_piece_picker && m_shared_downloads);
-
-    // TODO make_requests_etc could return a view into m_sent_requests buffer so we
-    // don't have to do these shenanigans
-    const int num_new_requests = is_peer_on_parole()
-        ? make_requests_in_parole_mode()
-        : make_requests_in_normal_mode();
-    if(num_new_requests <= 0) { return; }
-
-    payload requests(num_new_requests * (4 + 13));
-    assert(num_new_requests <= m_sent_requests.size());
-    for(auto i = m_sent_requests.size() - num_new_requests;
-        i < m_sent_requests.size(); ++i)
-    {
-        // craft the payload for each block that was put in m_sent_requests by the
-        // above functions
-        const pending_block& block = m_sent_requests[i];
-        requests.i32(13)
-                .i8(message_type::request)
-                .i32(block.index)
-                .i32(block.offset)
-                .i32(block.length);
-        log(log_event::outgoing, "REQUEST (piece: %i, offset: %i, length: %i)",
-            block.index, block.offset, block.length);
-        m_info.num_outstanding_bytes += block.length;
-        m_torrent_info->num_outstanding_bytes += block.length;
-    }
-    log(log_event::outgoing, "request queue length: %i", num_new_requests);
-    m_send_buffer.append(std::move(requests));
-    send();
-
-    m_info.last_outgoing_request_time = cached_clock::now();
-    start_timer(m_request_timeout_timer, request_timeout(),
-        [SHARED_THIS](const std::error_code& error) { on_request_timeout(error); });
-}
-
-inline bool peer_session::can_send_requests() const noexcept
-{
-    return m_sent_requests.size() < m_info.best_request_queue_size
-        && am_interested()
-        && !am_choked();
-}
-
-inline int peer_session::make_requests_in_parole_mode()
-{
-    // pick a parole piece for this peer if it hasn't been assigned one yet since it
-    // participated in a failed hash test
-    if(m_parole_download == nullptr)
-    {
-        const auto piece = m_piece_picker->pick_and_reserve(m_info.available_pieces);
-        if(piece == piece_picker::invalid_piece)
-        {
-            return 0;
-        }
-        m_parole_download = std::make_unique<piece_download>(
-            piece, get_piece_length(*m_torrent_info, piece));
-        log(log_event::request, "picked piece (%i) in parole mode", piece);
-    }
-
-    int num_new_requests = 0;
-    for(auto i = 0, num_blocks = num_to_request(), hint = 0; i < num_blocks; ++i)
-    {
-        auto block = m_parole_download->pick_block(hint);
-        if(block == invalid_block) { break; }
-        hint = block.offset + 0x4000;
-        m_sent_requests.emplace_back(std::move(block));
-        ++num_new_requests;
-    }
-
-    if(m_parole_download->can_request())
-    {
-        for(auto& request : m_parole_download->make_request_queue(num_to_request()))
-        {
-            m_sent_requests.emplace_back(std::move(request));
-            ++num_new_requests;
-        }
-    }
-    return num_new_requests;
-}
-
-inline int peer_session::make_requests_in_normal_mode()
-{
-    // if we have active downloads, prefer to finish those (this will result in less
-    // peers per piece download, i.e. lower chance of a bad peer polluting many pieces)
-    int num_new_requests = continue_downloads();
-
-    // we try to join a download using m_shared_downloads as long as we need more
-    // blocks and there are downloads to join
-    while(m_sent_requests.size() < m_info.best_request_queue_size)
-    {
-        const int num_blocks = join_download();
-        if(num_blocks == 0) { break; }
-        num_new_requests += num_blocks;
-    }
-
-    // while we still need blocks, we pick a piece and start a new download, and add it
-    // to the shared downloads via m_shared_downloads
-    while(m_sent_requests.size() < m_info.best_request_queue_size)
-    {
-        const int num_blocks = start_download();
-        if(num_blocks == 0) { break; }
-        num_new_requests += num_blocks;
-    }
-    return num_new_requests;
-}
-
-inline int peer_session::continue_downloads()
-{
-    int num_new_requests = 0;
-    for(auto& download : m_downloads)
-    {
-        if(m_sent_requests.size() == m_info.best_request_queue_size) { break; }
-        if(download->can_request())
-        {
-            log(log_event::request, "continuing piece (%i) download",
-                download->piece_index());
-            for(auto& request : download->make_request_queue(num_to_request()))
-            {
-                m_sent_requests.emplace_back(std::move(request));
-                ++num_new_requests;
-            }
-        }
-    }
-    return num_new_requests;
-}
-
-inline int peer_session::join_download()
-{
-    int num_new_requests = 0;
-    // find a suitable shared piece_download
-    auto download = find_shared_download();
-    if(download)
-    {
-        log(log_event::request, "joining piece download (%i)", download->piece_index());
-        for(auto& request : download->make_request_queue(num_to_request()))
-        {
-            m_sent_requests.emplace_back(std::move(request));
-            ++num_new_requests;
-        }
-        // now we participated in this piece download as well
-        // TODO make sure we don't add the same download twice
-        m_downloads.emplace_back(download);
-    }
-    return num_new_requests;
-}
-
-std::shared_ptr<piece_download> peer_session::find_shared_download()
-{
-    for(auto download : *m_shared_downloads)
-    {
-        assert(download); // this shouldn't fire as finished downloads are always removed
-        if(m_info.available_pieces[download->piece_index()])
-        {
-            return download;
-        }
-    }
-    return nullptr;
-}
-
-inline int peer_session::start_download()
-{
-    int num_new_requests = 0;
-    const auto piece = m_piece_picker->pick_and_reserve(m_info.available_pieces);
-    if(piece != piece_picker::invalid_piece)
-    {
-        log(log_event::request, "picked piece (%i)", piece);
-        auto download = std::make_shared<piece_download>(
-            piece, get_piece_length(*m_torrent_info, piece));
-        for(auto& request : download->make_request_queue(num_to_request()))
-        {
-            m_sent_requests.emplace_back(std::move(request));
-            ++num_new_requests;
-        }
-        // add download to shared database so other peer_sessions may join
-        m_shared_downloads->emplace_back(download);
-        m_downloads.emplace_back(download);
-    }
-    return num_new_requests;
-}
-
-inline int peer_session::num_to_request() const noexcept
-{
-    return std::max(m_info.best_request_queue_size - int(m_sent_requests.size()), 0);
 }
 
 // ------------------------------------------
@@ -2108,21 +2132,21 @@ void peer_session::send_block(const block_source& block)
                 .i32(block.offset);
     m_send_buffer.append(block_header);
     m_send_buffer.append(block);
-    m_sent_requests.emplace_back(block.index, block.offset, block.length);
+    m_outgoing_requests.emplace_back(block.index, block.offset, block.length);
 
     update_upload_stats(block.length);
 
     send();
 
-    log(log_event::outgoing,
-        "BLOCK (piece: %i, offset: %i, length: %i) -- upload rate: %i bytes/s",
+    log(log_event::outgoing, log::priority::high,
+        "BLOCK (piece: %i, offset: %i, length: %i) -- upload rate: %i b/s",
         block.index, block.offset, block.length, m_info.upload_rate.rate());
 
-    // now that we sent this block, remove it from m_received_requests
-    auto it = std::find_if(m_received_requests.begin(), m_received_requests.end(),
+    // now that we sent this block, remove it from m_incoming_requests
+    auto it = std::find_if(m_incoming_requests.begin(), m_incoming_requests.end(),
         [&block](const auto& r) { return r == static_cast<const block_info&>(block); });
-    assert(it != m_received_requests.end());
-    m_received_requests.erase(it);
+    assert(it != m_incoming_requests.end());
+    m_incoming_requests.erase(it);
 }
 
 inline void peer_session::update_upload_stats(const int num_bytes)
@@ -2132,8 +2156,8 @@ inline void peer_session::update_upload_stats(const int num_bytes)
     m_info.upload_rate.update(num_bytes);
     m_torrent_info->total_uploaded_piece_bytes += num_bytes;
     m_torrent_info->upload_rate.update(num_bytes);
-    log(log_event::outgoing, "upload rate: %i bytes/s",
-        m_info.upload_rate.rate());
+    log(log_event::outgoing, log::priority::high,
+        "upload rate: %i b/s", m_info.upload_rate.rate());
 }
 
 // --------------------------------------------
@@ -2151,6 +2175,9 @@ void peer_session::send_cancel(const block_info& block)
             .i32(block.offset)
             .i32(block.length));
         send();
+        auto it = std::find_if(m_outgoing_requests.begin(), m_outgoing_requests.end(),
+            [&block](const auto& b) { return b == block; });
+        if(it != m_outgoing_requests.end()) { m_outgoing_requests.erase(it); }
         log(log_event::outgoing, "CANCEL (piece: %i, offset: %i, length: %i)",
             block.index, block.offset, block.length);
     }
@@ -2161,12 +2188,308 @@ void peer_session::send_cancel(const block_info& block)
 // -------------------------------
 void peer_session::send_port(const int port)
 {
-    m_send_buffer.append(fixed_payload<4 + 3>()
+    m_send_buffer.append(fixed_payload<7>()
         .i32(3)
         .i8(message_type::port)
         .i16(port));
     send();
     log(log_event::outgoing, "PORT (%i)", port);
+}
+
+// -----------------------------------------
+// SUGGEST PIECE <len=5><id=13><piece index>
+// -----------------------------------------
+void peer_session::send_suggest_piece(const piece_index_t piece)
+{
+    m_send_buffer.append(fixed_payload<9>()
+        .i32(5)
+        .i8(message_type::suggest_piece)
+        .i32(piece));
+    send();
+    log(log_event::outgoing, "SUGGEST PIECE (%i)", piece);
+}
+
+// -----------------------
+// HAVE ALL <len=1><id=14>
+// -----------------------
+// Only ever sent as the first message.
+void peer_session::send_have_all()
+{
+    static constexpr uint8_t payload[] = { 0,0,0,1, message_type::have_all };
+    m_send_buffer.append(payload);
+    send();
+    log(log_event::outgoing, "HAVE ALL");
+}
+
+// ------------------------
+// HAVE NONE <len=1><id=15>
+// ------------------------
+// Only ever sent as the first message.
+void peer_session::send_have_none()
+{
+    static constexpr uint8_t payload[] = { 0,0,0,1, message_type::have_none };
+    m_send_buffer.append(payload);
+    send();
+    log(log_event::outgoing, "HAVE NONE");
+}
+
+// -----------------------------------------------------
+// REJECT REQUEST <len=13><id=16><index><offset><length>
+// -----------------------------------------------------
+void peer_session::send_reject_request(const block_info& block)
+{
+    m_send_buffer.append(fixed_payload<17>()
+        .i32(13)
+        .i8(message_type::reject_request)
+        .i32(block.index)
+        .i32(block.offset)
+        .i32(block.length));
+    send();
+    log(log_event::outgoing, "REJECT REQUEST (piece: %i, offset: %i, length: %i)",
+        block.index, block.offset, block.length);
+}
+
+// ----------------------------------------
+// ALLOWED FAST <len=5><id=17><piece index>
+// ----------------------------------------
+void peer_session::send_allowed_fast(const piece_index_t piece)
+{
+    m_send_buffer.append(fixed_payload<9>()
+        .i32(5)
+        .i8(message_type::allowed_fast)
+        .i32(piece));
+    send();
+    log(log_event::outgoing, "ALLOWED FAST (%i)", piece);
+}
+
+// -------------------
+// -- request logic --
+// -------------------
+
+void peer_session::make_requests()
+{
+    assert(m_piece_picker && m_shared_downloads);
+
+    // TODO rework this
+    if(m_outgoing_requests.size() == 1)
+    {
+        const auto& lingering_block =
+            static_cast<const block_info&>(m_outgoing_requests[0]);
+        // we have a single pending block left, and it's a block that's supposed to
+        // come before the block we received just now; even though peer is not required
+        // to serve blocks in order, they have a tendency not to send the first
+        // requested block
+        if(lingering_block.offset == 0)
+        {
+            log(log_event::request, log::priority::high,
+                "peer hasn't sent the first block, rerequesting");
+            send_request(lingering_block);
+            return;
+        }
+    }
+
+    log(log_event::request, log::priority::high,
+        "preparing request queue (outstanding requests: %i, ideal queue size: %i)",
+        m_outgoing_requests.size(), m_info.best_request_queue_size);
+
+    // TODO make_requests_etc could return a view into m_outgoing_requests buffer so we
+    // don't have to do these shenanigans
+    const_view<pending_block> new_requests = is_peer_on_parole()
+        ? make_requests_in_parole_mode()
+        : make_requests_in_normal_mode();
+    if(new_requests.empty()) { return; }
+
+    payload payload(new_requests.size() * 17);
+    // craft the payload for each block that was put in m_outgoing_requests by the
+    // above functions
+    for(const auto& block : new_requests)
+    {
+        payload.i32(13)
+               .i8(message_type::request)
+               .i32(block.index)
+               .i32(block.offset)
+               .i32(block.length);
+        log(log_event::outgoing, log::priority::high,
+            "REQUEST (piece: %i, offset: %i, length: %i)",
+            block.index, block.offset, block.length);
+        m_info.num_outstanding_bytes += block.length;
+        m_torrent_info->num_outstanding_bytes += block.length;
+    }
+    log(log_event::outgoing, log::priority::high,
+        "request queue length: %i", new_requests.size());
+    m_send_buffer.append(std::move(payload));
+    send();
+
+    m_info.last_outgoing_request_time = cached_clock::now();
+    start_timer(m_request_timeout_timer, calculate_request_timeout(),
+        [SHARED_THIS](const std::error_code& error) { on_request_timeout(error); });
+}
+
+inline bool peer_session::can_make_requests() const noexcept
+{
+    // TODO restrict requests if disk is overwhelmed
+    return m_outgoing_requests.size() < m_info.best_request_queue_size
+        && am_interested()
+        && !am_choked();
+}
+
+inline const_view<pending_block> peer_session::make_requests_in_parole_mode()
+{
+    // pick a parole piece for this peer if it hasn't been assigned one yet since it
+    // participated in a failed hash test
+    if(m_parole_download == nullptr)
+    {
+        const auto piece = m_piece_picker->pick_and_reserve(m_info.available_pieces);
+        if(piece == piece_picker::invalid_piece)
+        // if this is the last piece and other peers have this piece, we don't want to
+        // stall completion by assigning only a single peer to it
+        // FIXME if all peers that have this piece are put on parole this will never dl
+           //|| (m_piece_picker->num_pieces_left() == 1
+               //&& m_piece_picker->frequency(piece) > 1))
+        {
+            return {};
+        }
+        m_parole_download = std::make_unique<piece_download>(
+            piece, get_piece_length(*m_torrent_info, piece));
+        log(log_event::request, log::priority::high,
+            "picked piece(%i) in parole mode", piece);
+    }
+
+    int num_new_requests = 0;
+    for(auto i = 0, num_blocks = num_to_request(), hint = 0; i < num_blocks; ++i)
+    {
+        auto block = m_parole_download->pick_block(hint);
+        if(block == invalid_block) { break; }
+        hint = block.offset + 0x4000;
+        m_outgoing_requests.emplace_back(std::move(block));
+        ++num_new_requests;
+    }
+
+    if(m_parole_download->can_request())
+    {
+        for(auto& request : m_parole_download->make_request_queue(num_to_request()))
+        {
+            m_outgoing_requests.emplace_back(std::move(request));
+            ++num_new_requests;
+        }
+    }
+
+    return view_of_new_requests(num_new_requests);
+}
+
+inline const_view<pending_block> peer_session::make_requests_in_normal_mode()
+{
+    // if we have active downloads, prefer to finish those (this will result in less
+    // peers per piece download, i.e. lower chance of a bad peer polluting many pieces)
+    int num_new_requests = continue_downloads();
+
+    // we try to join a download using m_shared_downloads as long as we need more
+    // blocks and there are downloads to join
+    while(m_outgoing_requests.size() < m_info.best_request_queue_size)
+    {
+        const int num_blocks = join_download();
+        if(num_blocks == 0) { break; }
+        num_new_requests += num_blocks;
+    }
+
+    // while we still need blocks, we pick a piece and start a new download, and add it
+    // to the shared downloads via m_shared_downloads
+    while(m_outgoing_requests.size() < m_info.best_request_queue_size)
+    {
+        const int num_blocks = start_download();
+        if(num_blocks == 0) { break; }
+        num_new_requests += num_blocks;
+    }
+
+    return view_of_new_requests(num_new_requests);
+}
+
+inline const_view<pending_block> peer_session::view_of_new_requests(const int n)
+{
+    const int first_new_request = m_outgoing_requests.size() - n;
+    return {&m_outgoing_requests[first_new_request], size_t(n)};
+}
+
+inline int peer_session::continue_downloads()
+{
+    int num_new_requests = 0;
+    for(auto& download : m_downloads)
+    {
+        if(m_outgoing_requests.size() == m_info.best_request_queue_size) { break; }
+        if(download->can_request())
+        {
+            log(log_event::request, log::priority::high,
+                "continuing piece(%i) download", download->piece_index());
+            for(auto& request : download->make_request_queue(num_to_request()))
+            {
+                m_outgoing_requests.emplace_back(std::move(request));
+                ++num_new_requests;
+            }
+        }
+    }
+    return num_new_requests;
+}
+
+inline int peer_session::join_download()
+{
+    int num_new_requests = 0;
+    // find a suitable shared piece_download
+    auto download = find_shared_download();
+    if(download)
+    {
+        log(log_event::request, log::priority::high,
+            "joining piece download (%i)", download->piece_index());
+        for(auto& request : download->make_request_queue(num_to_request()))
+        {
+            m_outgoing_requests.emplace_back(std::move(request));
+            ++num_new_requests;
+        }
+        // now we participated in this piece download as well
+        // TODO make sure we don't add the same download twice
+        m_downloads.emplace_back(download);
+    }
+    return num_new_requests;
+}
+
+std::shared_ptr<piece_download> peer_session::find_shared_download()
+{
+    for(auto download : *m_shared_downloads)
+    {
+        assert(download); // this shouldn't fire as finished downloads are always removed
+        // don't add this download if we already have it
+        if(std::find_if(m_shared_downloads->begin(), m_shared_downloads->end(),
+            [&download](const auto& d) { return d == download; }) == m_downloads.end())
+        {
+            if(m_info.available_pieces[download->piece_index()]) { return download; }
+        }
+    }
+    return nullptr;
+}
+
+inline int peer_session::start_download()
+{
+    int num_new_requests = 0;
+    const auto piece = m_piece_picker->pick_and_reserve(m_info.available_pieces);
+    if(piece != piece_picker::invalid_piece)
+    {
+        log(log_event::request, log::priority::high, "picked piece(%i)", piece);
+        auto download = std::make_shared<piece_download>(
+            piece, get_piece_length(*m_torrent_info, piece));
+        for(auto& request : download->make_request_queue(num_to_request()))
+        {
+            m_outgoing_requests.emplace_back(std::move(request));
+            ++num_new_requests;
+        }
+        // add download to shared database so other peer_sessions may join
+        m_shared_downloads->emplace_back(download);
+        m_downloads.emplace_back(download);
+    }
+    return num_new_requests;
+}
+
+inline int peer_session::num_to_request() const noexcept
+{
+    return std::max(m_info.best_request_queue_size - int(m_outgoing_requests.size()), 0);
 }
 
 // -------------------
@@ -2185,7 +2508,7 @@ void peer_session::on_request_timeout(const std::error_code& error)
         return;
     }
 
-    log(log_event::outgoing, "request to peer has timed out");
+    log(log_event::outgoing, log::priority::high, "request to peer has timed out");
 
     m_info.best_request_queue_size = 1;
     m_info.has_peer_timed_out = true;
@@ -2194,15 +2517,16 @@ void peer_session::on_request_timeout(const std::error_code& error)
 
     // start from the back to find the most recently sent request to time out
     // (for more info: http://blog.libtorrent.org/2011/11/block-request-time-outs/)
-    assert(m_piece_picker != nullptr);
-    auto rit = std::find_if(m_sent_requests.rbegin(), m_sent_requests.rend(),
+    assert(m_piece_picker);
+    auto rit = std::find_if(m_outgoing_requests.rbegin(), m_outgoing_requests.rend(),
         [this](const auto& r)
         { return !r.has_timed_out && (m_piece_picker->frequency(r.index) > 1); });
 
     // it's ok if we can't time out a request, it just means that the piece is only
     // downloaded from this peer, in which case we just have to wait for it to arrive
-    // or another peer_session to join this download
-    if(rit != m_sent_requests.rend())
+    // or another peer_session to join this download, or that we timed out all blocks
+    // requested from this peer, in which case we should wait
+    if(rit != m_outgoing_requests.rend())
     {
         pending_block& request = *rit;
         request.has_timed_out = true;
@@ -2211,15 +2535,16 @@ void peer_session::on_request_timeout(const std::error_code& error)
         // callback will be invoked if we get this block from another peer sooner
         find_download(request.index).time_out(m_info.peer_id, request,
             [this](const block_info& block) { send_cancel(block); });
-        log(log_event::timeout, "timing out block (piece: %i, offset: %i, length: %i)",
+        log(log_event::timeout, log::priority::high,
+            "timing out block (piece: %i, offset: %i, length: %i)",
             request.index, request.offset, request.length);
     }
 
     // try to send requests again, with updated request queue length
-    if(can_send_requests()) { send_requests(); }
+    if(can_make_requests()) { make_requests(); }
 }
 
-seconds peer_session::request_timeout() const
+seconds peer_session::calculate_request_timeout() const
 {
     int timeout = m_avg_request_rtt.mean() + 4 * m_avg_request_rtt.deviation();
     // to avoid being timing out peer instantly timeouts should never be less than two
@@ -2289,31 +2614,70 @@ void peer_session::on_keep_alive_timeout(const std::error_code& error)
 // -- utils --
 // -----------
 
+void peer_session::generate_allowed_pieces()
+{
+    m_outgoing_allowed_pieces.reserve(10);
+    const uint32_t ip = endian::host_to_network_u32(
+        0xFFFFFF00 & remote_endpoint().address().to_v4().to_ulong());
+    std::string x;
+    x.reserve(24);
+    x.assign(reinterpret_cast<const char*>(&ip), 4);
+    x.append(m_torrent_info->info_hash.begin(), m_torrent_info->info_hash.end());
+    while(m_outgoing_allowed_pieces.size() < 10)
+    {
+        const sha1_hash hash = create_sha1_digest(x);
+        x.assign(hash.begin(), hash.end());
+        for(auto i = 0; (i < 5) && (m_outgoing_allowed_pieces.size() < 10); ++i)
+        {
+            int j = 4 * i;
+            const uint32_t y = endian::network_to_host_u32(
+                *reinterpret_cast<const uint32_t*>(x.data() + j));
+            const uint32_t index = y % m_torrent_info->num_pieces;
+            if(m_outgoing_allowed_pieces.end() == std::find_if(
+                m_outgoing_allowed_pieces.begin(), m_outgoing_allowed_pieces.end(),
+                [index](const auto& p) { return p == index; }))
+            {
+                m_outgoing_allowed_pieces.push_back(index);
+            }
+        }
+    }
+}
+
 template<typename... Args>
 void peer_session::log(const log_event event, const char* format, Args&&... args) const
 {
-    const auto& ep = remote_endpoint();
-    std::cerr << '[' << ep.address().to_string() << ':' << ep.port() << '|';
+    log(event, log::priority::normal, format, std::forward<Args>(args)...);
+}
+
+template<typename... Args>
+void peer_session::log(const log_event event, const log::priority priority,
+    const char* format, Args&&... args) const
+{
+#ifdef TIDE_ENABLE_LOGGING
+    std::stringstream header;
     if(is_connected())
     {
-        std::cerr << '+';
-        std::cerr << total_seconds(cached_clock::now()
-            - m_info.connection_established_time);
-        std::cerr << "s|";
+        header << '+';
+        header << total_seconds(cached_clock::now() - m_info.connection_established_time);
+        header << "s|";
     }
     switch(event)
     {
-    case log_event::connecting: std::cerr << "CONNECTING"; break;
-    case log_event::disconnecting: std::cerr << "DISCONNECTING"; break;
-    case log_event::incoming: std::cerr << "IN"; break;
-    case log_event::outgoing: std::cerr << "OUT"; break;
-    case log_event::disk: std::cerr << "DISK"; break;
-    case log_event::invalid_message: std::cerr << "INVALID MESSAGE"; break;
-    case log_event::parole: std::cerr << "PAROLE"; break;
-    case log_event::timeout: std::cerr << "TIMEOUT"; break;
-    case log_event::request: std::cerr << "REQUEST"; break;
+    case log_event::connecting: header << "CONNECTING"; break;
+    case log_event::disconnecting: header << "DISCONNECTING"; break;
+    case log_event::incoming: header << "IN"; break;
+    case log_event::outgoing: header << "OUT"; break;
+    case log_event::disk: header << "DISK"; break;
+    case log_event::invalid_message: header << "INVALID MESSAGE"; break;
+    case log_event::parole: header << "PAROLE"; break;
+    case log_event::timeout: header << "TIMEOUT"; break;
+    case log_event::request: header << "REQUEST"; break;
     }
-    std::cerr << "] - " << util::format(format, std::forward<Args>(args)...) << '\n';
+    // we're not attached to any torrent yet
+    const torrent_id_t torrent = m_torrent_info ? m_torrent_info->id : -1;
+    log::log_peer_session(torrent, remote_endpoint(), header.str(),
+        util::format(format, std::forward<Args>(args)...), priority);
+#endif // TIDE_ENABLE_LOGGING
 }
 
 inline piece_download& peer_session::find_download(const piece_index_t piece) noexcept
@@ -2321,7 +2685,7 @@ inline piece_download& peer_session::find_download(const piece_index_t piece) no
     auto it = std::find_if(m_downloads.begin(), m_downloads.end(),
         [piece](const auto& download) { return download->piece_index() == piece; });
     // if we didn't find download among m_downloads, we must be on parole and this must
-    // be the parole download, however, so m_parole_download must be valid at this point
+    // be the parole download, however, m_parole_download must be valid at this point
     if(it == m_downloads.end())
     {
         assert(m_parole_download);
@@ -2335,15 +2699,15 @@ inline piece_download& peer_session::find_download(const piece_index_t piece) no
 void peer_session::try_identify_client()
 {
     // https://wiki.theory.org/BitTorrentSpecification#peer_id
-    m_info.client = [this]() -> std::string
+    m_info.client = [this]
     {
         if(m_info.peer_id[0] == '-')
         {
             // Azureus-style encoding
-            const auto matches = [this](const char* client) -> bool
+            const auto matches = [this](const char* signature) -> bool
             {
-                return m_info.peer_id[1] == client[0]
-                    && m_info.peer_id[2] == client[1];
+                return m_info.peer_id[1] == signature[0]
+                    && m_info.peer_id[2] == signature[1];
             };
             if(matches("7T")) return "aTorrent";
             else if(matches("AB")) return "AnyEvent::BitTorrent";

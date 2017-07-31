@@ -19,7 +19,7 @@ namespace detail {
 
 inline size_t make_page_aligned(size_t offset) noexcept
 {
-    const static size_t page_size = fs::page_size();
+    const static size_t page_size = sys::page_size();
     // use integer division to round down to the nearest page alignment
     return offset / page_size * page_size;
 }
@@ -100,7 +100,7 @@ void mmap_base::map(const size_type offset, const size_type length,
         0);
     if(m_file_mapping_handle == INVALID_HANDLE_VALUE)
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
         return;
     }
 
@@ -112,7 +112,7 @@ void mmap_base::map(const size_type offset, const size_type length,
         length_to_map));
     if(mapping_start == nullptr)
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
         return;
     }
 #else
@@ -125,7 +125,7 @@ void mmap_base::map(const size_type offset, const size_type length,
         aligned_offset));
     if(mapping_start == MAP_FAILED)
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
         return;
     }
 #endif
@@ -149,14 +149,14 @@ void mmap_base::sync(std::error_code& error)
         if(::msync(get_mapping_start(), m_mapped_length, MS_SYNC) != 0)
 #endif
         {
-            util::assign_errno(error);
+            error = sys::latest_error();
             return;
         }
     }
 #ifdef _WIN32
     if(::FlushFileBuffers(m_file_handle) == 0)
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
     }
 #endif
 }
@@ -188,7 +188,7 @@ inline mmap_base::size_type mmap_base::query_file_size(std::error_code& error) n
     PLARGE_INTEGER file_size;
     if(::GetFileSizeEx(m_file_handle, &file_size) == 0)
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
         return 0;
     }
     return file_size;
@@ -196,7 +196,7 @@ inline mmap_base::size_type mmap_base::query_file_size(std::error_code& error) n
     struct stat sbuf;
     if(::fstat(m_file_handle, &sbuf) == -1)
     {
-        util::assign_errno(error);
+        error = sys::latest_error();
         return 0;
     }
     return sbuf.st_size;

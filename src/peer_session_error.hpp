@@ -12,7 +12,7 @@ namespace tide {
  */
 enum class peer_session_errc
 {
-    unknown = 0,
+    unknown = 1,
 
     // peer_session was stopped by torrent.
     stopped,
@@ -49,6 +49,9 @@ enum class peer_session_errc
     // We have too many peers connected.
     too_many_connections,
 
+    // If peer sends us an extension message that we have disabled, peer is disconnected.
+    unsupported_extension,
+
     // Used anytime the message is larger than what's expected or when the client sent
     // a larger block than what we requested.
     message_too_big,
@@ -67,12 +70,20 @@ enum class peer_session_errc
     invalid_block_message,
     invalid_cancel_message,
     invalid_dht_port_message,
-    //invalid_reject_message,
-    //invalid_allow_fast_message,
-    //invalid_extended_message,
+    invalid_suggest_piece_message,
+    invalid_have_all_message,
+    invalid_have_none_message,
+    invalid_reject_request_message,
+    invalid_allow_fast_message,
+    invalid_extended_message,
 
     // We could not identify the message so to be safe the connection was closed.
     unknown_message,
+
+    // If the Fast extension is enabled, some form of piece availability message must be
+    // exchanged. This indicates that peer didn't send a bitfield, have_all, or have_none
+    // message after the handshake.
+    no_piece_availability_message,
 
     // The peer sent more requests while being choked than allowed.
     sent_requests_when_choked,

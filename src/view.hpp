@@ -74,7 +74,7 @@ public:
 
     size_type size() const noexcept { return length(); }
     size_type length() const noexcept { return m_length; }
-    bool is_empty() const noexcept { return length() == 0; }
+    bool empty() const noexcept { return length() == 0; }
 
     pointer data() noexcept { return m_data; }
     const_pointer data() const noexcept { return m_data; }

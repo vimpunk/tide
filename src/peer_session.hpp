@@ -3,6 +3,7 @@
 
 #include "torrent_disk_io_frontend.hpp"
 #include "peer_session_error.hpp"
+#include "per_round_counter.hpp"
 #include "throughput_rate.hpp"
 #include "sliding_average.hpp"
 #include "message_parser.hpp"
@@ -10,12 +11,14 @@
 #include "send_buffer.hpp"
 #include "disk_buffer.hpp"
 #include "block_info.hpp"
+#include "extensions.hpp"
 #include "flag_set.hpp"
 #include "bitfield.hpp"
 #include "socket.hpp"
 #include "types.hpp"
 #include "stats.hpp"
 #include "time.hpp"
+#include "log.hpp"
 
 #include <system_error>
 #include <vector>
@@ -72,6 +75,8 @@ public:
         // is done and changed to connected as soon as we receive the bitfield or
         // the the first message that is not a bitfield. Any subsequent bitfield
         // messages are rejected and the connection is dropped.
+        // If both sides support the Fast extension, then this state is mandatory, but
+        // the exchanged message may be a HAVE ALL or HAVE NONE.
         bitfield_exchange,
         // This is the state in which the session is when it is ready to send and
         // receive regular messages, i.e. when the up/download actually begins.
@@ -162,12 +167,21 @@ private:
     // in that case we don't expect outstanding requests to be served. If we receive a
     // block that is not in this list, we dump it as unexpected. If we receive a block
     // that is in here, it is removed.
-    std::vector<pending_block> m_sent_requests;
+    std::vector<pending_block> m_outgoing_requests;
 
     // The requests we got from peer which are are stored here as long as we can cancel
     // them, that is, until they are not sent (queued up in disk_io or elsewhere). If
     // the block is transmitted, it is removed from this list.
-    std::vector<block_info> m_received_requests;
+    std::vector<block_info> m_incoming_requests;
+
+    // If both sides of the connection use the Fast extension, peer may send us requests
+    // for pieces in this set even if it's choked and vice versa. These allowed pieces
+    // are stored in these sets.
+    //
+    // NOTE: must not interpret allowed fast pieces to mean that the peer has this piece.
+    // This allows for allowed fast set exchanges in the beginning of the connection.
+    std::vector<piece_index_t> m_incoming_allowed_pieces;
+    std::vector<piece_index_t> m_outgoing_allowed_pieces;
 
     /**
      * This is used for internal bookkeeping information and statistics about a peer.
@@ -183,7 +197,7 @@ private:
         std::string client;
 
         // These are the extensions peer supports.
-        std::array<uint8_t, 8> extensions;
+        extensions::flags extensions;
 
         // All pieces peer has.
         bitfield available_pieces;
@@ -280,6 +294,13 @@ private:
         // we can't cancel it.
         // TODO this feels hacky
         block_info in_transit_block = invalid_block;
+
+        // We need an accurate figure on the current upload rate every time a block
+        // arrives so that the ideal request queue size may be updated. throughput_rate
+        // is insufficient for it operates with a 1 second granularity, but multiple 
+        // blocks may arrive every second, in which case it would not give accurate 
+        // values. It resets its value every second.
+        per_round_counter<1> per_second_downloaded_bytes;
     };
 
     // Info and status regarding this peer. One instance persists throughout the session,
@@ -494,6 +515,10 @@ public:
     bool is_outbound() const noexcept;
     bool has_pending_disk_op() const noexcept;
     bool has_pending_async_op() const noexcept;
+    bool has_peer_timed_out() const noexcept;
+
+    /** Returns true if both sides of the connection support the extension. */
+    bool is_extension_enabled(const int extension) const noexcept;
 
     state_t state() const noexcept;
     stats get_stats() const noexcept;
@@ -524,6 +549,7 @@ public:
     /** Sends a choke message and drops serving all pending requests made by peer. */
     void choke_peer();
     void unchoke_peer();
+    void suggest_piece(const piece_index_t piece);
 
     /**
      * This is called (by torrent) when a piece was successfully downloaded. It may
@@ -656,6 +682,7 @@ private:
      */
     void handle_messages();
 
+    // -- standard BitTorrent messages --
     void handle_handshake();
     void handle_bitfield();
     void handle_keep_alive();
@@ -667,6 +694,21 @@ private:
     void handle_request();
     void handle_cancel();
     void handle_block();
+    // -- DHT extension messages --
+    // -- Fast extension messages --
+    void handle_suggest_piece();
+    void handle_have_all();
+    void handle_have_none();
+    void handle_reject_request();
+    void handle_allowed_fast();
+
+    /**
+     * BitComet rejects messages by way of sending an empty block message, so the logic
+     * in handle_reject_request is extracted so the logic can be called from handle_block
+     * as well.
+     * TODO choose a different name that more disparate
+     */
+    void handle_rejected_request(const block_info& block);
 
     /**
      * Depending on the request round trip time, marks peer as having timed out and
@@ -693,10 +735,6 @@ private:
     bool is_piece_index_valid(const piece_index_t index) const noexcept;
     bool should_accept_request(const block_info& block) const noexcept;
 
-    /**
-     * We expect blocks (i.e. this is not the same as handle_illicit_block()), but this
-     * one was not in our m_sent_requests queue.
-     */
     void handle_unexpected_block(const block_info& block, message msg);
 
     // These methods are called when the peer sends us messages that it is not allowed to
@@ -705,18 +743,17 @@ private:
     // functions from which they are called.
 
     /** If we get too many unrequested blocks, disconnect peer to avoid being flooded. */
-    void handle_illicit_block();
+    void handle_illicit_block(const block_info& block);
 
     /**
      * This is called if the peer sends us requests even though it is choked. After a
      * few such occurences (currently 300), peer is disconnected. Every 10 requests peer
      * is choked again, because it may not have gotten our choke message.
      */
-    void handle_illicit_request();
+    void handle_illicit_request(const block_info& block);
 
-    /** Bitfield messages are only supposed to be exchanged when connecting. */
-    void handle_illicit_bitfield();
     void handle_unknown_message();
+
 
     /**
      * If we're expecting a block and message parser has half finished messages, we
@@ -769,6 +806,8 @@ private:
      * Testing whether it is prudent to do so (e.g. don't send an interested message
      * if we're already interested) is done by other methods that use them.
      */
+
+    // -- standard BitTorrent messages --
     void send_handshake();
     void send_bitfield();
     void send_keep_alive();
@@ -778,31 +817,41 @@ private:
     void send_not_interested();
     void send_have(const piece_index_t piece);
     void send_request(const block_info& block);
-    void send_requests();
     void send_block(const block_source& block);
     void send_cancel(const block_info& block);
+    // -- DHT extension messages --
     void send_port(const int port);
+    // -- Fast extension messages --
+    void send_suggest_piece(const piece_index_t piece);
+    void send_have_all();
+    void send_have_none();
+    void send_reject_request(const block_info& block);
+    void send_allowed_fast(const piece_index_t piece);
+
+    // -------------------
+    // -- request logic --
+    // -------------------
 
     /**
      * We can make requests if we're below the max number of outstanding requests
      * and we're not choked and we're interested.
-     * TODO restrict requests if disk is overwhelmed
      */
-    bool can_send_requests() const noexcept;
+    bool can_make_requests() const noexcept;
+    void make_requests();
 
     /**
-     * Either one of these is called by send_requests. Both merely add the request
-     * message to the m_sent_request queue but don't send off the message. This is done
-     * by send_requests, if any requests have been made in either of these functions.
-     * New requests are placed in m_sent_requests.
-     * The number of blocks that have been placed in the request queue are returned.
+     * Either one of these is called by make_requests. Both merely add the request
+     * message to the m_outgoing_requests but don't send off the message. This is done
+     * by make_requests, if any requests have been made in either of these functions.
+     * A view into m_outgoing_requests of the new requests placed there is returned.
      */
-    int make_requests_in_parole_mode();
-    int make_requests_in_normal_mode();
+    const_view<pending_block> make_requests_in_parole_mode();
+    const_view<pending_block> make_requests_in_normal_mode();
+    const_view<pending_block> view_of_new_requests(const int n);
     
     /**
      * Tries to pick blocks from downloads in which this peer participates.
-     * New requests are placed in m_sent_requests.
+     * New requests are placed in m_outgoing_requests.
      * The number of blocks that have been placed in the request queue are returned.
      */
     int continue_downloads();
@@ -810,7 +859,7 @@ private:
     /**
      * Tries to join  piece download started by another peer, if there are any, and
      * pick blocks for those piece downloads.
-     * New requests are placed in m_sent_requests.
+     * New requests are placed in m_outgoing_requests.
      * The number of blocks that have been placed in the request queue are returned.
      */
     int join_download();
@@ -819,7 +868,7 @@ private:
     /**
      * Starts a new download and registers it in m_shared_downloads so that other
      * peers may join.
-     * New requests are placed in m_sent_requests.
+     * New requests are placed in m_outgoing_requests.
      * The number of blocks that have been placed in the request queue are returned.
      */
     int start_download();
@@ -834,7 +883,7 @@ private:
      * The number of seconds after which we consider the request to have timed out.
      * This is always a number derived from the latest download metrics.
      */
-    seconds request_timeout() const;
+    seconds calculate_request_timeout() const;
 
     /**
      * Finds the most suitable block to time out. This is usually the last block we
@@ -853,6 +902,8 @@ private:
     // -- utils --
     // -----------
 
+    void generate_allowed_pieces();
+
     enum class log_event
     {
         connecting,
@@ -868,6 +919,9 @@ private:
 
     template<typename... Args>
     void log(const log_event event, const char* format, Args&&... args) const;
+    template<typename... Args>
+    void log(const log_event event, const log::priority priority,
+        const char* format, Args&&... args) const;
 
     /** Tries to detect client's software from its peer_id in its handshake. */
     void try_identify_client();
@@ -950,11 +1004,16 @@ inline bool peer_session::has_pending_disk_op() const noexcept
 
 inline bool peer_session::has_pending_async_op() const noexcept
 {
-    // note: can't use !m_op_state.is_empty() because slow_start is not considered here
+    // note: can't use !m_op_state.empty() because slow_start is not considered here
     return m_op_state[op_t::send]
         && m_op_state[op_t::receive]
         && m_op_state[op_t::disk_read]
         && m_op_state[op_t::disk_write];
+}
+
+inline bool peer_session::has_peer_timed_out() const noexcept
+{
+    return m_info.has_peer_timed_out;
 }
 
 inline peer_session::state_t peer_session::state() const noexcept

@@ -44,6 +44,7 @@ struct piece_download
 
         enum status status = status::free;
         bool was_timed_out = false;
+        time_point request_time;
     };
 
 private:
@@ -105,9 +106,7 @@ private:
     // an upper bound on the time a block can remain in the `requested` state. This is
     // achieved by measuring average block round trip times and adjusting the upper
     // limit using this value.
-    int m_avg_request_rtt_ms = 0;
-    time_point m_last_received_request_time;
-    time_point m_last_eviction_time;
+    milliseconds m_avg_request_rtt;
 
 public:
 
@@ -125,8 +124,6 @@ public:
      */
     bool is_exclusive() const noexcept;
 
-    int num_participants() const noexcept;
-    int num_blocks() const noexcept;
     int num_blocks_left() const noexcept;
 
     int piece_length() const noexcept;
@@ -171,15 +168,15 @@ public:
      * peer. When block is downloaded from someone other than the original timed out
      * peer, the timed out peer can be sent a cancel message.
      *
-     * NOTE: must not time out the block if peer is the only one that has this piece.
-     * This is the caller's responsibility.
+     * NOTE: peer_session must not time out the block if its peer is the only one that
+     * has this piece.
      */
     void time_out(const peer_id_t& peer, const block_info& block, cancel_handler handler);
 
     /**
      * This should be called when it is known that a block requested from a peer is not
-     * going to be downloaded, such as when we disconnect or when we're choked (although
-     * in the latter case peer may still decide to serve our requests).
+     * going to be downloaded, such as when we disconnect or when we're choked, or peer
+     * rejects our request.
      * This makes sure that the block is immediately freed for others to download.
      */
     void cancel_request(const block_info& block);
@@ -208,6 +205,8 @@ public:
 
 private:
 
+    bool has_timed_out(const block& block) const noexcept;
+
     void verify_block(const block_info& block) const;
     int block_index(const block_info& block) const noexcept;
     int num_blocks(const int piece_length) const noexcept;
@@ -217,16 +216,6 @@ private:
 inline bool piece_download::is_exclusive() const noexcept
 {
     return m_all_time_num_participants == 1;
-}
-
-inline int piece_download::num_participants() const noexcept
-{
-    return m_peers.size();
-}
-
-inline int piece_download::num_blocks() const noexcept
-{
-    return m_blocks.size();
 }
 
 inline int piece_download::num_blocks_left() const noexcept

@@ -2,6 +2,7 @@
 #include "disk_io_error.hpp"
 #include "disk_buffer.hpp"
 #include "bitfield.hpp"
+#include "system.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -149,7 +150,7 @@ void torrent_storage::write_resume_data(
     std::string encoded = resume_data.encode();
     if(!m_resume_data.is_allocated() || (m_resume_data.length() < encoded.length()))
     {
-        m_resume_data.reallocate(encoded.length(), error);
+        m_resume_data.allocate(encoded.length(), error);
         if(error) { return; }
     }
     iovec buffer;
@@ -182,7 +183,7 @@ void torrent_storage::move(path path, std::error_code& error)
         // TODO check if we have to close file before moving on Windows
         /*
         path new_file_path = path / file.relative_path();
-        fs::move(file.absolute_path(), new_file_path, error);
+        sys::move(file.absolute_path(), new_file_path, error);
         if(!error)
         {
             file.on_parent_moved(new_file_path);
@@ -194,7 +195,7 @@ void torrent_storage::move(path path, std::error_code& error)
     {
         /** TODO
         path name = m_root_path.
-        fs::move(m_root_path, path, error);
+        sys::move(m_root_path, path, error);
         */
     }
 }
@@ -284,6 +285,7 @@ std::vector<mmap_sink> torrent_storage::create_mmap_sink(
     return mmaps;
 }
 */
+
 void torrent_storage::read(iovec buffer, const block_info& info, std::error_code& error)
 {
     read(view<iovec>(&buffer, 1), info, error);
@@ -407,7 +409,8 @@ void torrent_storage::write(view<iovec> buffers,
                 num_written = slice.length;
             }
             // we should have written to the entire file slice since file::write
-            // guarantees this
+            // guarantees this (and file slice describes the largest possible portion
+            // of buffers that can be written to file without enlarging it)
             assert(num_written == slice.length);
             return num_written;
         },
@@ -421,23 +424,22 @@ void torrent_storage::for_each_file(Function fn,
 {
     error.clear();
     view<file_entry> files = files_containing_block(block);
-    if(files.is_empty())
+    if(files.empty())
     {
         error = std::make_error_code(std::errc::no_such_file_or_directory);
         return;
     }
 
-    int64_t offset = block.index * m_piece_length + block.offset;
+    int64_t offset = int64_t(block.index) * m_piece_length + block.offset;
     int num_left = block.length;
     for(file_entry& file : files)
     {
-        const int num_transferred = fn(file,
-            get_file_slice(file, offset, num_left), error);
-        num_left -= num_transferred;
+        const auto slice = get_file_slice(file, offset, num_left);
+        const int num_transferred = fn(file, slice, error);
         if(error) { return; }
-        // FIXME TODO something wrong with this fn, probably this
-        //offset = file.torrent_offset + file.storage.length();
+        assert(num_transferred > 0);
         offset += num_transferred;
+        num_left -= num_transferred;
     }
 }
 
@@ -448,6 +450,8 @@ inline file_slice torrent_storage::get_file_slice(const file_entry& file,
     slice.offset = torrent_offset - file.torrent_offset;
     const int64_t file_end = file.torrent_offset + file.storage.length();
     slice.length = std::min(length, file_end - torrent_offset);
+    assert(slice.offset > 0);
+    assert(slice.length > 0);
     return slice;
 }
 
@@ -458,10 +462,7 @@ void torrent_storage::before_writing(file& file, std::error_code& error)
         file.open(error);
         if(error) { return; }
     }
-    if(!file.is_allocated())
-    {
-        file.allocate(error);
-    }
+    if(!file.is_allocated()) { file.allocate(error); }
 }
 
 void torrent_storage::before_reading(file_entry& file, std::error_code& error)
@@ -489,7 +490,7 @@ void torrent_storage::before_reading(file& file, std::error_code& error)
 
 void torrent_storage::initialize_file_entries(const_view<file_info> files)
 {
-    assert(!files.is_empty());
+    assert(!files.empty());
     m_files.reserve(files.size());
     // the path of a file depends whether torrent is multi file or single file/
     file_index_t index = 0;
@@ -522,19 +523,19 @@ void torrent_storage::create_directory_tree()
     // we only need directories if this is a multi file torrent
     if(m_files.size() == 1) { return; }
     // first, establish the root directory
-    std::error_code ec;
+    std::error_code error;
     // create directory will not fail if root directory already exists
-    fs::create_directory(m_root_path, ec);
+    sys::create_directory(m_root_path, error);
     // this is called from the constructor, so we must throw here
-    if(ec) { throw ec; }
+    if(error) { throw error; }
     // then the subdirectories
     for(const file_entry& file : m_files)
     {
         path dir_path = file.storage.absolute_path().parent_path();
         if(!dir_path.empty())
         {
-            fs::create_directories(dir_path, ec);
-            if(ec) { throw ec; }
+            sys::create_directories(dir_path, error);
+            if(error) { throw error; }
         }
     }
 }
@@ -542,28 +543,20 @@ void torrent_storage::create_directory_tree()
 view<torrent_storage::file_entry>
 torrent_storage::files_containing_block(const block_info& block)
 {
-    // get the first byte of block in the conceptual file stream by finding the first
-    // byte of the piece and adding the block offset; and one past its last byte
-    const int block_offset = block.index * m_piece_length + block.offset;
-    const int block_end = block_offset + block.length;
-    auto it = m_files.begin();
-    const auto end = m_files.end();
-
+    // get the first byte of block in the conceptual file stream
+    const int64_t block_offset = block.index * m_piece_length + block.offset;
     // find the first file containing block_offset
     // TODO check if we can do logarithmic search here
-    while((it != end) && (it->torrent_offset + it->storage.length() <= block_offset))
-    {
-        ++it;
-    }
-    assert(it != end);
+    auto it = std::find_if(m_files.begin(), m_files.end(), [block_offset](const auto& f)
+        { return f.torrent_offset + f.storage.length() > block_offset; });
+    assert(it != m_files.end());
     file_entry* first_file = &*it;
 
+    const int64_t block_end = block_offset + block.length;
     // find the last file containing block_end
-    while((it != end) && (it->torrent_offset + it->storage.length() < block_end))
-    {
-        ++it;
-    }
-    assert(it != end);
+    it = std::find_if(it, m_files.end(), [block_end](const auto& f)
+        { return f.torrent_offset + f.storage.length() >= block_end; });
+    assert(it != m_files.end());
     file_entry* last_file = &*it;
 
     // + 1 because it's a left inclusive interval and last_file points to a valid file

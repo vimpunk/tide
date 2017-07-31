@@ -96,7 +96,7 @@ class send_buffer
 
 public:
 
-    bool is_empty() const noexcept;
+    bool empty() const noexcept;
     int size() const noexcept;
 
     void append(payload payload);
@@ -121,7 +121,7 @@ public:
     void consume(int num_sent_bytes);
 };
 
-inline bool send_buffer::is_empty() const noexcept
+inline bool send_buffer::empty() const noexcept
 {
     return size() == 0;
 }

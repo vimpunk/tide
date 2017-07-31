@@ -118,7 +118,7 @@ public:
         return *this;
     }
 
-    bitfield& set() noexcept
+    bitfield& fill() noexcept
     {
         std::fill(m_blocks.begin(), m_blocks.end(), ~block_type(0));
         clear_unused_bits();
@@ -131,7 +131,7 @@ public:
         return *this;
     }
 
-    bitfield& reset() noexcept
+    bitfield& clear() noexcept
     {
         std::fill(m_blocks.begin(), m_blocks.end(), block_type(0));
         return *this;
@@ -143,7 +143,7 @@ public:
         return *this;
     }
 
-    bitfield& flip() noexcept
+    bitfield& flip_all() noexcept
     {
         for(auto& block : m_blocks)
         {
@@ -241,7 +241,7 @@ public:
     bitfield operator-() const
     {
         bitfield b(*this);
-        b.flip();
+        b.flip_all();
         return b;
     }
 

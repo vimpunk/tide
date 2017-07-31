@@ -1,22 +1,7 @@
-#include "filesystem.hpp"
+#include "system.hpp"
 
 namespace tide {
-namespace fs {
-
-size_t page_size()
-{
-    static const size_t page_size = []
-    {
-#ifdef _WIN32
-        SYSTEM_INFO SystemInfo;
-        GetSystemInfo(&SystemInfo);
-        return SystemInfo.dwAllocationGranularity;
-#else
-        return sysconf(_SC_PAGE_SIZE);
-#endif
-    }();
-    return page_size;
-}
+namespace sys {
 
 // these are mostly 1-1 mappings to their C++17 equivalents, so upgrade should be effortless
 
@@ -30,7 +15,7 @@ file_status status(const path& path, std::error_code& error)
     struct stat s;
     if(stat(path.c_str(), &s) != 0)
     {
-        util::assign_errno(error);
+        error = latest_error();
         return {};
     }
 
@@ -100,13 +85,13 @@ void create_directory(const path& path, std::error_code& error)
     if(CreateDirectory(path.c_str(), 0) == 0
        && GetLastError() != ERROR_ALREADY_EXISTS)
     {
-        util::assign_errno(error);
+        error = latest_error();
     }
 #else
     int mode = S_IRWXU | S_IRWXG | S_IRWXO;
     if((mkdir(path.c_str(), mode) != 0) && (errno != EEXIST))
     {
-        util::assign_errno(error);
+        error = latest_error();
     }
 #endif
 }
@@ -144,13 +129,13 @@ void move(const path& old_path, const path& new_path, std::error_code& error)
 #ifdef _WIN32
     if(MoveFile(old_path.c_str(), new_path.c_str()) == 0)
     {
-        util::assign_errno(error);
+        error = latest_error();
         return;
     }
 #else // _WIN32
     if(::rename(old_path.c_str(), new_path.c_str()) != 0)
     {
-        util::assign_errno(error);
+        error = latest_error();
         return;
     }
 #endif // _WIN32
@@ -161,5 +146,31 @@ void rename(const path& old_path, const path& new_path, std::error_code& error)
     move(old_path, new_path, error);
 }
 
-} // namespace fs
+size_t page_size()
+{
+    static const size_t page_size = []
+    {
+#ifdef _WIN32
+        SYSTEM_INFO SystemInfo;
+        GetSystemInfo(&SystemInfo);
+        return SystemInfo.dwAllocationGranularity;
+#else
+        return sysconf(_SC_PAGE_SIZE);
+#endif
+    }();
+    return page_size;
+}
+
+std::error_code latest_error() noexcept
+{
+    std::error_code error;
+#ifdef _WIN32
+    error.assign(GetLastError(), std::system_category());
+#else
+    error.assign(errno, std::system_category());
+#endif
+    return error;
+}
+
+} // namespace sys
 } // namespace tide

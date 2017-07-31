@@ -1,10 +1,12 @@
 #ifndef TIDE_TORRENT_HANDLE_HEADER
 #define TIDE_TORRENT_HANDLE_HEADER
 
+#include "torrent_info.hpp"
 #include "types.hpp"
 
 #include <vector>
 #include <memory>
+#include <mutex>
 
 namespace tide {
 
@@ -26,11 +28,13 @@ class torrent;
 class torrent_handle
 {
     std::weak_ptr<torrent> m_torrent;
+    torrent_info* m_info;
+    std::mutex* m_info_mutex;
 
 public:
 
     torrent_handle() = default;
-    explicit torrent_handle(torrent* t);
+    explicit torrent_handle(torrent& t);
 
     /** Returns whether the handle is valid, i.e. it refers to a valid torrent. */
     bool is_valid() const noexcept;

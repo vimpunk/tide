@@ -335,10 +335,7 @@ public:
      */
     void change_capacity(const int n)
     {
-        if(n <= 0)
-        {
-            throw std::invalid_argument("cache capacity must be greater than zero");
-        }
+        if(n < 0) throw std::invalid_argument("cache capacity must be greater than zero");
 
         m_filter.change_capacity(n);
         m_window.set_capacity(window_capacity(n));

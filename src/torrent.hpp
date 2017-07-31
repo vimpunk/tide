@@ -8,12 +8,13 @@
 #include "torrent_args.hpp"
 #include "string_view.hpp"
 #include "interval.hpp"
+#include "tracker.hpp"
 #include "bdecode.hpp"
 #include "bencode.hpp"
 #include "socket.hpp"
 #include "types.hpp"
 #include "time.hpp"
-#include "tracker.hpp"
+#include "log.hpp"
 
 #include <memory>
 #include <mutex>
@@ -35,6 +36,11 @@ struct settings;
  * This class represents a torrent download/upload. It manages all peer connections
  * associated with a torrent. This is an internal class, user may only interact with
  * torrent indirectly via a torrent_handle.
+ *
+ * torrent is NOT thread-safe, i.e. the user thread must never call any of its methods
+ * directly (this means engine must not call torrent methods within methods invoked on
+ * the user thread). For this, torrent_handle has been devised, which is a thread-safe 
+ * accessor for torrent.
  *
  * NOTE: torrent must be stored in a shared_ptr because it uses enable_shared_from_this
  * to pass a shared_ptr to itself to disk_io for async disk operations so as to ensure
@@ -274,8 +280,8 @@ public:
 
     void piece_availability(std::vector<int>& piece_map);
 
-    torrent_info info() const;
-    void info(torrent_info& info) const;
+    const torrent_info& info() const;
+    //void info(torrent_info& info) const;
 
     torrent_id_t id() const noexcept;
     const sha1_hash& info_hash() const noexcept;
@@ -285,11 +291,11 @@ public:
     seconds total_active_time() const noexcept;
 
     time_point download_started_time() const noexcept;
-    time_point download_ended_time() const noexcept;
+    time_point download_finished_time() const noexcept;
 
     /** Total peers includes connected and available (i.e. not connected) peers. */
-    int num_connected_peers() const noexcept;
     int total_peers() const noexcept;
+    int num_connected_peers() const noexcept;
     int num_seeders() const noexcept;
     int num_leechers() const noexcept;
 
@@ -395,7 +401,7 @@ private:
     void connect_peer(tcp::endpoint& peer);
     void close_peer_session(peer_session& session);
 
-    void on_peer_session_graceful_stop_complete(peer_session& session);
+    void on_peer_session_gracefully_stopped(peer_session& session);
 
     // -------------
     // -- tracker --
@@ -519,6 +525,9 @@ private:
 
     template<typename... Args>
     void log(const log_event event, const char* format, Args&&... args) const;
+    template<typename... Args>
+    void log(const log_event event, const log::priority priority,
+        const char* format, Args&&... args) const;
 };
 
 inline bool torrent::is_stopped() const noexcept { return !is_running(); }
@@ -528,17 +537,41 @@ inline bool torrent::is_running() const noexcept
     return m_info->state[torrent_info::active];
 }
 
+inline void piece_availability(std::vector<int>& piece_map);
+
+inline const torrent_info& torrent::info() const { return *m_info; }
+
+inline torrent_id_t torrent::id() const noexcept { return m_info->id; }
+inline const sha1_hash& torrent::info_hash() const noexcept { return m_info->info_hash; }
+
+//inline seconds torrent::total_seed_time() const noexcept;
+//inline seconds torrent::total_leech_time() const noexcept;
+//inline seconds torrent::total_active_time() const noexcept;
+
+inline time_point torrent::download_started_time() const noexcept
+{
+    return m_info->download_started_time;
+}
+
+inline time_point torrent::download_finished_time() const noexcept
+{
+    if(is_leech())
+        return {};
+    else
+        return m_info->download_finished_time;
+}
+
+inline int torrent::total_peers() const noexcept
+{
+    return m_peer_sessions.size() + m_available_peers.size();
+}
+
 inline int torrent::num_connected_peers() const noexcept
 {
     // we use this metric because if torrent is paused it does not clear m_peer_sessions
     // in the hopes of reconnecting them, so calling m_peer_sessions.size is not always
     // accurate
     return num_seeders() + num_leechers();
-}
-
-inline int torrent::total_peers() const noexcept
-{
-    return m_peer_sessions.size() + m_available_peers.size();
 }
 
 inline int torrent::num_seeders() const noexcept { return m_info->num_seeders; }
@@ -551,7 +584,7 @@ inline bool torrent::is_seed() const noexcept
     return m_info->state[torrent_info::state_t::seeding];
 }
 
-inline torrent_handle torrent::get_handle() noexcept { return torrent_handle(this); }
+inline torrent_handle torrent::get_handle() noexcept { return torrent_handle(*this); }
 inline torrent_storage_handle torrent::get_storage_handle() noexcept { return m_storage; }
 
 } // namespace tide
