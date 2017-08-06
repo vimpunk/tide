@@ -52,7 +52,7 @@ class engine
     event_queue m_event_queue;
 
     // All active and inactive torrents are stored here.
-    std::unordered_map<torrent_id_t, torrent> m_torrents;
+    std::unordered_map<torrent_id_t, std::shared_ptr<torrent>> m_torrents;
 
     // Torrents may have a priority ordering. TODO perhaps use a vector
     std::deque<torrent_id_t> m_torrent_priority;
@@ -87,7 +87,7 @@ class engine
 
     // Since the engine uses system time extensively, the time returend by the system
     // is cached and only updated every 100ms, which should save some costs and most
-    // components don't need a higher resolution that this.
+    // components don't need a higher resolution than this anyway.
     deadline_timer m_cached_clock_updater;
 
 public:
@@ -103,10 +103,10 @@ public:
     bool is_listening() const noexcept;
     uint16_t listen_port() const noexcept;
 
-    disk_io::stats get_disk_io_stats() const;
+    //disk_io::stats get_disk_io_stats() const;
     //engine_info get_engine_stats() const;
-    settings get_settings() const;
-    void apply_settings(const settings& s);
+    //settings get_settings() const;
+    //void apply_settings(const settings& s);
 
     //std::vector<alert> get_recent_alerts();
 
@@ -115,10 +115,10 @@ public:
      * This is useful if user doesn't keep track of torrents, but this is not
      * recommended to avoid the allocation overhead of the returned vector.
      */
-    std::vector<torrent_handle> torrents();
-    std::vector<torrent_handle> downloading_torrents();
-    std::vector<torrent_handle> uploading_torrents();
-    std::vector<torrent_handle> paused_torrents();
+    //std::vector<torrent_handle> torrents();
+    //std::vector<torrent_handle> downloading_torrents();
+    //std::vector<torrent_handle> uploading_torrents();
+    //std::vector<torrent_handle> paused_torrents();
 
     /**
      * This is an asynchronous function that reads in the .torrent file located at path
@@ -163,8 +163,8 @@ public:
      */
     void remove_torrent(const torrent_handle& torrent, remove_options options);
 
-    torrent_handle find_torrent(const sha1_hash& info_hash);
-    torrent_handle find_torrent(const torrent_id_t id);
+    //torrent_handle find_torrent(const sha1_hash& info_hash);
+    //torrent_handle find_torrent(const torrent_id_t id);
 
     // TODO perhaps rename these {set,{in,de}crement,etc}_torrent_queue_position
     void set_torrent_priority(const torrent_handle& torrent, const int queue_pos);
@@ -188,16 +188,6 @@ private:
      */
     std::vector<tracker_entry> get_trackers(const metainfo& metainfo);
     bool has_tracker(string_view url) const noexcept;
-
-    /**
-     * Events (notifications, stats, data) are accumulated in an event queue in engine,
-     * which user may periodically request. This indirection is necessary because most
-     * user interactions result in asynchronous operations that run on a different
-     * thread, so regular callbacks or return values cannot be used. Instead, completed
-     * async operations place their alert in the alert queue and user periodically
-     * drains this queue.
-     */
-    template<typename Alert, typename... Args> void post_alert(Args&&... args);
 };
 
 } // namespace tide

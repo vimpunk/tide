@@ -22,10 +22,7 @@ public:
     torrent_storage_handle() = default;
     torrent_storage_handle(torrent_storage& storage) : m_storage(&storage) {}
 
-    operator bool() const noexcept
-    {
-        return m_storage != nullptr;
-    }
+    operator bool() const noexcept { return m_storage != nullptr; }
 
     torrent_storage* native_handle() noexcept { return m_storage; }
 

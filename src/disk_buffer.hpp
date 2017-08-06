@@ -35,6 +35,7 @@ struct buffer
     virtual pointer data() = 0;
     virtual const_pointer data() const = 0;
     virtual size_type size() const = 0;
+    virtual bool empty() const = 0;
 };
 
 } // namespace detail
@@ -43,11 +44,14 @@ class mmap_source_buffer : public detail::buffer
 {
     mmap_source m_source;
 public:
+
     explicit mmap_source_buffer(mmap_source source) : m_source(std::move(source)) {}
 
-    pointer data() { return m_source.data(); }
-    const_pointer data() const { return m_source.data(); }
-    size_type size() const { return m_source.size(); }
+    size_type size() const noexcept override { return m_source.size(); }
+    bool empty() const noexcept override { return m_source.empty(); }
+
+    pointer data() noexcept override { return m_source.data(); }
+    const_pointer data() const noexcept override { return m_source.data(); }
 };
 
 using disk_buffer_pool = boost::pool<>;
@@ -88,12 +92,52 @@ public:
         , m_size(size)
     {
         assert(size <= 0x4000);
+        assert(size > 0);
+    }
+
+    disk_buffer(const disk_buffer& other)
+        : m_data(other.m_data)
+        , m_size(other.m_size)
+    {}
+
+    disk_buffer(disk_buffer&& other)
+        : m_data(std::move(other.m_data))
+        , m_size((other.m_size))
+    {
+        other.m_size = 0;
+    }
+
+    disk_buffer& operator=(const disk_buffer& other)
+    {
+        if(this != &other)
+        {
+            m_data = other.m_data;
+            m_size = other.m_size;
+        }
+        return *this;
+    }
+
+    disk_buffer& operator=(disk_buffer&& other)
+    {
+        if(this != &other)
+        {
+            m_data = std::move(other.m_data);
+            m_size = (other.m_size);
+            other.m_size = 0;
+        }
+        return *this;
+    }
+
+    ~disk_buffer()
+    {
+        m_size = 0;
     }
 
     operator bool() const noexcept { return m_data != nullptr; }
 
     size_type size() const noexcept override { return m_size; }
     size_type length() const noexcept { return m_size; }
+    bool empty() const noexcept override { return m_size == 0; }
 
     pointer data() noexcept override { return m_data.get(); }
     const_pointer data() const noexcept override { return m_data.get(); }
@@ -142,6 +186,7 @@ public:
 
     const_pointer data() const noexcept { return m_buffer->data(); }
     size_type size() const noexcept { return m_buffer->size(); }
+    bool empty() const noexcept { return m_buffer->empty(); }
 
     const_iterator begin() const noexcept { return data(); }
     const_iterator end() const noexcept { return data() + size(); }

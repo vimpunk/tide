@@ -9,7 +9,6 @@
 
 namespace tide {
 
-// TODO
 struct string_view : public const_view<std::string::value_type>
 {
     string_view() = default;
@@ -23,6 +22,38 @@ struct string_view : public const_view<std::string::value_type>
         return std::string(begin(), end());
     }
 };
+
+constexpr bool operator==(const string_view& a, const string_view& b) noexcept
+{
+    return (a.data() == b.data()) && (a.size() == b.size());
+}
+
+constexpr bool operator!=(const string_view& a, const string_view& b) noexcept
+{
+    return !(a == b);
+}
+
+constexpr bool operator<(const string_view& a, const string_view& b) noexcept
+{
+    if(a.data() == b.data()) { return a.size() < b.size(); }
+    return a.data() < b.data();
+}
+
+constexpr bool operator>(const string_view& a, const string_view& b) noexcept
+{
+    if(a.data() == b.data()) { return a.size() > b.size(); }
+    return a.data() > b.data();
+}
+
+constexpr bool operator<=(const string_view& a, const string_view& b) noexcept
+{
+    return !(a > b);
+}
+
+constexpr bool operator>=(const string_view& a, const string_view& b) noexcept
+{
+    return !(a < b);
+}
 
 inline bool operator==(const string_view& v, const std::string& s) noexcept
 {

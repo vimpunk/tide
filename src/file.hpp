@@ -28,6 +28,40 @@
 
 namespace tide {
 
+enum class file_errc
+{
+    // We tried to read/block from a file that we marked as not downloaded (i.e.
+    // we don't have its data written to disk).
+    tried_unwanted_file_read,
+    tried_unwanted_file_write,
+    tried_unallocated_file_read,
+    tried_unallocated_file_write,
+    tried_read_only_file_write,
+    invalid_file_offset,
+    null_transfer,
+};
+
+inline bool operator==(const file_errc e, const int i) noexcept
+{
+    return static_cast<int>(e) == i;
+}
+
+inline bool operator!=(const int i, const file_errc e) noexcept
+{
+    return !(e == i);
+}
+
+struct file_error_category : public std::error_category
+{
+    const char* name() const noexcept override { return "file"; }
+    std::string message(int env) const override;
+    std::error_condition default_error_condition(int ev) const noexcept override;
+};
+
+const file_error_category& file_category();
+std::error_code make_error_code(file_errc e);
+std::error_condition make_error_condition(file_errc e);
+
 struct file
 {
     enum open_mode : uint8_t
@@ -147,9 +181,9 @@ public:
      * uninitialized.
      */
     mmap_source create_mmap_source(const size_type file_offset,
-        const int length, std::error_code& error);
+        const size_type length, std::error_code& error);
     mmap_sink create_mmap_sink(const size_type file_offset,
-        const int length, std::error_code& error);
+        const size_type length, std::error_code& error);
 
     /**
      * Reads or writes a single buffer and returns the number of bytes read/written, or
@@ -159,10 +193,10 @@ public:
      *
      * An exception is thrown if file_offset is invalid.
      */
-    int read(view<uint8_t> buffer, size_type file_offset, std::error_code& error);
-    int read(iovec buffer, size_type file_offset, std::error_code& error);
-    int write(view<uint8_t> buffer, size_type file_offset, std::error_code& error);
-    int write(iovec buffer, size_type file_offset, std::error_code& error);
+    size_type read(view<uint8_t> buffer, size_type file_offset, std::error_code& error);
+    size_type read(iovec buffer, size_type file_offset, std::error_code& error);
+    size_type write(view<uint8_t> buffer, size_type file_offset, std::error_code& error);
+    size_type write(iovec buffer, size_type file_offset, std::error_code& error);
 
     /**
      * These two functions are scatter-gather operations in that multiple buffers may
@@ -195,18 +229,20 @@ public:
      * be written to/filled with by the contents of several consecutive files, so when 
      * these functions return, the buffers view can just be passed to the next file.
      */
-    int read(view<iovec>& buffers, const size_type file_offset, std::error_code& error);
-    int write(view<iovec>& buffers, const size_type file_offset, std::error_code& error);
+    size_type read(view<iovec>& buffers,
+        const size_type file_offset, std::error_code& error);
+    size_type write(view<iovec>& buffers,
+        const size_type file_offset, std::error_code& error);
 
     /** If we're in write mode, syncs the file buffer in the OS page cache with disk. */
     void sync_with_disk(std::error_code& error);
 
 private:
 
-    void before_mapping_source(const size_type file_offset, const int length,
-        std::error_code& error) const noexcept;
-    void before_mapping_sink(const size_type file_offset, const int length,
-        std::error_code& error) const noexcept;
+    void before_mapping_source(const size_type file_offset,
+        const size_type length, std::error_code& error) const noexcept;
+    void before_mapping_sink(const size_type file_offset,
+        const size_type length, std::error_code& error) const noexcept;
     void before_reading(const size_type file_offset,
         std::error_code& error) const noexcept;
     void before_writing(const size_type file_offset,
@@ -220,11 +256,11 @@ private:
      * of bytes.
      *
      * fn needs to have the following signature:
-     * int fn(void* buffer, int length, size_type file_offset);
+     * size_type fn(void* buffer, size_type length, size_type file_offset);
      * where the return value is the number of bytes that were transferred.
      */
     template<typename PIOFunction>
-    int single_buffer_io(iovec buffer, size_type file_offset,
+    size_type single_buffer_io(iovec buffer, size_type file_offset,
         std::error_code& error, PIOFunction fn);
 
     /**
@@ -233,14 +269,14 @@ private:
      * on the current system.
      *
      * fn will be called for every buffer processed, and its signature must be:
-     * int fn(void* buffer, int length, size_type file_offset);
+     * size_type fn(void* buffer, size_type length, size_type file_offset);
      * where the return value is the number of bytes transferred.
      *
      * Note that unlike preadv/pwritev, this is not atomic, so other processes may be
      * able to write to a file between calls to fn.
      */
     template<typename PIOFunction>
-    int repeated_positional_io(view<iovec>& buffers, size_type file_offset,
+    size_type repeated_positional_io(view<iovec>& buffers, size_type file_offset,
         std::error_code& error, PIOFunction fn);
 
     /**
@@ -252,11 +288,11 @@ private:
      *
      * pvio_fn will be called until it transfers all the bytes requested, usually once.
      * It must have the following signature:
-     * int vpo_fn(view<iovec>& buffers, size_type file_offset);
+     * size_type vpo_fn(view<iovec>& buffers, size_type file_offset);
      * where the return value is the number of bytes transferred.
      */
     template<typename PVIOFunction>
-    int positional_vector_io(view<iovec>& buffers, size_type file_offset,
+    size_type positional_vector_io(view<iovec>& buffers, size_type file_offset,
         std::error_code& error, PVIOFunction pvio_fn);
 };
 
@@ -323,5 +359,10 @@ inline bool file::is_allocated() const noexcept
 }
 
 } // namespace tide
+
+namespace std
+{
+    template<> struct is_error_code_enum<tide::file_errc> : public true_type {};
+}
 
 #endif // TIDE_FILE_HEADER

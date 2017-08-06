@@ -5,8 +5,8 @@ namespace tide {
 
 struct interval
 {
-    int begin;
-    int end;
+    int begin = 0;
+    int end = 0;
 
     interval() = default;
     interval(int begin_, int end_) : begin(begin_), end(end_) {}

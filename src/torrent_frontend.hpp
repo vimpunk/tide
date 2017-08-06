@@ -1,5 +1,5 @@
-#ifndef TIDE_TORRENT_DISK_IO_FRONTEND_HEADER
-#define TIDE_TORRENT_DISK_IO_FRONTEND_HEADER
+#ifndef TIDE_TORRENT_FRONTEND_HEADER
+#define TIDE_TORRENT_FRONTEND_HEADER
 
 #include "block_source.hpp"
 #include "disk_buffer.hpp"
@@ -11,11 +11,18 @@
 namespace tide {
 
 class piece_download;
+class piece_picker;
+class peer_session;
+class torrent_info;
 class block_info;
 class torrent;
 
 /**
- * This class is used to mediate the communication of piece download completions and
+ * This class represents is used by peer_sessions and it represents the torrent to which
+ * a peer_session is attached. It exposes only the limited functionality that a 
+ * peer_session needs from torrent, which allows it to avoid directly referring to it.
+ *
+ * It is also used to mediate the communication of piece download completions and
  * disk_io errors between a single peer_session (meaning each peer_session will have its
  * own torrent_disk_io_frontend instance), torrent and disk_io. It faciliates and
  * abstracts away the coupling that would otherwise occur when peer_session would need
@@ -49,17 +56,25 @@ class torrent;
  * downloaded, the completion handler would then prolong its lifetime, possibly
  * indefinitely, if piece could not be downloaded (e.g. peers owning it left the swarm).
  */
-class torrent_disk_io_frontend
+class torrent_frontend
 {
     std::shared_ptr<torrent> m_torrent;
 public:
 
-    torrent_disk_io_frontend() = default;
-    explicit torrent_disk_io_frontend(torrent& t);
+    torrent_frontend() = default;
+    explicit torrent_frontend(torrent& t);
 
+    /** Tests whether this instance is valid, i.e. whether it refers to a torrent. */
     operator bool() const noexcept { return m_torrent != nullptr; }
 
-    disk_buffer get_disk_buffer();
+    class piece_picker& piece_picker() noexcept;
+    const class piece_picker& piece_picker() const noexcept;
+    torrent_info& info() noexcept;
+    const torrent_info& info() const noexcept;
+    std::vector<std::shared_ptr<piece_download>>& downloads() noexcept;
+    const std::vector<std::shared_ptr<piece_download>>& downloads() const noexcept;
+
+    disk_buffer get_disk_buffer(const int length);
 
     /**
      * This saves a block to disk and once done, gives back disk_io the disk_buffer
@@ -72,8 +87,14 @@ public:
 
     void fetch_block(const block_info& block_info,
         std::function<void(const std::error_code&, block_source)> handler);
+
+    /**
+     * If we're gracefully stopping, which is an async operation, torrent needs to know 
+     * when peer_session finished the shutdown.
+     */
+    void on_peer_session_stopped(peer_session& session);
 };
 
 } // namespace tide
 
-#endif // TIDE_TORRENT_DISK_IO_FRONTEND_HEADER
+#endif // TIDE_TORRENT_FRONTEND_HEADER

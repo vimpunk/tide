@@ -149,6 +149,7 @@ public:
         for(const auto flag : flags) { set(flag); }
     }
 
+    // TODO make this a popcount equivalent function and add a max_size function
     constexpr size_type size() const noexcept
     {
         return util::int_cast<size_type>(NumFlags);

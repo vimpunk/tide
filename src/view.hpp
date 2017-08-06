@@ -36,30 +36,30 @@ public:
 
     view() = default;
 
-    view(pointer data, size_type length)
+    constexpr view(pointer data, size_type length)
         : m_data(data)
         , m_length(length)
     {}
 
-    view(pointer begin, pointer end)
+    constexpr view(pointer begin, pointer end)
         : m_data(begin)
         , m_length(end - begin)
     {}
 
     template<typename U>
-    view(view<U>& other)
+    constexpr view(view<U>& other)
         : m_data(other.data())
         , m_length(other.length())
     {}
 
     template<typename U, size_type N>
-    view(std::array<U, N>& arr)
+    constexpr view(std::array<U, N>& arr)
         : m_data(arr.data())
         , m_length(arr.size())
     {}
 
     template<typename U, size_type N>
-    view(U (&arr)[N])
+    constexpr view(U (&arr)[N])
         : m_data(&arr[0])
         , m_length(N)
     {}
@@ -72,41 +72,41 @@ public:
         , m_length(c.size())
     {}
 
-    size_type size() const noexcept { return length(); }
-    size_type length() const noexcept { return m_length; }
-    bool empty() const noexcept { return length() == 0; }
+    constexpr size_type size() const noexcept { return length(); }
+    constexpr size_type length() const noexcept { return m_length; }
+    constexpr bool empty() const noexcept { return length() == 0; }
 
-    pointer data() noexcept { return m_data; }
-    const_pointer data() const noexcept { return m_data; }
+    constexpr pointer data() noexcept { return m_data; }
+    constexpr const_pointer data() const noexcept { return m_data; }
 
-    reference front() noexcept { return *data(); }
-    const_reference front() const noexcept { return *data(); }
+    constexpr reference front() noexcept { return *data(); }
+    constexpr const_reference front() const noexcept { return *data(); }
 
-    reference back() noexcept { return m_data[m_length - 1]; }
-    const_reference back() const noexcept { return m_data[m_length - 1]; }
+    constexpr reference back() noexcept { return m_data[m_length - 1]; }
+    constexpr const_reference back() const noexcept { return m_data[m_length - 1]; }
 
-    iterator begin() noexcept { return data(); }
-    const_iterator begin() const noexcept { return data(); }
-    const_iterator cbegin() const noexcept { return begin(); }
+    constexpr iterator begin() noexcept { return data(); }
+    constexpr const_iterator begin() const noexcept { return data(); }
+    constexpr const_iterator cbegin() const noexcept { return begin(); }
 
-    iterator end() noexcept { return begin() + size(); }
-    const_iterator end() const noexcept { return begin() + size(); }
-    const_iterator cend() const noexcept { return end(); }
+    constexpr iterator end() noexcept { return begin() + size(); }
+    constexpr const_iterator end() const noexcept { return begin() + size(); }
+    constexpr const_iterator cend() const noexcept { return end(); }
 
-    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
-    const_reverse_iterator rbegin() const noexcept
+    constexpr reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+    constexpr const_reverse_iterator rbegin() const noexcept
     { return const_reverse_iterator(end()); }
-    const_reverse_iterator crbegin() const noexcept { return rbegin(); }
+    constexpr const_reverse_iterator crbegin() const noexcept { return rbegin(); }
 
-    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
-    const_reverse_iterator rend() const noexcept
+    constexpr reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+    constexpr const_reverse_iterator rend() const noexcept
     { return const_reverse_iterator(begin()); }
-    const_reverse_iterator crend() const noexcept { return rend(); }
+    constexpr const_reverse_iterator crend() const noexcept { return rend(); }
 
-    reference operator[](const size_type i) noexcept { return m_data[i]; }
-    const_reference operator[](const size_type i) const noexcept { return m_data[i]; }
+    constexpr reference operator[](const size_type i) noexcept { return m_data[i]; }
+    constexpr const_reference operator[](const size_type i) const noexcept { return m_data[i]; }
 
-    view subview(const size_type offset)
+    constexpr view subview(const size_type offset)
     {
         if(offset > size())
         {
@@ -115,7 +115,7 @@ public:
         return {data() + offset, size() - offset};
     }
 
-    view subview(const size_type offset, const size_type count)
+    constexpr view subview(const size_type offset, const size_type count)
     {
         if((offset > size()) || (offset + count > size()))
         {
@@ -124,7 +124,7 @@ public:
         return {data() + offset, count};
     }
 
-    void trim_front(const size_type n)
+    constexpr void trim_front(const size_type n)
     {
         if(n > size())
         {
@@ -134,7 +134,7 @@ public:
         m_length -= n;
     }
 
-    void trim_back(const size_type n)
+    constexpr void trim_back(const size_type n)
     {
         if(n > size())
         {
@@ -144,7 +144,6 @@ public:
     }
 };
 
-/** A specialization of the above class which holds an immutable view to its resource. */
 template<typename T> using const_view = view<const T>;
 
 namespace util {
@@ -162,7 +161,7 @@ template<typename T, typename U> struct is_same
 template<
     typename T,
     typename U,
-    typename = typename std::enable_if<util::is_same<T, U>::value, T>::type
+    typename = typename std::enable_if<util::is_same<T, U>::value>::type
 > constexpr bool operator==(const view<T>& a, const view<U>& b) noexcept
 {
     return (a.data() == b.data()) && (a.size() == b.size());
@@ -177,26 +176,20 @@ constexpr bool operator!=(const view<T>& a, const view<U>& b) noexcept
 template<
     typename T,
     typename U,
-    typename = typename std::enable_if<util::is_same<T, U>::value, T>::type
+    typename = typename std::enable_if<util::is_same<T, U>::value>::type
 > constexpr bool operator<(const view<T>& a, const view<U>& b) noexcept
 {
-    if(a.data() == b.data())
-    {
-        return a.size() < b.size();
-    }
+    if(a.data() == b.data()) { return a.size() < b.size(); }
     return a.data() < b.data();
 }
 
 template<
     typename T,
     typename U,
-    typename = typename std::enable_if<util::is_same<T, U>::value, T>::type
+    typename = typename std::enable_if<util::is_same<T, U>::value>::type
 > constexpr bool operator>(const view<T>& a, const view<U>& b) noexcept
 {
-    if(a.data() == b.data())
-    {
-        return a.size() > b.size();
-    }
+    if(a.data() == b.data()) { return a.size() > b.size(); }
     return a.data() > b.data();
 }
 

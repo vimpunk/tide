@@ -1,9 +1,9 @@
 #ifndef TIDE_PEER_SESSION_HEADER
 #define TIDE_PEER_SESSION_HEADER
 
-#include "torrent_disk_io_frontend.hpp"
 #include "peer_session_error.hpp"
 #include "per_round_counter.hpp"
+#include "torrent_frontend.hpp"
 #include "throughput_rate.hpp"
 #include "sliding_average.hpp"
 #include "message_parser.hpp"
@@ -42,28 +42,10 @@ class piece_picker;
  * all such operations complete (otherwise the handlers could end up referring to
  * invalid memory).
  */
-class peer_session : public std::enable_shared_from_this<peer_session>
+struct peer_session : public std::enable_shared_from_this<peer_session>
 {
-public:
-
-    /**
-     * These are the fields that we get from torrent either through the constructor when
-     * this is an outbound connection, or when we attach to a torrent after the peer
-     * handshake when this is an inbound connection. To test whether we succesfully
-     * attached to a torrent, torrent_info must not be nullptr (the others may be, as
-     * optimizations may be employed, such as the omission of shared_downloads when
-     * seeding, but torrent_info must be present).
-     */
-    struct torrent_specific_args
-    {
-        std::shared_ptr<class piece_picker> piece_picker;
-        std::shared_ptr<std::vector<std::shared_ptr<piece_download>>> shared_downloads;
-        std::shared_ptr<class torrent_info> torrent_info;
-        torrent_disk_io_frontend disk_io;
-    };
-
     /** At any given time, peer_session is in one of the below states. */
-    enum class state_t
+    enum class state
     {
         // This state indicates that peer_session is or has been disconnected, or never
         // started, so it's save to destruct it.
@@ -77,12 +59,12 @@ public:
         // messages are rejected and the connection is dropped.
         // If both sides support the Fast extension, then this state is mandatory, but
         // the exchanged message may be a HAVE ALL or HAVE NONE.
-        bitfield_exchange,
+        piece_availability_exchange,
         // This is the state in which the session is when it is ready to send and
         // receive regular messages, i.e. when the up/download actually begins.
         connected,
         // If peer_session is gracefully stopped, we wait for all pending async
-        // operations (listed in op_t) to complete before closing the connection.
+        // operations (listed in op) to complete before closing the connection.
         // This means that each async operation's callback will check whether it's the
         // last outstanding operation, and if so, it will finally disconnect peer. Note
         // that only socket and disk read writes qualify, timers need not do this.
@@ -91,7 +73,7 @@ public:
 
 private:
 
-    enum class op_t : uint8_t
+    enum class op : uint8_t
     {
         // Whether we're currently reading to or writing from socket. Both operations
         // last until their handles are invoked. This is used to block access to the
@@ -109,7 +91,7 @@ private:
         max
     };
 
-    flag_set<op_t, op_t::max> m_op_state;
+    flag_set<op, op::max> m_op_state;
 
     // We try to fill up the send buffer as much as possible before draining it to
     // socket to minimize the number of context switches (syscalls) by writing to the
@@ -130,35 +112,14 @@ private:
     // These are the tunable parameters that the user provides.
     const peer_session_settings& m_settings;
 
-    // This connects us to disk_io and torrent. It exposes the basic functionality of
-    // disk_io that peer_session needs, while acting as a channel between peer_session
-    // and torrent when a piece has been downloaded.
+    // This is a mediator between this peer_session and its associated torrent. Vital
+    // elements such as the piece_picker, torrent_info, disk_io, and shared piece 
+    // downloads may be accessed via this object. It holds a shared_ptr to torrent.
     //
     // NOTE: if this starts as an incoming connection, we won't have this field until we
     // finished the handshake and attached ourselves to a torrent.
-    // It must never be null. If it is, disconnect immediately.
-    torrent_disk_io_frontend m_disk_io;
-
-    // So as not to loop over each each peer_session and request stats, a torrent's
-    // stats are updated by each peer_session right when the change occurs, thus always
-    // keeping torrent_info up to date.
-    //
-    // NOTE: if this starts as an incoming connection, we won't have this field until we
-    // finished the handshake and attached ourselves to a torrent.
-    // It must never be null. If it is, disconnect immediately.
-    std::shared_ptr<torrent_info> m_torrent_info;
-
-    // NOTE: if this starts as an incoming connection, we won't have this field until we
-    // finished the handshake and attached ourselves to a torrent.
-    std::shared_ptr<piece_picker> m_piece_picker;
-
-    // This is where all current active piece downloads (from any peer in torrent)
-    // can be accessed. Only torrent may remove a download from here.
-    //
-    // NOTE: if this starts as an incoming connection, we won't have this field until we
-    // finished the handshake and attached ourselves to a torrent. It's also null if
-    // we're seeding (no point in having it when we're not downloading).
-    std::shared_ptr<std::vector<std::shared_ptr<piece_download>>> m_shared_downloads;
+    // It must never be invalid, if it is, disconnect immediately.
+    torrent_frontend m_torrent;
 
     // These are the active piece downloads in which this peer_session is participating.
     std::vector<std::shared_ptr<piece_download>> m_downloads;
@@ -180,8 +141,8 @@ private:
     //
     // NOTE: must not interpret allowed fast pieces to mean that the peer has this piece.
     // This allows for allowed fast set exchanges in the beginning of the connection.
-    std::vector<piece_index_t> m_incoming_allowed_pieces;
-    std::vector<piece_index_t> m_outgoing_allowed_pieces;
+    std::vector<piece_index_t> m_incoming_allowed_set;
+    std::vector<piece_index_t> m_outgoing_allowed_set;
 
     /**
      * This is used for internal bookkeeping information and statistics about a peer.
@@ -232,6 +193,12 @@ private:
 
         time_point last_outgoing_block_time;
         time_point last_incoming_block_time;
+
+        // Since there is no central update loop upon which we could rely to gauge the
+        // per-second download performance of a session (which is necessary to accurately
+        // adjust the request queue size), we have to check whether at least a second has 
+        // elapsed since the last time the update queue has been updated.
+        time_point last_request_queue_adjust_time;
 
         // TODO if more flags are added, consider using flag_set (the reason it's not
         // used now and neither are bitfields is because the initial values here are
@@ -287,7 +254,7 @@ private:
         // 50 (any further requests have been observed to be dropped by BC).
         int max_outgoing_request_queue_size;
 
-        state_t state = state_t::disconnected;
+        enum state state = state::disconnected;
 
         // The block currently being received is put here. This is used to determine
         // whether we can cancel a request, because if we're already receiving a block,
@@ -362,14 +329,7 @@ private:
     // When this is an incoming connection, this peer_session must attach to a torrent
     // using this callback after peer's handshake has been received and a torrent info
     // hash could be extracted. It is not used otherwise.
-    std::function<torrent_specific_args(const sha1_hash&)> m_torrent_attacher;
-
-    // When torrent is gracefully stopped, it waits for all its peers' async ops to
-    // finish, i.e. it needs to know when to mark torrent as stopped, which is done by
-    // supplying a handler to each peer_session's stop method and when a session is
-    // disconnected, this is called and torrent can stop itself after the last such
-    // callback.
-    std::function<void()> m_stop_handler;
+    std::function<torrent_frontend(const sha1_hash&)> m_torrent_attacher;
 
 public:
 
@@ -384,7 +344,7 @@ public:
         tcp::endpoint peer_endpoint,
         bandwidth_controller& bandwidth_controller,
         const peer_session_settings& settings,
-        torrent_specific_args torrent_args);
+        torrent_frontend torrent);
 
     /**
      * Instantiate an inbound connection, that is, it is not known to which torrent this
@@ -406,7 +366,7 @@ public:
         tcp::endpoint peer_endpoint,
         bandwidth_controller& bandwidth_controller,
         const peer_session_settings& settings,
-        std::function<torrent_specific_args(const sha1_hash&)> torrent_attacher);
+        std::function<torrent_frontend(const sha1_hash&)> torrent_attacher);
 
     /**
      * NOTE: peer_session is not destructed until all outstanding asynchronous
@@ -425,15 +385,10 @@ public:
     /**
      * If there are outstanding asynchronous operations, such as a socket send or 
      * receive, we wait for them to complete. This is important when sending or
-     * receiving a block, in which case no payload data is wasted this way. However, if
-     * reading a block from disk returns after this call, it won't be sent. 
+     * receiving a block, in which case no payload data is wasted this way.
      * This should be preferred over abort.
-     *
-     * Handler is called after the last pending operation finished.
-     TODO decide whether to never execute it in the context of this function
-     or to call it in this function if there are no async ops
      */
-    void stop(std::function<void()> handler);
+    void stop();
 
     /**
      * All pending network operations are aborted by calling cancel on the IO objects,
@@ -514,13 +469,14 @@ public:
     bool is_peer_seed() const noexcept;
     bool is_outbound() const noexcept;
     bool has_pending_disk_op() const noexcept;
+    bool has_pending_socket_op() const noexcept;
     bool has_pending_async_op() const noexcept;
     bool has_peer_timed_out() const noexcept;
 
     /** Returns true if both sides of the connection support the extension. */
     bool is_extension_enabled(const int extension) const noexcept;
 
-    state_t state() const noexcept;
+    enum state state() const noexcept;
     stats get_stats() const noexcept;
     void get_stats(stats& s) const noexcept;
     detailed_stats get_detailed_stats() const noexcept;
@@ -566,20 +522,6 @@ private:
 
     /** If our interest changes, sends the corresponding send_{un,}interested message. */
     void update_interest();
-    bool am_seeder() const noexcept;
-
-    /**
-     * This must be called when we know that we're not going to receive previously
-     * requested blocks, so that they may be requested from other peers.
-     */
-    void abort_outgoing_requests();
-
-    /**
-     * Removes the handlers associated with this peer_session from all downloads in
-     * which it participated, so that after destruction is complete no invalid handlers
-     * remain lingering in piece_downloads.
-     */
-    void detach_downloads();
 
     // ----------------------
     // -- {dis,}connecting --
@@ -597,6 +539,7 @@ private:
 
     /** error indicates why peer was disconnected. */
     void disconnect(const std::error_code& error);
+    void detach_parole_download();
 
     /**
      * Just a convenience function that returns true if we are disconnecting or have
@@ -770,7 +713,7 @@ private:
         disk_buffer block_data, piece_download& piece_download);
     void on_block_saved(const std::error_code& error,
         const block_info& block, const time_point start_time);
-    void on_block_read(const std::error_code& error, const block_source& block);
+    void on_block_fetched(const std::error_code& error, const block_source& block);
 
     /**
      * This is invoked by piece_download when the piece has been fully downloaded and
@@ -827,6 +770,10 @@ private:
     void send_have_none();
     void send_reject_request(const block_info& block);
     void send_allowed_fast(const piece_index_t piece);
+    void send_allowed_fast_set();
+
+    /** Sends either a bitfield, have_all or have_none. */
+    void send_piece_availability();
 
     // -------------------
     // -- request logic --
@@ -875,6 +822,12 @@ private:
 
     int num_to_request() const noexcept;
 
+    /**
+     * This must be called when we know that we're not going to receive previously
+     * requested blocks, so that they may be requested from other peers.
+     */
+    void abort_outgoing_requests();
+
     // -------------------
     // -- timeout logic --
     // -------------------
@@ -902,7 +855,7 @@ private:
     // -- utils --
     // -----------
 
-    void generate_allowed_pieces();
+    void generate_allowed_fast_set();
 
     enum class log_event
     {
@@ -914,7 +867,8 @@ private:
         invalid_message,
         parole,
         timeout,
-        request
+        request,
+        info
     };
 
     template<typename... Args>
@@ -934,27 +888,27 @@ private:
 
 inline bool peer_session::is_connecting() const noexcept
 {
-    return state() == state_t::connecting;
+    return state() == state::connecting;
 }
 
 inline bool peer_session::is_handshaking() const noexcept
 {
-    return state() == state_t::handshaking;
+    return state() == state::handshaking;
 }
 
 inline bool peer_session::is_connected() const noexcept
 {
-    return state() == state_t::connected;
+    return state() == state::connected;
 }
 
 inline bool peer_session::is_disconnecting() const noexcept
 {
-    return state() == state_t::disconnecting;
+    return state() == state::disconnecting;
 }
 
 inline bool peer_session::is_disconnected() const noexcept
 {
-    return state() == state_t::disconnected;
+    return state() == state::disconnected;
 }
 
 inline bool peer_session::is_stopped() const noexcept
@@ -999,16 +953,17 @@ inline bool peer_session::is_outbound() const noexcept
 
 inline bool peer_session::has_pending_disk_op() const noexcept
 {
-    return m_op_state[op_t::disk_read] || m_op_state[op_t::disk_write];
+    return m_op_state[op::disk_read] || m_op_state[op::disk_write];
+}
+
+inline bool peer_session::has_pending_socket_op() const noexcept
+{
+    return m_op_state[op::send] || m_op_state[op::receive];
 }
 
 inline bool peer_session::has_pending_async_op() const noexcept
 {
-    // note: can't use !m_op_state.empty() because slow_start is not considered here
-    return m_op_state[op_t::send]
-        && m_op_state[op_t::receive]
-        && m_op_state[op_t::disk_read]
-        && m_op_state[op_t::disk_write];
+    return has_pending_socket_op() || has_pending_disk_op();
 }
 
 inline bool peer_session::has_peer_timed_out() const noexcept
@@ -1016,7 +971,7 @@ inline bool peer_session::has_peer_timed_out() const noexcept
     return m_info.has_peer_timed_out;
 }
 
-inline peer_session::state_t peer_session::state() const noexcept
+inline enum peer_session::state peer_session::state() const noexcept
 {
     return m_info.state;
 }

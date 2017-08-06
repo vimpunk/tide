@@ -93,7 +93,7 @@ struct torrent_info : public stats
 
     torrent_settings settings;
 
-    enum state_t : uint8_t
+    enum state : uint8_t
     {
         // If this state is not set, no other state may be set. TODO guarantee
         active,
@@ -112,7 +112,7 @@ struct torrent_info : public stats
         max
     };
 
-    flag_set<state_t, state_t::max> state;
+    flag_set<state, state::max> state;
 };
 
 // TODO perhaps make this a torrent_info member function

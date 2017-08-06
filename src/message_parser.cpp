@@ -81,7 +81,6 @@ handshake message_parser::extract_handshake()
     handshake.peer_id = const_view<uint8_t>(pos += 20, 20);
 
     m_message_begin += 49 + protocol_length;
-    optimize_receive_space();
     return handshake;
 }
 
@@ -90,11 +89,10 @@ message message_parser::extract_message()
     auto msg = view_message();
     m_message_begin += 4 + msg.data.size();
     // keep_alive messages don't have a type field
-    if(msg.type != message_type::keep_alive)
+    if(msg.type != message::keep_alive)
     {
         ++m_message_begin;
     }
-    optimize_receive_space();
     return msg;
 }
 
@@ -114,7 +112,7 @@ message message_parser::view_message() const
     message msg;
     if(msg_length == 0)
     {
-        msg.type = message_type::keep_alive;
+        msg.type = message::keep_alive;
     }
     else
     {
@@ -135,7 +133,7 @@ int message_parser::type() const
     if(view_message_length() == 0)
     {
         // it's a keep alive message
-        return message_type::keep_alive;
+        return message::keep_alive;
     }
     if(!has(5))
     {
@@ -177,7 +175,6 @@ void message_parser::skip_message()
         throw std::logic_error("skip (4 + msg_length): message_parser has no messages");
     }
     m_message_begin += 4 + msg_length;
-    optimize_receive_space();
 }
 
 inline bool message_parser::has(const int n) const noexcept
@@ -191,7 +188,7 @@ inline int message_parser::view_message_length() const noexcept
     return endian::parse<int>(&m_buffer[m_message_begin]);
 }
 
-inline void message_parser::optimize_receive_space()
+void message_parser::optimize_receive_space()
 {
     if(m_message_begin >= m_unused_begin)
     {

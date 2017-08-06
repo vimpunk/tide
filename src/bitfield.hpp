@@ -66,8 +66,7 @@ public:
         if(!is_bitfield_data_valid(bytes, num_bits))
         {
             throw std::invalid_argument(
-                "byte sequence does not match the requested number of bits in bitfield"
-            );
+                "byte sequence does not match the requested number of bits in bitfield");
         }
         clear_unused_bits();
     }
@@ -159,10 +158,7 @@ public:
         const int last_block = m_blocks.size() - 1;
         for(auto i = 0; i < last_block; ++i)
         {
-            if(m_blocks[i] != all_set)
-            {
-                return false;
-            }
+            if(m_blocks[i] != all_set) { return false; }
         }
         // need to check the last block separately because of the zerod out excess bits
         const block_type last_block_mask = ~block_type(0) << num_excess_bits();
@@ -178,10 +174,7 @@ public:
     {
         for(const auto& block : m_blocks)
         {
-            if(block != 0)
-            {
-                return false;
-            }
+            if(block != 0) { return false; }
         }
         return true;
     }
@@ -219,11 +212,16 @@ public:
     const_iterator end() const noexcept { return const_iterator(*this, m_num_bits); }
     const_iterator cend() const noexcept { return const_iterator(*this, m_num_bits); }
 
-    /** Returns the Hamming weight of this bitfield.
+    /** Returns the Hamming weight of this bitfield. */
     int count() const
     {
+        int n = 0;
+        for(auto i = 0; i < size(); ++i)
+        {
+            if((*this)[i]) { ++n; }
+        }
+        return n;
     }
-    */
 
     std::string to_string() const
     {

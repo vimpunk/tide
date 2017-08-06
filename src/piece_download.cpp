@@ -92,7 +92,7 @@ void piece_download::cancel_request(const block_info& block)
     {
         m_blocks[index].status = block::status::free;
         ++m_num_pickable_blocks;
-        m_timed_out_blocks.erase(m_timed_out_blocks.find(block));
+        m_timed_out_blocks.erase(block);
     }
 }
 
@@ -108,10 +108,7 @@ void piece_download::remove_peer(const peer_id_t& peer)
     while(bit != bend)
     {
         auto tmp = bit++;
-        if(tmp->second.peer == peer)
-        {
-            m_timed_out_blocks.erase(tmp);
-        }
+        if(tmp->second.peer == peer) { m_timed_out_blocks.erase(tmp); }
     }
 }
 

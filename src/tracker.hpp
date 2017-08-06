@@ -26,7 +26,7 @@ namespace tide {
 // TODO consider renaming the protocol specific names in request to more sensible ones
 struct tracker_request
 {
-    enum event_t
+    enum event
     {
         // This is used by udp_tracker because an event field is always included so we
         // must differentiate it from the other three events.
@@ -72,8 +72,8 @@ struct tracker_request
     // save traffic.
     bool no_peer_id = true;
 
-    // Must be specified in the three specific cases as described in event_t.
-    event_t event = event_t::none;
+    // Must be specified in the three specific cases as described in event.
+    int event = event::none;
 
     // True IP address of the client in dotted quad format. This is only necessary if
     // the IP addresss from which the HTTP request originated is not the same as the
@@ -117,7 +117,7 @@ public:
 
     tracker_request_builder& compact(bool b);
     tracker_request_builder& no_peer_id(bool b);
-    tracker_request_builder& event(tracker_request::event_t event);
+    tracker_request_builder& event(int event);
     tracker_request_builder& ip(std::string ip);
     tracker_request_builder& num_want(int num_want);
     tracker_request_builder& tracker_id(std::string tracker_id);
@@ -152,7 +152,6 @@ struct tracker_response
     // out.
     std::vector<peer_entry> peers;
     std::vector<tcp::endpoint> ipv4_peers;
-    // TODO support ipv6
     std::vector<tcp::endpoint> ipv6_peers;
 };
 
@@ -177,7 +176,6 @@ enum class tracker_errc
 {
     timed_out,
     invalid_response,
-    response_too_small,
     wrong_response_type,
     wrong_response_length,
     invalid_transaction_id
@@ -210,39 +208,30 @@ class tracker
 {
 protected:
 
-    // The full announce URL of the form "tracker.host.domain:port/announce". Note that
-    // the protocol identifier (e.g. "udp://") included in the .torrent metainfo file
-    // is stripped after determining the tracker's protocol. The port number need not be
-    // included, in which case the default 80 for HTTP and 443 for HTTPS used.
+    // The full announce URL of the form "protocol://tracker.host.domain:port/announce".
+    // The port number need not be included, in which case the default 80 for HTTP and
+    // 443 for HTTPS used.
     std::string m_url;
 
     const settings& m_settings;
 
-    // Even though there might be multiple concurrent requests, a single timeout timerr
-    // is employed as we do not know if, in the case of multiple concurrent requests,
-    // tracker will serve them in order, and if it served a request out of order we know
-    // it is responsive, so timing out becomes unnecessary.
-    deadline_timer m_timeout_timer;
+    time_point m_last_announce_time;
+    time_point m_last_scrape_time;
 
     // The total number of times we tried to contact tracker in a row, but failed.
     // TODO not actually incremented
     int m_num_fails = 0;
-
-    time_point m_last_announce_time;
-    time_point m_last_scrape_time;
 
     // These fields are used to mark a tracker as "faulty", so that user can query a
     // tracker and move onto the next.
     bool m_is_reachable = true;
     bool m_had_protocol_error = false;
 
-    // When we abort all tracker connections this is set to false. TODO
     bool m_is_aborted = false;
 
 public:
 
     tracker(std::string url, asio::io_service& ios, const settings& settings);
-    // TODO should we send an exit message when destructing?
     virtual ~tracker() = default;
 
     /**
@@ -259,6 +248,8 @@ public:
      * manages. If in the second overload info_hashes is empty, the maximum number of
      * requestable torrents are scraped that tracker has.
      */
+    //virtual void scrape(const sha1_hash& info_hash,
+        //std::function<void(const std::error_code&, scrape_response)> handler) = 0;
     virtual void scrape(std::vector<sha1_hash> info_hashes,
         std::function<void(const std::error_code&, scrape_response)> handler) = 0;
 
@@ -318,7 +309,7 @@ struct http_tracker final : public tracker
 class udp_tracker final : public tracker
 {
     /** Each exchanged message has an action field specifying the message's intent. */
-    enum action_t : uint8_t
+    enum action : uint8_t
     {
         connect   = 0,
         announce_ = 1,
@@ -335,14 +326,23 @@ class udp_tracker final : public tracker
     struct request
     {
         // This is the state in which request currently is, i.e. which message we're
-        // expecting next from tracker (response may be action_t::error, however).
-        action_t action = action_t::connect;
+        // expecting next from tracker (response may be action::error, however).
+        enum action action = action::connect;
 
         // Each request has its own transaction id so tracker responses can be properly
         // routed to a specific request. 0 means it is uninitialized.
         int32_t transaction_id = 0;
 
-        explicit request(int32_t tid) : transaction_id(tid) {}
+        // Since UDP is an unreliable protocol we need to take care of lost or erroneous
+        // packets. If a response is not received after 15 * 2 ^ n seconds, we
+        // retransmit the request, where n starts at 0 and is increased up to 3 (120
+        // seconds), after every retransmission. 
+        int num_retries = 0;
+
+        // This is responsible for timing out a request.
+        deadline_timer timeout_timer;
+
+        request(asio::io_service& ios, int32_t tid);
         virtual ~request() = default;
 
         // Handlers are not the same for announce and scrape, so we can't put them here.
@@ -361,11 +361,10 @@ class udp_tracker final : public tracker
         // confirmed that it has been sent.
         // The size is fixed at 98 bytes because that's the largest message we'll ever
         // send (announce), and also the most common, so might as well save ourselves
-        // the allocation churn (though note that if the message is smaller, the buffer
-        // passed to socket should be capped).
+        // the allocation churn.
         fixed_payload<98> payload;
 
-        announce_request(int32_t tid, tracker_request p,
+        announce_request(asio::io_service& ios, int32_t tid, tracker_request p,
             std::function<void(const std::error_code&, tracker_response)> h);
 
         void on_error(const std::error_code& error) override { handler(error, {}); }
@@ -385,7 +384,7 @@ class udp_tracker final : public tracker
         // Size cannot be fixed because info_hashes is of variable size.
         struct payload payload;
 
-        scrape_request(int32_t tid, std::vector<sha1_hash> i,
+        scrape_request(asio::io_service& ios, int32_t tid, std::vector<sha1_hash> i,
             std::function<void(const std::error_code&, scrape_response)> h);
 
         void on_error(const std::error_code& error) override { handler(error, {}); }
@@ -406,19 +405,24 @@ class udp_tracker final : public tracker
     udp::socket m_socket;
     udp::resolver m_resolver;
 
-    enum class state_t : uint8_t
+    // After establishing a connection with tracker and receiving a connection_id, the
+    // connection is alive for one minute. This saves some bandwidth and unnecessary
+    // round trip times.
+    time_point m_last_connect_time;
+
+    // This value we receive from tracker in response to our connect message, which we
+    // then have to include in every subsequent message to prove it's still us
+    // interacting with tracker. We can use it for one minute after receiving it.
+    int64_t m_connection_id;
+
+    enum class state : uint8_t
     {
         disconnected,
         connecting,
         connected
     };
 
-    state_t m_state = state_t::disconnected;
-
-    // After establishing a connection with tracker and receiving a connection_id, the
-    // connection is alive for one minute. This saves some bandwidth and unnecessary
-    // round trip times.
-    time_point m_last_connect_time;
+    enum state m_state = state::disconnected;
 
     // This is set to signal that we're receiving into m_receive_buffer, which is
     // necessary because we may only receive a single datagram at any given time, i.e.
@@ -428,11 +432,6 @@ class udp_tracker final : public tracker
     // The constructor launches an async host resolution, during which no request may be
     // launched, so execution must halt if this is false.
     bool m_is_resolved = false;
-
-    // This value we receive from tracker in response to our connect message, which we
-    // then have to include in every subsequent message to prove it's still us
-    // interacting with tracker. We can use it for one minute after receiving it.
-    int64_t m_connection_id;
 
 public:
 
@@ -528,14 +527,11 @@ private:
      */
     void resume_stalled_requests();
 
-    /**
-     * Cancels all outstanding operations and if we haven't tried all endpoints mapped
-     * to tracker's host, we try to send all pending requests to that host. Otherwise,
-     * all requests' handlers are invoked notifying the callers.
-
-     TODO should cancel the first pending request only
-     */ 
-    void handle_timeout(const std::error_code& error);
+    void start_timeout(request& request);
+    void handle_timeout(const std::error_code& error, request& request);
+    void retry(request& request);
+    void retry(announce_request& request);
+    void retry(scrape_request& request);
 
     /**
      * Each pending request's handler is called with error and all pending requests are
@@ -574,11 +570,13 @@ struct tracker_entry
     // 'completed' and 'stopped' events must be sent regardless of these fields.
     // min_interval is optional, and it means we must not reannounce more frequently
     // than this (except in the above cases), not even if user forces a reannounce.
-    seconds interval;
-    seconds min_interval;
+    // TODO we currently disregard min_interval
+    seconds interval{0};
+    seconds min_interval{0};
 
     time_point last_announce_time;
     time_point last_scrape_time;
+    time_point last_force_time;
 
     // If there was an error with tracker, it will be kept here.
     std::error_code last_error;

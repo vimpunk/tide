@@ -452,10 +452,7 @@ private:
 
         const_iterator cend() const noexcept
         {
-            if(!m_list.head())
-            {
-                return const_iterator(*this, nullptr);
-            }
+            if(!m_list.head()) { return const_iterator(*this, nullptr); }
             return const_iterator(*this, m_list.tail());
         }
 
@@ -593,20 +590,14 @@ public:
     int64_t find_number(const std::string& key) const
     {
         int64_t result;
-        if(try_find_number(key, result))
-        {
-            return result;
-        }
+        if(try_find_number(key, result)) { return result; }
         throw std::invalid_argument(key + " not in bmap");
     }
 
     bool try_find_number(const std::string& key, int64_t& result) const
     {
         const auto token = find_token(key);
-        if(!token || (token->type != btype::number))
-        {
-            return false;
-        }
+        if(!token || (token->type != btype::number)) { return false; }
         result = detail::make_number_from_token(source(), *token);
         return true;
     }
@@ -614,20 +605,14 @@ public:
     std::string find_string(const std::string& key) const
     {
         std::string result;
-        if(try_find_string(key, result))
-        {
-            return result;
-        }
+        if(try_find_string(key, result)) { return result; }
         throw std::invalid_argument(key + " not in bmap");
     }
 
     bool try_find_string(const std::string& key, std::string& result) const
     {
         const auto token = find_token(key);
-        if(!token || (token->type != btype::string))
-        {
-            return false;
-        }
+        if(!token || (token->type != btype::string)) { return false; }
         result = detail::make_string_from_token(source(), *token);
         return true;
     }
@@ -639,20 +624,14 @@ public:
     string_view find_string_view(const std::string& key) const
     {
         string_view result;
-        if(try_find_string_view(key, result))
-        {
-            return result;
-        }
+        if(try_find_string_view(key, result)) { return result; }
         throw std::invalid_argument(key + " not in bmap");
     }
 
     bool try_find_string_view(const std::string& key, string_view& result) const
     {
         const auto token = find_token(key);
-        if(!token || (token->type != btype::string))
-        {
-            return false;
-        }
+        if(!token || (token->type != btype::string)) { return false; }
         result = detail::make_string_view_from_token(source(), *token);
         return true;
     }
@@ -661,20 +640,14 @@ public:
     blist find_blist(const std::string& key) const
     {
         blist result;
-        if(try_find_blist(key, result))
-        {
-            return result;
-        }
+        if(try_find_blist(key, result)) { return result; }
         throw std::invalid_argument(key + " not in bmap");
     }
 
     bool try_find_blist(const std::string& key, blist& result) const
     {
         const auto token = find_token(key);
-        if(!token || (token->type != btype::list))
-        {
-            return false;
-        }
+        if(!token || (token->type != btype::list)) { return false; }
         result = blist(*this, token);
         return true;
     }
@@ -682,20 +655,14 @@ public:
     bmap find_bmap(const std::string& key) const
     {
         bmap result;
-        if(try_find_bmap(key, result))
-        {
-            return result;
-        }
+        if(try_find_bmap(key, result)) { return result; }
         throw std::invalid_argument(key + " not in bmap");
     }
 
     bool try_find_bmap(const std::string& key, bmap& result) const
     {
         const auto token = find_token(key);
-        if(!token || (token->type != btype::map))
-        {
-            return false;
-        }
+        if(!token || (token->type != btype::map)) { return false; }
         result = bmap(*this, token);
         return true;
     }
@@ -713,17 +680,13 @@ public:
         }
         switch(token->type)
         {
-        case btype::number:
-            return std::make_unique<bnumber>(
+        case btype::number: return std::make_unique<bnumber>(
                 detail::make_number_from_token(source(), *token));
-        case btype::string:
-            return std::make_unique<bstring>(
+        case btype::string: return std::make_unique<bstring>(
                 detail::make_string_from_token(source(), *token));
-        case btype::list:
-            return std::make_unique<blist>(
+        case btype::list: return std::make_unique<blist>(
                 static_cast<const detail::bcontainer&>(*this), token);
-        case btype::map:
-            return std::make_unique<bmap>(
+        case btype::map: return std::make_unique<bmap>(
                 static_cast<const detail::bcontainer&>(*this), token);
         }
     }

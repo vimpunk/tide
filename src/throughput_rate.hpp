@@ -40,7 +40,7 @@ public:
 
     throughput_rate() : m_last_update_time(cached_clock::now()) {}
 
-    void reset()
+    void clear()
     {
         m_last_update_time = cached_clock::now();
         m_rate = m_prev_second_rate = m_accumulator = m_peak = 0;

@@ -26,7 +26,7 @@ public:
 
     per_round_counter() : m_last_update_time(cached_clock::now()) {}
 
-    void reset() noexcept
+    void clear() noexcept
     {
         m_last_update_time = cached_clock::now();
         m_prev_round_value = m_value = 0;
@@ -48,12 +48,6 @@ public:
     {
         update_impl(0);
         return m_value - m_prev_round_value;
-    }
-
-    /** Checks whether TimeUnit(Interval) time has passed since the last update. */
-    bool is_round_over() const noexcept
-    {
-        return cached_clock::now() - m_last_update_time >= TimeUnit(Interval);
     }
 
 private:
@@ -82,6 +76,30 @@ private:
         }
     }
 };
+
+/*
+class counter
+{
+    int m_prev_value = 0;
+    int m_value = 0;
+public:
+
+    operator int() const noexcept { return m_value; }
+
+    counter& operator+=(const int n) noexcept
+    {
+        m_value += n;
+        return *this;
+    }
+
+    void clear() { m_value = 0; }
+
+    void reset(const int elapsed_ms)
+    {
+ 
+    }
+};
+*/
 
 } // namespace tide
 

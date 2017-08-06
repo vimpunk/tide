@@ -937,14 +937,14 @@ bool piece_picker::am_interested_in(const bitfield& available_pieces) const noex
     // 3) peer has pieces that we don't
     //
     // we're interested if the union of peer's and my available_pieces are disparate from
-    // my available_pieces, because then peer has pieces we don't
-    // TODO optimize this
-    //return (available_pieces | m_downloaded_pieces) != m_downloaded_pieces;
+    // my available_pieces, because then peer has pieces we don't i.e.:
+    // (available_pieces | m_downloaded_pieces) != m_downloaded_pieces;
 
     // we're interested in peer if it has at least one piece that we don't have but want
-    for(const bool p : available_pieces)
+    assert(available_pieces.size() == m_downloaded_pieces.size());
+    for(auto i = 0; i < num_pieces(); ++i)
     {
-        if(p && !m_downloaded_pieces[p] && m_wanted_pieces[p])
+        if(available_pieces[i] && !m_downloaded_pieces[i] && m_wanted_pieces[i])
         {
             return true;
         }

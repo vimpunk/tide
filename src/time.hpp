@@ -47,22 +47,10 @@ namespace ts_cached_clock
     void update();
 }
 
-template<typename Duration>
-int64_t total_microseconds(const Duration& d)
+template<typename Unit, typename Duration>
+int64_t to_int(const Duration& d)
 {
-    return duration_cast<microseconds>(d).count();
-}
-
-template<typename Duration>
-int64_t total_milliseconds(const Duration& d)
-{
-    return duration_cast<milliseconds>(d).count();
-}
-
-template<typename Duration>
-int64_t total_seconds(const Duration& d)
-{
-    return duration_cast<seconds>(d).count();
+    return duration_cast<Unit>(d).count();
 }
 
 template<typename Duration, typename Handler>

@@ -8,47 +8,44 @@
 
 namespace tide {
 
-/**
- * All currently supported BitTorrent message types. This is denoted by the 5th byte in
- * a torrent message (the byte values are shown next to each type).
- *
- * NOTE: whereas in the protocol the term 'piece' is used to describe both the pieces
- * into which a file is split and the payload sent over the network, for clarity, here
- * and throughout the application, the unofficial term 'block' is used to denote the
- * piece chunks sent over the network.
- */
-namespace message_type {
-
-// A keep alive message has no identifier (it's just 4 zero bytes), this is used only by
-// message_parser::type to tell caller that the current message is a keep_alive.
-constexpr int keep_alive = -1;
-
-enum {
-    // -- standard BitTorrent messages --
-    choke          = 0,
-    unchoke        = 1,
-    interested     = 2,
-    not_interested = 3,
-    have           = 4,
-    bitfield       = 5,
-    request        = 6,
-    block          = 7,
-    cancel         = 8,
-    // -- DHT extension messages --
-    port           = 9,
-    // -- Fast extension messages --
-    suggest_piece  = 13,
-    have_all       = 14,
-    have_none      = 15,
-    reject_request = 16,
-    allowed_fast   = 17,
-
-};
-
-} // namespace message_type
-
 struct message
 {
+    // A keep alive message has no identifier (it's just 4 zero bytes), this is used
+    // only by message_parser::type to tell caller that the current message is a
+    // keep_alive.
+    static constexpr int keep_alive = -1;
+
+    /**
+     * All currently supported BitTorrent message types. This is denoted by the 5th byte
+     * in a torrent message (the byte values are shown next to each type).
+     *
+     * NOTE: whereas in the protocol the term 'piece' is used to describe both the
+     * pieces into which a file is split and the payload sent over the network, for
+     * clarity, here and throughout the application, the unofficial term 'block' is used
+     * to denote the piece chunks sent over the network, while 'piece' is only used to
+     * describe the file partitions.
+     */
+    enum type {
+        // -- standard BitTorrent messages --
+        choke          = 0,
+        unchoke        = 1,
+        interested     = 2,
+        not_interested = 3,
+        have           = 4,
+        bitfield       = 5,
+        request        = 6,
+        block          = 7,
+        cancel         = 8,
+        // -- DHT extension messages --
+        port           = 9,
+        // -- Fast extension messages --
+        suggest_piece  = 13,
+        have_all       = 14,
+        have_none      = 15,
+        reject_request = 16,
+        allowed_fast   = 17,
+    };
+
     int type;
     // The message content, excluding the four bytes of message length and one byte of
     // message identifier/type.
@@ -196,6 +193,17 @@ public:
     /** Skips to the next message. Exception is thrown if there is no message to skip. */
     void skip_message();
 
+    /**
+     * This should be called once all the messages in message buffer have been extracted.
+     * If extracting everything resulted in reaching the end of the buffer, the message 
+     * pointer is simply reset to 0. If, on the other hand, we have an incomplete
+     * message, we verify that the buffer is large enough to receive the rest, reserve 
+     * space if it's not, and then shift the incomplete bytes to the front to increase
+     * the receive space.
+     * TODO we might not want to automatically reserve space
+     */
+    void optimize_receive_space();
+
 private:
 
     /**
@@ -211,18 +219,6 @@ private:
      * field itself (which is 4 bytes).
      */
     int view_message_length() const noexcept;
-
-    /**
-     * This is called after operations that move the "message pointer" to the next
-     * message. If this resulted in reaching the end of the buffer, the message pointer
-     * is simply reset to 0. If, on the other hand, we have an incomplete message, we
-     * verify that the buffer is large enough to receive the rest (after the message has
-     * been shifted), reserve space if it's not, and then shift the incomplete bytes to
-     * the front to increase the receive space.
-     TODO consider making this a public function so that user can call this once done
-     parsing so that it's only called once instead of with every call to extract/view
-     */
-    void optimize_receive_space();
 
     /**
      * Shift last message to the front of the buffer so that we can maximize the free

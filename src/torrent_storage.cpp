@@ -1,8 +1,10 @@
 #include "torrent_storage.hpp"
-#include "disk_io_error.hpp"
 #include "disk_buffer.hpp"
 #include "bitfield.hpp"
 #include "system.hpp"
+
+#include "string_utils.hpp"
+#include "log.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -12,27 +14,25 @@
 namespace tide {
 
 // a shared_ptr to info is passed in case torrent is removed while this is running
-torrent_storage::torrent_storage(
-    std::shared_ptr<torrent_info> info,
-    string_view piece_hashes,
-    path resume_data_path
+torrent_storage::torrent_storage(const torrent_info& info,
+    string_view piece_hashes, path resume_data_path
 )
     : m_resume_data(resume_data_path, 0,
         file::open_mode_flags{ file::read_write, file::sequential, file::no_os_cache })
     , m_piece_hashes(piece_hashes)
-    , m_root_path(info->files.size() == 1
-        ? info->save_path
-        : info->save_path / info->name)
-    , m_name(info->name)
-    , m_piece_length(info->piece_length)
-    , m_num_pieces(info->num_pieces)
+    , m_root_path(info.files.size() == 1
+        ? info.save_path
+        : info.save_path / info.name)
+    , m_name(info.name)
+    , m_piece_length(info.piece_length)
+    , m_num_pieces(info.num_pieces)
 {
     assert(!resume_data_path.empty());
     assert(!m_piece_hashes.empty());
     assert(!m_root_path.empty());
     assert(m_piece_length > 0);
     assert(m_num_pieces > 0);
-    initialize_file_entries(info->files);
+    initialize_file_entries(info.files);
     create_directory_tree();
 }
 
@@ -52,18 +52,19 @@ interval torrent_storage::pieces_in_file(const file_index_t file) const noexcept
 
 interval torrent_storage::files_containing_piece(const piece_index_t piece) const noexcept
 {
+    auto file = std::find_if(m_files.cbegin(), m_files.cend(),
+        [piece](const auto& f) { return f.last_piece >= piece; });
     interval result;
-    for(auto i = 0; i < m_files.size(); ++i)
+    if(file != m_files.end())
     {
-        if(m_files[i].first_piece == piece)
+        result.begin = file - m_files.begin();
+        result.end = result.begin + 1;
+        ++file;
+        while(file != m_files.end())
         {
-            result.begin = i;
-        }
-        if(m_files[i].last_piece == piece)
-        {
-            // TODO should we return a left inclusive or a left right inclusive ival?
-            result.end = i + 1;
-            break;
+            if(file->first_piece != piece) { break; }
+            result.end = file - m_files.begin();
+            ++file;
         }
     }
     return result;
@@ -101,6 +102,7 @@ sha1_hash torrent_storage::expected_piece_hash(const piece_index_t piece) const 
         std::copy(src, src + 20, hash.begin());
         return hash;
     }
+    assert(false);
     return {};
 }
 
@@ -168,10 +170,7 @@ void torrent_storage::erase_file(const file_index_t file_index, std::error_code&
         return;
     }
     file& file = m_files[file_index].storage;
-    if(file.is_open())
-    {
-        file.close();
-    }
+    if(file.is_open()) { file.close(); }
     file.erase(error);
 }
 
@@ -224,7 +223,7 @@ void torrent_storage::check_storage_integrity(bitfield& pieces, int first_piece,
     // TODO
 }
 
-std::vector<mmap_source> torrent_storage::create_mmap_source(
+std::vector<mmap_source> torrent_storage::create_mmap_sources(
     const block_info& info, std::error_code& error)
 {
     std::vector<mmap_source> mmaps;
@@ -411,6 +410,10 @@ void torrent_storage::write(view<iovec> buffers,
             // we should have written to the entire file slice since file::write
             // guarantees this (and file slice describes the largest possible portion
             // of buffers that can be written to file without enlarging it)
+            if(num_written != slice.length)
+                log::log_disk_io("{TORRENT_STORAGE}",
+                    util::format("FATAL! num_written(%i) <> slice.length(%i)",
+                    num_written, slice.length), false, log::priority::high);
             assert(num_written == slice.length);
             return num_written;
         },
@@ -429,12 +432,20 @@ void torrent_storage::for_each_file(Function fn,
         error = std::make_error_code(std::errc::no_such_file_or_directory);
         return;
     }
+        log::log_disk_io("{TORRENT_STORAGE}",
+            util::format("writing %i bytes in piece(%i) to %i files",
+                block.length, block.index, files.size()),
+            false, log::priority::high);
 
     int64_t offset = int64_t(block.index) * m_piece_length + block.offset;
     int num_left = block.length;
     for(file_entry& file : files)
     {
         const auto slice = get_file_slice(file, offset, num_left);
+            log::log_disk_io("{TORRENT_STORAGE}",
+                util::format("writing %i bytes to %s at offset(%lli)", 
+                    slice.length, file.storage.absolute_path().c_str(), slice.offset),
+                false, log::priority::high);
         const int num_transferred = fn(file, slice, error);
         if(error) { return; }
         assert(num_transferred > 0);
@@ -450,8 +461,9 @@ inline file_slice torrent_storage::get_file_slice(const file_entry& file,
     slice.offset = torrent_offset - file.torrent_offset;
     const int64_t file_end = file.torrent_offset + file.storage.length();
     slice.length = std::min(length, file_end - torrent_offset);
-    assert(slice.offset > 0);
     assert(slice.length > 0);
+    assert(slice.offset >= 0);
+    assert(slice.offset < file.torrent_offset + file.storage.length());
     return slice;
 }
 
@@ -469,7 +481,7 @@ void torrent_storage::before_reading(file_entry& file, std::error_code& error)
 {
     if(!file.is_wanted)
     {
-        error = make_error_code(disk_io_errc::tried_unwanted_file_read);
+        error = make_error_code(file_errc::tried_unwanted_file_read);
         return;
     }
     before_reading(file.storage, error);
@@ -484,7 +496,7 @@ void torrent_storage::before_reading(file& file, std::error_code& error)
     }
     if(!file.is_allocated())
     {
-        error = make_error_code(disk_io_errc::tried_unallocated_file_read);
+        error = make_error_code(file_errc::tried_unallocated_file_read);
     }
 }
 
@@ -544,7 +556,7 @@ view<torrent_storage::file_entry>
 torrent_storage::files_containing_block(const block_info& block)
 {
     // get the first byte of block in the conceptual file stream
-    const int64_t block_offset = block.index * m_piece_length + block.offset;
+    const int64_t block_offset = int64_t(block.index) * m_piece_length + block.offset;
     // find the first file containing block_offset
     // TODO check if we can do logarithmic search here
     auto it = std::find_if(m_files.begin(), m_files.end(), [block_offset](const auto& f)

@@ -188,9 +188,9 @@ private:
 
         // Blocks may be saved to disk without being hashed, so unhashed_offset is not
         // sufficient to determine how many blocks we have. Thus each block that was
-        // saved is marked as 'true' in this list.
+        // saved is marked as 'true'. The vector is preallocated to the number of blocks.
         //
-        // Only handled on the worker thread.
+        // Only handled on the network thread.
         std::vector<bool> save_progress;
 
         // Only one thread may process a partial_piece at a time, so this is set before
@@ -251,20 +251,15 @@ private:
         int num_blocks() const noexcept;
 
         /**
-         * The number of contiguous blocks following the last hashed block.
-         * We can only hash the blocks that are in order and have no gaps, so this will
-         * be 0 if buffer[0].offset > unhashed_offset, or it will be the number of
-         * blocks until the first gap in buffer.
-         *
-         * NOTE: it's a somewhat expensive operation.
+         * We can only hash the blocks that are in order and have no gaps. If there is
+         * no gap, it returns a pair of indices denoting the range in buffer that
+         * constitutes the hashable blocks.
          */
-        int num_hashable_blocks() const noexcept;
+        interval hashable_range() const noexcept;
 
         /**
          * Returns a left-inclusive interval that represents the range of the largest
          * contiguous block sequence within buffer.
-         *
-         * NOTE: it's a somewhat expensive operation.
          */
         interval largest_contiguous_range() const noexcept;
 
@@ -331,8 +326,10 @@ private:
         // is used to keep torrent_entry alive until the last async operation.
         std::atomic<int> num_pending_ops{0};
 
-        torrent_entry(std::shared_ptr<torrent_info> info,
+        torrent_entry(const torrent_info& info,
             string_view piece_hashes, path resume_data_path);
+
+        bool is_block_valid(const block_info& block);
     };
 
     // All torrents in engine have a corresponding torrent_entry. Entries are sorted
@@ -345,6 +342,7 @@ private:
 
     // When we encounter a fatal disk error, we keep retrying. This timer is used to
     // schedule retries.
+    // TODO it's not implemented
     deadline_timer m_retry_timer;
 
     // This is used to calculate how much time to wait between retries. We wait at most
@@ -356,7 +354,12 @@ public:
     disk_io(asio::io_service& network_ios, const disk_io_settings& settings);
     ~disk_io();
 
-    void change_cache_size(const int64_t n);
+    int num_buffered_pieces();
+    int num_buffered_blocks();
+    int num_buffered_blocks(const torrent_id_t id);
+
+    void set_cache_size(const int n);
+    void set_concurrency(const int n);
 
     void read_metainfo(const path& path,
         std::function<void(const std::error_code&, metainfo)> handler);
@@ -371,7 +374,7 @@ public:
      * If the operation results in an error, error is set and an invalid
      * torrent_storage_handle is returned.
      */
-    torrent_storage_handle allocate_torrent(std::shared_ptr<torrent_info> info,
+    torrent_storage_handle allocate_torrent(const torrent_info& info,
         std::string piece_hashes, std::error_code& error);
     void move_torrent(const torrent_id_t id, std::string new_path,
         std::function<void(const std::error_code&)> handler);
@@ -444,6 +447,11 @@ public:
      * this hash is compared to the expected hash, and the result is passed onto the
      * piece_completion_handler. A true value means the piece passed, while a false
      * value indicates a corrupt piece.
+     * Then, if the piece passed the hash test, the remaining buffered blocks in this
+     * piece are written to disk. If it didn't, then the save handler is invoked right
+     * after the completion_handler, with disk_io_errc::drop_corrupt_piece_data. This
+     * is not a disk error, just a way to wrap up the save operation so that any logic
+     * tied to the invocation of the save handlers may be concluded.
      *
      * save_handler is always invoked after the save operation has finished.
      *
@@ -474,21 +482,8 @@ private:
     /**
      * Depending on the state of the piece, invokes handle_complete_piece or
      * flush_buffer, and takes care of setting up those operations.
-     TODO better name
      */
     void dispatch_write(torrent_entry& torrent, partial_piece& piece);
-
-    /**
-     * This is callend when we have write_cache_line_size number of contiguous blocks
-     * in piece, but they are not hashable (don't follow the last hashed block), so as
-     * an optimization we try to wait for the blocks that fill the gap between the last
-     * hashed block and the beginning of the contiguous sequence, which would help us to
-     * avoid reading them back later.
-     * This is calculated by checking if the number of blocks needed to fill the gap
-     * and the current number of blocks in buffer is within write buffer capacity.
-     */
-    bool should_wait_for_hashing(const partial_piece& piece,
-        const interval& contiguous_range) const noexcept;
 
     /**
      * This is called when piece has been completed by the most recent block that was
@@ -597,6 +592,7 @@ private:
 
     enum class log_event
     {
+        info,
         cache,
         metainfo,
         torrent,

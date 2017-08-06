@@ -43,6 +43,12 @@ struct engine_settings
     // failure or no port is specified, it falls back to the OS provided random port.
     uint16_t listener_port;
 
+    // Since UDP is an unreliable protocol, we have to guard against lost or corrupt
+    // packets. Thus a number of retries is allowed for each announce and scrape request.
+    // If a response is not received after 15 * 2 ^ n seconds, we retransmit the request,
+    // where n starts at 0 and is increased up to this value, after every retransmission. 
+    int max_udp_tracker_timeout_retries = 4;
+
     // These are the values (in bytes/s) that are used to determine slow torrents if the
     // count_slow_torrents setting is turned off.
     int slow_torrent_download_rate_threshold;
@@ -69,8 +75,9 @@ struct engine_settings
     int seed_time_ratio_limit;
     seconds seed_time_limit;
 
-    // The number of seconds following the tracker announce after which the tracker is
-    // considered to have timed out and the connection is dropped.
+    // The number of seconds following the second attempt (the first attempt is always
+    // given 15 seconds to complete) of a tracker announce or scrape after which the
+    // tracker is considered to have timed out and the connection is dropped.
     seconds tracker_timeout{60};
 
     // This is the granularity at which statistics of a torrent are sent to the user.
@@ -87,7 +94,7 @@ struct engine_settings
     // Should be between 100 and 1000.
     milliseconds bandwidth_distribution_interval{150};
 
-    enum class choking_algorithm_t
+    enum class choking_algorithm
     {
         // In leech mode, it chooses the peers that had the best upload rate in the
         // past 20 seconds (or according to some weighed running average), while in
@@ -96,7 +103,7 @@ struct engine_settings
         rate_based
     };
 
-    choking_algorithm_t choking_algorithm;
+    choking_algorithm choking_algorithm;
 };
 
 struct disk_io_settings
@@ -104,6 +111,16 @@ struct disk_io_settings
     // The number of hardware threads to use for disk io related operations. The default
     // is the number of cores or some number derived from it.
     int max_disk_io_threads;
+
+    // This is the upper bound on the number of blocks that disk_io will keep in memory
+    // until it can be saved. This is for the contingency in which blocks cannot be
+    // saved to disk due to some error, in which case they'll remain in memory. But to
+    // not let this spiral out of control, this upper bound is enforced, after which
+    // blocks are dropped (necessitating a re-download). The default is 156MiB.
+    // If the value is 0 or below, the upper bound is not enforced.
+    // TODO maybe combine this and read cache capacity as a single upper bound on the
+    // total blocks in memory
+    int max_buffered_blocks = 10'000;
 
     // The upper bound of the piece cache in number of 16KiB blocks. The write buffer
     // (which is basically a write cache, deferring writes as much as possible) is
@@ -181,7 +198,7 @@ struct peer_session_settings
     peer_id_t client_id;
 
     // The extensions this client wishes to support.
-    extensions::flags extensions;// = {extensions::fast, extensions::dht};
+    extensions::flags extensions = {extensions::fast};
 
     // The number of seconds we should wait for a peer (regardless of the last sent
     // message type) before concluding it to have timed out and closing the connection.
@@ -198,10 +215,11 @@ struct peer_session_settings
     int max_incoming_request_queue_size;
 
     // This is the number of outstanding block requests to peer we are allowed to have.
-    int max_outgoing_request_queue_size;
+    int max_outgoing_request_queue_size = 50;
+    int min_outgoing_request_queue_size = 4;
 
     // The number of attempts we are allowed to make when connecting to a peer.
-    int max_connection_attempts;
+    int max_connection_attempts = 5;
 
     // Upper bounds for the send and receive buffers. It should be set large if memory
     // can be spared for better performance (at least 3 blocks (16KiB)), though note
@@ -213,11 +231,17 @@ struct peer_session_settings
     int max_receive_buffer_size = -1;
     int max_send_buffer_size = -1;
 
+    // If the Fast extension is enabled, a peer may receive a set of pieces, called
+    // allowed fast set, that it may download even when it is choked. This is used to
+    // boost peers in the incipient phase of their download where they don't have
+    // any pieces.
+    int allowed_fast_set_size = 10;
+
     // Normally the TCP/IP overhead is not included when limiting torrent bandwidth.
     // With this set, an esimate of the overhead is added to the traffic.
     bool include_ip_overhead = false;
 
-    enum encryption_policy_t
+    enum encryption_policy
     {
         // Only encrypted connections are made, incoming non-encrypted connections are
         // dropped.
@@ -231,7 +255,7 @@ struct peer_session_settings
         no_encryption
     };
 
-    encryption_policy_t encryption_policy = no_encryption;
+    encryption_policy encryption_policy = no_encryption;
 };
 
 /**

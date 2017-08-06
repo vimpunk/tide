@@ -46,6 +46,7 @@ public:
 
     /** Returns the total number of pieces in this torrent (my_bitfield().size()). */
     int num_pieces() const noexcept;
+    int num_have_pieces() const noexcept;
     int num_pieces_left() const noexcept;
     const bitfield& my_bitfield() const noexcept;
 
@@ -169,6 +170,11 @@ inline int piece_picker::num_pieces() const noexcept
     return m_downloaded_pieces.size();
 }
 
+inline int piece_picker::num_have_pieces() const noexcept
+{
+    return num_pieces() - num_pieces_left();
+}
+
 inline int piece_picker::num_pieces_left() const noexcept
 {
     return m_num_pieces_left;
@@ -199,12 +205,12 @@ inline const bitfield& piece_picker::my_bitfield() const noexcept
 
 inline bool piece_picker::has_no_pieces() const noexcept
 {
-    m_num_pieces_left == num_pieces();
+    return num_pieces_left() == num_pieces();
 }
 
 inline bool piece_picker::has_all_pieces() const noexcept
 {
-    return m_num_pieces_left == 0;
+    return num_pieces_left() == 0;
 }
 
 inline void piece_picker::set_wanted_pieces(bitfield wanted_pieces)

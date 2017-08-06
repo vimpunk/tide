@@ -50,12 +50,12 @@ class torrent_storage
 
         // The offset of this file in the torrent, i.e. the offset in all files 
         // conceptually concatenated in one contiguous byte array.
-        int64_t torrent_offset;
+        int64_t torrent_offset; // const
 
         // The range of pieces [first, last] that are covered by this file, even if
         // only partially.
-        piece_index_t first_piece;
-        piece_index_t last_piece;
+        piece_index_t first_piece; // const
+        piece_index_t last_piece; // const
 
         // Despite lazy allocation preventing creating files that are never accessed, a 
         // downloaded piece may still overlap into an unwanted file. In that case we
@@ -67,7 +67,7 @@ class torrent_storage
 
     // All files listed in the metainfo are stored here, but files are lazily/ allocated
     // on disk, i.e. when they are first accessed. The vector itself is never changed
-    // (resize/reallocation), therefor the memory addresses remain intact, which can be 
+    // (resize/reallocation), therefore the buffer's memory remains intact, which can be 
     // relied upon when ensuring thread-safety.
     std::vector<file_entry> m_files;
 
@@ -88,16 +88,16 @@ class torrent_storage
     // The name of the root directory if this is a multi-file torrent.
     std::string m_name;
 
-    int m_piece_length;
+    int m_piece_length; // const
 
     // This is the total number of pieces in torrent, but may not be the same as the
     // number of pieces we actually want to download.
-    int m_num_pieces;
+    int m_num_pieces; // const
 
     // This is the number of bytes we download, which may not be the same as the sum of
     // each file's length, as we may not download all files.
     int64_t m_size_to_download = 0;
-    int64_t m_size = 0;
+    int64_t m_size = 0; // const
 
 public:
 
@@ -105,7 +105,7 @@ public:
      * Initializes internal file entries, and if torrent is multi-file, establishes
      * the final directory structure (but does not allocate any files).
      */
-    torrent_storage(std::shared_ptr<torrent_info> info,
+    torrent_storage(const torrent_info& info,
         string_view piece_hashes, path resume_data_path);
     torrent_storage(const torrent_storage&) = delete;
     torrent_storage& operator=(const torrent_storage&) = delete;
@@ -206,7 +206,7 @@ public:
      * In the case of read-write mode, files are opened and allocated if they haven't
      * already been.
      */
-    std::vector<mmap_source> create_mmap_source(
+    std::vector<mmap_source> create_mmap_sources(
         const block_info& info, std::error_code& error);
     //std::vector<mmap_sink> create_mmap_sink( // TODO
         //const block_info& info, std::error_code& error);

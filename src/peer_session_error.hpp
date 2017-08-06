@@ -85,6 +85,10 @@ enum class peer_session_errc
     // message after the handshake.
     no_piece_availability_message,
 
+    // As described above, piece availability/bitfield messagse may only be sent after
+    // the handshake, so when a peer sends one at any other time, it is disconnected.
+    bitfield_not_after_handshake,
+
     // The peer sent more requests while being choked than allowed.
     sent_requests_when_choked,
 

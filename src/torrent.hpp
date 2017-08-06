@@ -5,6 +5,7 @@
 #include "torrent_handle.hpp"
 #include "torrent_info.hpp"
 #include "peer_session.hpp"
+#include "piece_picker.hpp"
 #include "torrent_args.hpp"
 #include "string_view.hpp"
 #include "interval.hpp"
@@ -22,12 +23,10 @@
 
 namespace tide {
 
-class torrent_disk_io_frontend;
 class bandwidth_controller;
 class torrent_settings;
 class endpoint_filter;
 class piece_download;
-class piece_picker;
 class event_queue;
 class disk_io;
 struct settings;
@@ -49,7 +48,7 @@ struct settings;
  */
 class torrent : public std::enable_shared_from_this<torrent>
 {
-    friend class torrent_disk_io_frontend;
+    friend class torrent_frontend;
 
     // This is main network io_service that runs everything network related. It's used
     // to instantiate peer_sessions.
@@ -111,21 +110,19 @@ class torrent : public std::enable_shared_from_this<torrent>
     // peer_session, each of which updates the network and disk related fields, so
     // torrent doesn't have to periodically loop over each peer_session to collect
     // stats. This way stats collection is relatively inexpensive.
-    std::shared_ptr<torrent_info> m_info;
+    torrent_info m_info;
 
     // Passed to every peer_session, tracks the availability of every piece in the swarm
     // and decides, using this knowledge, which piece to pick next (which by default is
     // the rarest piece in the swarm, unless sequential download is set).
-    std::shared_ptr<piece_picker> m_piece_picker;
+    piece_picker m_piece_picker;
 
     // This is where all current active piece downloads (from any peer in torrent)
     // can be accessed, thus this is passed to every peer_session so that thay may help
     // others to complete their piece download and add their own. When this torrent
     // becomes a seeder, the memory for this is released for optimization as at that
     // point it's no longer needed.
-    // TODO since we're searching, adding and removing here all the time, perhaps
-    // this should be a std::set despite the bad effect on cache?
-    std::shared_ptr<std::vector<std::shared_ptr<piece_download>>> m_downloads;
+    std::vector<std::shared_ptr<piece_download>> m_downloads;
 
     // Since torrent is exposed to user through torrent_handle and since torrent runs on
     // a different thread than where these query functions are likely to be called, it's 
@@ -178,11 +175,11 @@ class torrent : public std::enable_shared_from_this<torrent>
     // *
     bool m_is_state_changed = false;
 
+    // TODO don't store this here
     std::string m_piece_hashes;
 
 public:
 
-    // TODO add alert/event channel as param
     /**
      * This is called for new torrents. It issues an asynchronous tracker announce to
      * get peers to which we can connect, then issues an async (TODO or sync) disk_io
@@ -337,6 +334,7 @@ private:
 
     /** Initializes fields common to both constructors. */
     torrent(torrent_id_t id,
+        const int num_pieces,
         asio::io_service& ios,
         disk_io& disk_io,
         bandwidth_controller& bandwidth_controller,
@@ -412,17 +410,15 @@ private:
      * otherwise (event is `completed` or `stopped`) we announce to all trackers to
      * which torrent we've announced in the past.
      */
-    void announce(tracker_request::event_t event = tracker_request::event_t::none,
-        const bool force = false);
+    void announce(const int event = tracker_request::none, const bool force = false);
 
-    tracker_request create_tracker_request(
-        tracker_request::event_t event) const noexcept;
+    tracker_request create_tracker_request(const int event) const noexcept;
     int calculate_num_want() const noexcept;
 
     void on_announce_response(tracker_entry& tracker, const std::error_code& error,
-        tracker_response response, const tracker_request::event_t event);
-    void on_announce_error(tracker_entry& tracker, const std::error_code& error,
-        const tracker_request::event_t event);
+        tracker_response response, const int event);
+    void on_announce_error(tracker_entry& tracker,
+        const std::error_code& error, const int event);
 
     /**
      * Adds a peer returned in an announce response if we're not already connected to
@@ -443,9 +439,11 @@ private:
      * until it times out or results in an error, then we moved onto the next tracker
      * and so on. If no error occured with any of the trackers so far, this will
      * always return *m_trackers[0].
+     * TODO return an iterator
      */
     tracker_entry* pick_tracker(const bool force);
     bool can_announce_to(const tracker_entry& t) const noexcept;
+    bool can_force_announce_to(const tracker_entry& t) const noexcept;
 
     // -------------
     // -- storage --
@@ -534,15 +532,15 @@ inline bool torrent::is_stopped() const noexcept { return !is_running(); }
 
 inline bool torrent::is_running() const noexcept
 {
-    return m_info->state[torrent_info::active];
+    return m_info.state[torrent_info::active];
 }
 
 inline void piece_availability(std::vector<int>& piece_map);
 
-inline const torrent_info& torrent::info() const { return *m_info; }
+inline const torrent_info& torrent::info() const { return m_info; }
 
-inline torrent_id_t torrent::id() const noexcept { return m_info->id; }
-inline const sha1_hash& torrent::info_hash() const noexcept { return m_info->info_hash; }
+inline torrent_id_t torrent::id() const noexcept { return m_info.id; }
+inline const sha1_hash& torrent::info_hash() const noexcept { return m_info.info_hash; }
 
 //inline seconds torrent::total_seed_time() const noexcept;
 //inline seconds torrent::total_leech_time() const noexcept;
@@ -550,7 +548,7 @@ inline const sha1_hash& torrent::info_hash() const noexcept { return m_info->inf
 
 inline time_point torrent::download_started_time() const noexcept
 {
-    return m_info->download_started_time;
+    return m_info.download_started_time;
 }
 
 inline time_point torrent::download_finished_time() const noexcept
@@ -558,7 +556,7 @@ inline time_point torrent::download_finished_time() const noexcept
     if(is_leech())
         return {};
     else
-        return m_info->download_finished_time;
+        return m_info.download_finished_time;
 }
 
 inline int torrent::total_peers() const noexcept
@@ -574,14 +572,14 @@ inline int torrent::num_connected_peers() const noexcept
     return num_seeders() + num_leechers();
 }
 
-inline int torrent::num_seeders() const noexcept { return m_info->num_seeders; }
-inline int torrent::num_leechers() const noexcept { return m_info->num_leechers; }
+inline int torrent::num_seeders() const noexcept { return m_info.num_seeders; }
+inline int torrent::num_leechers() const noexcept { return m_info.num_leechers; }
 
 inline bool torrent::is_leech() const noexcept { return !is_seed(); }
 
 inline bool torrent::is_seed() const noexcept
 {
-    return m_info->state[torrent_info::state_t::seeding];
+    return m_info.state[torrent_info::state::seeding];
 }
 
 inline torrent_handle torrent::get_handle() noexcept { return torrent_handle(*this); }

@@ -9,15 +9,12 @@ namespace tide {
 enum class disk_io_errc
 {
     unknown = 1,
-    // We tried to read/block from a file that we marked as not downloaded (i.e.
-    // we don't have its data written to disk).
-    tried_unwanted_file_read,
-    tried_unwanted_file_write,
-    tried_unallocated_file_read,
-    tried_unallocated_file_write,
-    tried_read_only_file_write,
-    invalid_file_offset,
-    null_transfer,
+    // The maximum number of blocks that may be buffered after an unsuccessful attempt
+    // at saving them to disk has been reached, so any further blocks are dropped.
+    block_dropped,
+    // Block's piece index and/or offset and/or length are invalid.
+    invalid_block,
+    drop_corrupt_piece_data,
     // Used when we abort a block read.
     operation_aborted
 };
