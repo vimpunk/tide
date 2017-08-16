@@ -35,6 +35,18 @@ class piece_download;
 class torrent_info;
 class piece_picker;
 
+/** Used to represent requests we had sent out. */
+struct pending_block : public block_info
+{
+    time_point request_time;
+    bool has_timed_out;
+
+    pending_block(block_info b) : block_info(std::move(b)) {}
+    pending_block(piece_index_t index, int offset, int length)
+        : block_info(index, offset, length)
+    {}
+};
+
 /**
  * NOTE: even though peer_session is only handled by its corresponding torrent (i.e.
  * unique_ptr semantics), it must be stored in a shared_ptr as it uses shared_from_this
@@ -113,8 +125,9 @@ private:
     const peer_session_settings& m_settings;
 
     // This is a mediator between this peer_session and its associated torrent. Vital
-    // elements such as the piece_picker, torrent_info, disk_io, and shared piece 
-    // downloads may be accessed via this object. It holds a shared_ptr to torrent.
+    // elements such as the piece_picker, torrent_info, disk_io, and piece downloads
+    // shared across all peers in torrent may be accessed via this object.
+    // It holds a shared_ptr to torrent.
     //
     // NOTE: if this starts as an incoming connection, we won't have this field until we
     // finished the handshake and attached ourselves to a torrent.
@@ -124,15 +137,18 @@ private:
     // These are the active piece downloads in which this peer_session is participating.
     std::vector<std::shared_ptr<piece_download>> m_downloads;
 
-    // Our pending requests that we sent to peer. This is emptied if we are choked, as
-    // in that case we don't expect outstanding requests to be served. If we receive a
-    // block that is not in this list, we dump it as unexpected. If we receive a block
-    // that is in here, it is removed.
+    // Our pending requests that we sent to peer. It represents the blocks that we are
+    // expecting. Thus, if we receive a block that is not in this list, it is dropped.
+    // If we receive a block whose request entry is in here, the request entry is
+    // removed.
+    // If the Fast extension is not enabled, this is emptied when we're choked, as in
+    // that case we don't expect outstanding requests to be served.
     std::vector<pending_block> m_outgoing_requests;
 
     // The requests we got from peer which are are stored here as long as we can cancel
     // them, that is, until they are not sent (queued up in disk_io or elsewhere). If
     // the block is transmitted, it is removed from this list.
+    // TODO maybe instead remove blocks once the disk_io fetch has been issued?
     std::vector<block_info> m_incoming_requests;
 
     // If both sides of the connection use the Fast extension, peer may send us requests
@@ -254,6 +270,10 @@ private:
         // 50 (any further requests have been observed to be dropped by BC).
         int max_outgoing_request_queue_size;
 
+        // If peer times out too frequently (without ever sending a block), it is
+        // disconnected.
+        int num_consecutive_timeouts = 0;
+
         enum state state = state::disconnected;
 
         // The block currently being received is put here. This is used to determine
@@ -284,6 +304,7 @@ private:
     // request and receiving a block (note that it doesn't have to be the same block
     // since peers are not required to serve our requests in order, so this is more of
     // a general approximation).
+    // Measured in milliseconds.
     sliding_average<20> m_avg_request_rtt;
 
     // We measure the average time it takes (in milliseconds) to do disk jobs as this
@@ -291,6 +312,7 @@ private:
     // disk latency is part of a requests's full round trip time, though it has a lower
     // weight as disk_io may buffer block before writing it to disk, meaning the
     // callbacks will be invoked with practically zero latency).
+    // Measured in milliseconds.
     sliding_average<20> m_avg_disk_write_time;
 
     // This is only used when connecting to the peer. If we couldn't connect by the time
@@ -306,6 +328,13 @@ private:
     // the requests is served. If none is served before the timer expires, peer has
     // timed out and on_request_timeout is called. If all our requests have been
     // served in a timely manner, the timeout is not restarted after stopping it.
+    //
+    // Start sites:
+    // handle_block, send_request, make_requests, on_request_timeout
+    //
+    // Cancel sites:
+    // disconnect, handle_block, handle_rejected_request, abort_outgoing_requests,
+    // on_request_timeout
     deadline_timer m_request_timeout_timer;
 
     // If neither endpoint has become interested in the other in 10 minutes, the peer
@@ -486,7 +515,7 @@ public:
     time_point connection_established_time() const noexcept;
     seconds connection_duration() const noexcept;
 
-    peer_id_t peer_id() const noexcept;
+    const peer_id_t& peer_id() const noexcept;
 
     const tcp::endpoint& local_endpoint() const noexcept;
     const tcp::endpoint& remote_endpoint() const noexcept;
@@ -545,11 +574,6 @@ private:
      * Just a convenience function that returns true if we are disconnecting or have
      * disconnected or if error is operation_aborted. This is used by handlers passed
      * to async operations to check if the connection has been or is being torn down. 
-     * is_disconnected() alone is not sufficient here as peer_session may be gracefully 
-     * disconnected, which means the connection won't be closed until all pending 
-     * operations on it are run. This is ensured by giving each handler a shared_ptr to 
-     * this, meaning the last handler to destruct will invoke peer_session's destructor 
-     * where disconnect() is finally called.
      */
     bool should_abort(const std::error_code& error = std::error_code()) const noexcept;
 
@@ -647,11 +671,11 @@ private:
 
     /**
      * BitComet rejects messages by way of sending an empty block message, so the logic
-     * in handle_reject_request is extracted so the logic can be called from handle_block
+     * in handle_reject_request is extracted so that it may be called from handle_block
      * as well.
-     * TODO choose a different name that more disparate
+     * request is an iterator pointing into or past the end of m_outgoing_requests.
      */
-    void handle_rejected_request(const block_info& block);
+    void handle_rejected_request(std::vector<pending_block>::iterator request);
 
     /**
      * Depending on the request round trip time, marks peer as having timed out and
@@ -668,7 +692,7 @@ private:
 
     /**
      * Updates piece transfer rates and related statistics which in the case of
-     * downlaod rate affect how many requests we'll issue in the future.
+     * download rate affects how many requests we'll issue in the future.
      */
     void update_download_stats(const int num_bytes);
     void update_upload_stats(const int num_bytes);
@@ -720,7 +744,8 @@ private:
      * hashed by disk_io. This is where hash fails and parole mode is handled as well as
      * the piece_download corresponding to piece is removed from m_downloads.
      */
-    void on_piece_hashed(const piece_download& download, const bool is_piece_good);
+    void on_piece_hashed(const piece_download& download,
+        const bool is_piece_good, const int num_bytes_downloaded);
 
     /**
      * Once a piece has been downloaded and hashed, torrent processes it and calls the
@@ -733,13 +758,6 @@ private:
     // ---------------------
     // -- message sending --
     // ---------------------
-
-    /**
-     * This is used by public sender methods (choke_peer, announce_new_piece etc) to
-     * see if we are in a state where we can send messages other than a handshake (not 
-     * connecting, handshaking, disconnecting or disconnected).
-     */
-    bool is_read_for_message_exchange() const noexcept;
 
     /**
      * Each of the below methods appends its message to m_send_buffer and calls send
@@ -787,17 +805,22 @@ private:
     void make_requests();
 
     /**
-     * Either one of these is called by make_requests. Both merely add the request
-     * message to the m_outgoing_requests but don't send off the message. This is done
-     * by make_requests, if any requests have been made in either of these functions.
-     * A view into m_outgoing_requests of the new requests placed there is returned.
+     * Chooses one of the below modes in which to make requests depending on the
+     * torrent's and this session's state.
+     * All make_requests* functions merely append the new requests to m_outgoing_requests,
+     * but don't actually send any requests. A view of into m_outgoing_requests of the
+     * new requests is placed there is returned.
      */
-    const_view<pending_block> make_requests_in_parole_mode();
-    const_view<pending_block> make_requests_in_normal_mode();
-    const_view<pending_block> view_of_new_requests(const int n);
-    
+    view<pending_block> distpach_make_requests();
+    view<pending_block> make_requests_in_parole_mode();
+    view<pending_block> make_requests_in_normal_mode();
+    view<pending_block> make_requests_in_endgame_mode();
+    view<pending_block> view_of_new_requests(const int n);
+
     /**
-     * Tries to pick blocks from downloads in which this peer participates.
+     * Tries to pick blocks from downloads in which this peer participates. We always
+     * strive to download as few simultaneous blocks at a time from a peer as possible,
+     * so we always try to continue our own downloads first.
      * New requests are placed in m_outgoing_requests.
      * The number of blocks that have been placed in the request queue are returned.
      */
@@ -833,12 +856,6 @@ private:
     // -------------------
 
     /**
-     * The number of seconds after which we consider the request to have timed out.
-     * This is always a number derived from the latest download metrics.
-     */
-    seconds calculate_request_timeout() const;
-
-    /**
      * Finds the most suitable block to time out. This is usually the last block we
      * sent, since timing out the last block gives us the possibility of downloading it
      * from another peer and receiving it in time to cancel it with this peer, and by
@@ -850,6 +867,14 @@ private:
     void on_connect_timeout(const std::error_code& error);
     void on_inactivity_timeout(const std::error_code& error);
     void on_keep_alive_timeout(const std::error_code& error);
+
+    std::vector<pending_block>::iterator find_request_to_time_out() noexcept;
+
+    /**
+     * The number of seconds after which we consider the request to have timed out.
+     * This is always a number derived from the latest download metrics.
+     */
+    seconds calculate_request_timeout() const;
 
     // -----------
     // -- utils --
@@ -992,7 +1017,7 @@ inline seconds peer_session::connection_duration() const noexcept
     return duration_cast<seconds>(cached_clock::now() - connection_established_time());
 }
 
-inline peer_id_t peer_session::peer_id() const noexcept
+inline const peer_id_t& peer_session::peer_id() const noexcept
 {
     return m_info.peer_id;
 }
@@ -1031,6 +1056,56 @@ inline int peer_session::upload_rate() const noexcept
     return m_info.upload_rate.rate();
 }
 
+// -- pending block --
+
+inline bool operator==(const pending_block& a, const pending_block& b) noexcept
+{
+    return static_cast<const block_info&>(a) == static_cast<const block_info&>(b)
+        && a.request_time == b.request_time
+        && a.has_timed_out == b.has_timed_out;
+}
+
+inline bool operator==(const pending_block& a, const block_info& b) noexcept
+{
+    return static_cast<const block_info&>(a) == b;
+}
+
+inline bool operator==(const block_info& b, const pending_block& a) noexcept
+{
+    return a == b;
+}
+
+inline bool operator!=(const pending_block& a, const pending_block& b) noexcept
+{
+    return !(a == b);
+}
+
+inline bool operator!=(const pending_block& a, const block_info& b) noexcept
+{
+    return !(a == b);
+}
+
+inline bool operator!=(const block_info& b, const pending_block& a) noexcept
+{
+    return !(a == b);
+}
+
 } // namespace tide
+
+namespace std {
+
+template<> struct hash<tide::pending_block>
+{
+    size_t operator()(const tide::pending_block& b) const noexcept
+    {
+        return std::hash<tide::block_info>()(static_cast<const tide::block_info&>(b))
+             + std::hash<tide::time_point::rep>()(tide::to_int<tide::milliseconds>(
+                    b.request_time.time_since_epoch()))
+             + std::hash<bool>()(b.has_timed_out);
+    }
+};
+
+} // namespace std
+
 
 #endif // TIDE_PEER_SESSION_HEADER

@@ -30,6 +30,12 @@ void log_engine(const std::string& header, const std::string& log,
 void log_disk_io(const std::string& header, const std::string& log,
     const bool concurrent = false, const priority priority = priority::normal);
 
+/**
+ * Call this in a SIGABRT handler so that even when an assertion fires, everything
+ * buffered is written to disk.
+ */
+void flush();
+
 } // namespace log
 } // namespace tide
 

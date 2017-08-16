@@ -1,13 +1,51 @@
 #include "piece_download.hpp"
+#include "num_utils.hpp"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 
+#ifdef TIDE_ENABLE_DEBUGGING
+# include "string_utils.hpp"
+# include "log.hpp"
+# include <iostream>
+#endif // TIDE_ENABLE_DEBUGGING
+
 namespace tide {
 
+inline void piece_download::block::remove_peer(const peer_id_type& id)
+{
+    auto it = std::find(peers.begin(), peers.end(), id);
+    // FIXME it fired
+    assert(it != peers.end());
+    peers.erase(it);
+}
+
+piece_download::peer::peer(peer_id_type id_,
+    std::function<void(bool, int)> completion_handler_,
+    std::function<void(const block_info&)> cancel_handler_
+)
+    : id(std::move(id_))
+    , completion_handler(std::move(completion_handler_))
+    , cancel_handler(std::move(cancel_handler_))
+{}
+
+inline void piece_download::peer::remove_block(const block& block)
+{
+    auto it = std::find_if(blocks.begin(), blocks.end(),
+        [&block](const auto& b) { return &b.get() == &block; });
+    assert(it != blocks.end());
+    blocks.erase(it);
+}
+
+inline bool piece_download::peer::is_requesting_block(const block& block) const noexcept
+{
+    return std::find_if(blocks.begin(), blocks.end(),
+        [&block](const auto& b) { return &b.get() == &block; }) != blocks.end();
+}
+
 piece_download::piece_download(const piece_index_t index, const int piece_length)
-    : m_blocks(num_blocks(piece_length))
+    : m_blocks((piece_length + (0x4000 - 1)) / 0x4000)
     , m_index(index)
     , m_piece_length(piece_length)
     , m_num_blocks_left(m_blocks.size())
@@ -21,180 +59,257 @@ bool piece_download::has_block(const block_info& block) const noexcept
     return m_blocks[index].status == block::status::received;
 }
 
-void piece_download::got_block(const peer_id_t& peer, const block_info& block,
-    completion_handler completion_handler)
+void piece_download::register_peer(const peer_id_type& id,
+    std::function<void(bool, int)> completion_handler,
+    std::function<void(const block_info&)> cancel_handler)
 {
-    verify_block(block);
+#ifdef TIDE_ENABLE_EXPENSIVE_ASSERTS
+    // only register it if we haven't already
+    assert(std::find_if(m_peers.begin(), m_peers.end(),
+        [&id](const auto& p) { return p.id == id; }) == m_peers.end());
+#endif // TIDE_ENABLE_EXPENSIVE_ASSERTS
+    m_peers.emplace_back(id, std::move(completion_handler), std::move(cancel_handler));
+}
 
-    const int index = block_index(block);
-    if(m_blocks[index].status == block::status::received) { return; }
+void piece_download::got_block(const peer_id_type& id, const block_info& block_info)
+{
+    verify_block(block_info);
 
-    const milliseconds elapsed = duration_cast<milliseconds>(
-        cached_clock::now() - m_blocks[index].request_time);
+    block& block = m_blocks[block_index(block_info)];
+    if(block.status == block::status::received) { return; }
+
+    update_average_request_rtt(cached_clock::now() - block.request_time);
+
+    auto& peer = find_peer(id);
+    if(peer.num_bytes_downloaded == 0) { ++m_num_downloaders; }
+    peer.num_bytes_downloaded += block_info.length;
+
+    block.status = block::status::received;
+    --m_num_blocks_left;
+
+    //if(m_oldest_request && (&block == m_oldest_request)) { set_oldest_request(); }
+
+    // check whether other peers were also downloading this block, if so,
+    // invoke their cancel handlers
+    for(const auto& id2 : block.peers)
+    {
+        // don't invoke the cancel handler of this peer
+        if(id2 != id)
+        {
+            // TODO this is a bit slow, can we optimize?
+            auto& peer2 = find_peer(id2);
+            peer2.cancel_handler(block_info);
+            peer2.remove_block(block);
+        }
+    }
+    block.peers.clear();
+    peer.remove_block(block);
+}
+
+inline void piece_download::set_oldest_request()
+{
+    assert(m_oldest_request);
+    auto it = std::lower_bound(m_blocks.begin(), m_blocks.end(),
+        m_oldest_request->request_time, [](const auto& b, const auto& t)
+        { return (b.status == block::status::requested) && (b.request_time < t); });
+    /*
+    auto it = [this]
+    {
+        auto oldest = m_blocks.end();
+        for(auto it = m_blocks.begin(); it != m_blocks.end(); ++it)
+        {
+            if(it->status == block::status::requested
+               && &*it != m_oldest_request
+               && (oldest == m_blocks.end()
+                   || it->request_time < oldest->request_time))
+            {
+                oldest = it;
+            }
+            ++it;
+        }
+        return oldest;
+    }();
+    */
+    if(it != m_blocks.end())
+        m_oldest_request = &*it;
+    else
+        m_oldest_request = nullptr;
+}
+
+inline void piece_download::update_average_request_rtt(const duration& rtt)
+{
+    const milliseconds elapsed = duration_cast<milliseconds>(rtt);
     if(m_avg_request_rtt == milliseconds(0))
         m_avg_request_rtt = elapsed;
     else
         m_avg_request_rtt = (m_avg_request_rtt / 10) * 7 + (elapsed / 10) * 3;
-
-    m_blocks[index].status = block::status::received;
-    --m_num_blocks_left;
-
-    // register this peer as a participant if it's the first block from it
-    if(std::find_if(m_peers.begin(), m_peers.end(),
-        [&peer](const auto& p) { return p.id == peer; }) == m_peers.end())
-    {
-        m_peers.emplace_back(piece_download::peer{peer, std::move(completion_handler)});
-        ++m_all_time_num_participants;
-    }
-
-    auto it = m_timed_out_blocks.find(block);
-    if(it != m_timed_out_blocks.end())
-    {
-        // this block has been timed out before, check if the original timed out peer
-        // is the same as this one who dowloaded it; if not, notify it to cancel it
-        auto& cancel_candidate = it->second;
-        if(cancel_candidate.peer != peer) { cancel_candidate.handler(block); }
-        m_timed_out_blocks.erase(it);
-    }
 }
 
 void piece_download::post_hash_result(const bool is_piece_good)
 {
-    assert(num_blocks_left() == 0);
-    for(auto& p : m_peers) { p.handler(is_piece_good); }
-}
-
-void piece_download::time_out(const peer_id_t& peer,
-    const block_info& block, cancel_handler handler)
-{
-    verify_block(block);
-    // only time out block if we're close to completion; if we're not, let other peers 
-    // download other blocks in the hopes that this block will eventually arrive
-    // TODO more advanced heuristic
-    if(num_blocks_left() == 1)
+#ifdef TIDE_ENABLE_DEBUGGING
+    if(num_blocks_left() != 0)
     {
-        // we consider this block free so that other peers can request it
-        const int index = block_index(block);
-        m_blocks[index].status = block::status::free;
-        m_blocks[index].was_timed_out = true;
-        ++m_num_pickable_blocks;
+        std::cout << "piece(" << piece_index() << ") FATAL! num_blocks_left("
+            << num_blocks_left() << ") != 0!\n";
+        int i = 0;
+        for(const auto b : m_blocks)
+        {
+            std::cout << "b" << i << "(" << (b.status == block::status::free
+                ? "free" : b.status == block::status::requested
+                    ? "requested" : "received") << ") ";
+            ++i;
+        }
+        std::cout << '\n';
     }
-    // we still register the timeout handler as block may never arrive in which case
-    // we'll rerequest it
-    m_timed_out_blocks.emplace(block, cancel_candidate(peer, std::move(handler)));
+#endif // TIDE_ENABLE_DEBUGGING
+    assert(num_blocks_left() == 0);
+    for(auto& peer : m_peers)
+    {
+        peer.completion_handler(is_piece_good, peer.num_bytes_downloaded);
+    }
 }
 
-void piece_download::cancel_request(const block_info& block)
+bool piece_download::time_out_request(const block_info& block)
 {
     verify_block(block);
     const int index = block_index(block);
+    // only time out request if it is for the last block in piece, or if it lingered far
+    // too long, otherwise wait for it and let other peers request different blocks
+    // (for more info: http://blog.libtorrent.org/2011/11/block-request-time-outs/)
     if(m_blocks[index].status == block::status::requested)
     {
-        m_blocks[index].status = block::status::free;
+        if((num_blocks_left() == 1) || has_lingered_too_long(m_blocks[index], 4))
+        {
+            m_blocks[index].status = block::status::free;
+            ++m_num_pickable_blocks;
+            return true;
+        }
+    }
+    return false;
+}
+
+void piece_download::abort_request(const peer_id_type& id, const block_info& block_info)
+{
+    verify_block(block_info);
+    block& block = m_blocks[block_index(block_info)];
+    if(block.status == block::status::requested)
+    {
+        // remove peer from block's registry
+        block.remove_peer(id);
+        // remove block from peer's registry
+        find_peer(id).remove_block(block);
+        // TODO is this correct/needed?
+        block.request_time = time_point();
+        block.status = block::status::free;
         ++m_num_pickable_blocks;
-        m_timed_out_blocks.erase(block);
     }
 }
 
-void piece_download::remove_peer(const peer_id_t& peer)
+void piece_download::deregister_peer(const peer_id_type& id)
 {
-    auto pit = std::find_if(m_peers.begin(), m_peers.end(),
-        [&peer](const auto& p) { return p.id == peer; });
-    if(pit == m_peers.end()) { return; }
-    m_peers.erase(pit);
-    // remove any cancel handlers this peer might have registered
-    auto bit = m_timed_out_blocks.begin();
-    const auto bend = m_timed_out_blocks.end();
-    while(bit != bend)
-    {
-        auto tmp = bit++;
-        if(tmp->second.peer == peer) { m_timed_out_blocks.erase(tmp); }
-    }
+    auto peer = std::find_if(m_peers.begin(), m_peers.end(),
+        [&id](const auto& p) { return p.id == id; });
+    if(peer == m_peers.end()) { return; }
+    // dissasociate peer from the blocks it had requested
+    for(auto& block : peer->blocks) { block.get().remove_peer(id); }
+    m_peers.erase(peer);
 }
 
 bool piece_download::can_request() const noexcept
 {
     if(num_blocks_left() == 0) { return false; }
+    // if all blocks were requested but not all arrived, check if any timed out
     if((num_blocks_left() > 0) && (m_num_pickable_blocks == 0))
     {
-        // if we've requested all blocks but haven't received all of them, we might be
-        // able to time out some of them
-        for(const auto& block : m_blocks)
+        for(const auto& b : m_blocks)
         {
-            if((block.status == block::status::requested) && has_timed_out(block))
-            {
-                return true;
-            }
+            if(has_lingered_too_long(b)) { return true; }
         }
+        //assert(m_oldest_request);
+        //return has_lingered_too_long(*m_oldest_request);
     }
-    else
-    {
-        return m_num_pickable_blocks > 0;
-    }
+    return m_num_pickable_blocks > 0;
 }
 
-block_info piece_download::pick_block(int offset_hint)
+block_info piece_download::pick_block(const peer_id_type& id, int offset_hint)
 {
     assert(offset_hint % 0x4000 == 0);
     assert(offset_hint >= 0);
 
-    if(num_blocks_left() == 0) { return invalid_block; }
-
-    // see comment in can_request
-    if((num_blocks_left() == 1) && (m_num_pickable_blocks == 0))
+    if(num_blocks_left() > 0)
     {
-        auto it = std::find_if(m_blocks.begin(), m_blocks.end(),
-            [](const auto& b) { return b.status == block::status::requested; });
-        assert(it != m_blocks.end());
-        const int offset = (it - m_blocks.begin()) * 0x4000;
-        it->request_time = cached_clock::now();
-        return {piece_index(), offset, block_length(offset)};
-    }
-
-    if((offset_hint >= m_piece_length) || (offset_hint < 0))
-    {
-        offset_hint = 0;
-    }
-
-    for(auto i = offset_hint / 0x4000; i < m_blocks.size(); ++i)
-    {
-        block& block = m_blocks[i];
-        if(block.status == block::status::requested)
+        if((offset_hint >= m_piece_length) || (offset_hint < 0))
         {
-            if(has_timed_out(block))
-                block.status == block::status::free;
-            else
-                continue;
+            offset_hint = 0;
         }
-        else if(block.status == block::status::free)
+        return pick_block(find_peer(id), offset_hint);
+    }
+    return invalid_block;
+}
+
+std::vector<block_info> piece_download::pick_blocks(const peer_id_type& id, const int n)
+{
+    std::vector<block_info> request_queue;
+    pick_blocks(request_queue, id, n);
+    return request_queue;
+}
+
+block_info piece_download::pick_block(peer& peer, int offset_hint)
+{
+    for(auto offset = offset_hint; offset < piece_length(); offset += 0x4000)
+    {
+        const int index = block_index(offset);
+        block& block = m_blocks[index];
+        if(has_lingered_too_long(block))
         {
-            block.status = block::status::requested;
-            --m_num_pickable_blocks;
-            const int offset = i * 0x4000;
-            return {piece_index(), offset, block_length(offset)};
+            block.status = block::status::free;
+            ++m_num_pickable_blocks;
+        }
+        if(block.status == block::status::free)
+        {
+            if(!peer.is_requesting_block(block))
+            {
+                peer.blocks.emplace_back(std::ref(block));
+                block.peers.emplace_back(peer.id);
+                block.status = block::status::requested;
+                block.request_time = cached_clock::now();
+                /*
+                if(!m_oldest_request)
+                {
+                    m_oldest_request = &block;
+                }
+                */
+                --m_num_pickable_blocks;
+                return {piece_index(), offset, block_length(offset)};
+            }
         }
     }
     return invalid_block;
 }
 
-std::vector<block_info> piece_download::make_request_queue(const int n)
+inline
+bool piece_download::has_lingered_too_long(const block& block, const int m) const noexcept
 {
-    std::vector<block_info> request_queue;
-    for(auto i = 0, hint = 0;
-        (i  < m_blocks.size()) && (int(request_queue.size()) < n);
-        ++i)
-    {
-        auto block = pick_block(hint);
-        if(block == invalid_block) { break; }
-        request_queue.emplace_back(block);
-        hint = block.offset + 0x4000;
-    }
-    return request_queue;
+    // you can't linger if you're not requested c: <insert meme>
+    if(block.status != block::status::requested) { return false; }
+    // if not a single block was received in this piece then we don't have a sample on
+    // which to base our timeout cap value, so use the multiplier as the default value
+    // if only a single block is missing, we want to finish the piece asap
+    const seconds min(num_blocks_left() == 1 ? 2 : 4);
+    const milliseconds t = util::clamp(m_avg_request_rtt * m,
+        milliseconds(min), milliseconds(seconds(20))); 
+    return block.request_time != time_point()
+        && cached_clock::now() - block.request_time >= t;
 }
 
-inline bool piece_download::has_timed_out(const block& block) const noexcept
+inline piece_download::peer& piece_download::find_peer(const peer_id_type& id) noexcept
 {
-    return cached_clock::now() - block.request_time >= 2 * m_avg_request_rtt;
+    auto it = std::find_if(m_peers.begin(), m_peers.end(),
+        [&id](const auto& p) { return p.id == id; });
+    // peer must be registered when joining this download, so this must not fire
+    assert(it != m_peers.end());
+    return *it;
 }
 
 inline void piece_download::verify_block(const block_info& block) const
@@ -208,12 +323,12 @@ inline void piece_download::verify_block(const block_info& block) const
 
 inline int piece_download::block_index(const block_info& block) const noexcept
 {
-    return block.offset / 0x4000;
+    return block_index(block.offset);
 }
 
-inline int piece_download::num_blocks(const int piece_length) const noexcept
+inline int piece_download::block_index(const int offset) const noexcept
 {
-    return (piece_length + (0x4000 - 1)) / 0x4000;
+    return offset / 0x4000;
 }
 
 inline int piece_download::block_length(const int offset) const noexcept

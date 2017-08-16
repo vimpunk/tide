@@ -313,15 +313,10 @@ private:
 
 inline int torrent_storage::piece_length(const piece_index_t index) const noexcept
 {
-    // if it's the last piece
     if(index == num_pieces() - 1)
-    {
         return size() - index * m_piece_length;
-    }
     else
-    {
         return m_piece_length;
-    }
 }
 
 } // namespace tide

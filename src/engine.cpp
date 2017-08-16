@@ -12,52 +12,30 @@ engine::engine()
     , m_work(m_network_ios)
     , m_cached_clock_updater(m_network_ios)
 {
-
+    update_cached_clock();
 }
 
-// TODO FIXME race condition here
-/*
-std::vector<torrent_handle> engine::torrents()
+void engine::update_cached_clock()
 {
-    std::vector<torrent_handle> torrents;
-    torrents.reserve(m_torrents.size());
-    for(auto t : m_torrents) { torrents.emplace_back(t.second.get_handle()); }
-    return torrents;
+    cached_clock::update();
+    start_timer(m_cached_clock_updater, milliseconds(100),
+        [this](const auto& /*error*/) { update_cached_clock(); });
 }
 
-std::vector<torrent_handle> engine::downloading_torrents()
+void engine::pause()
 {
-    std::vector<torrent_handle> torrents;
-    for(auto e : m_torrents)
-    {
-        torrent& t = e.second;
-        if(t.is_downloading()) { torrents.emplace_back(t.get_handle()); }
-    }
-    return torrents;
+
 }
 
-std::vector<torrent_handle> engine::uploading_torrents()
+void engine::resume()
 {
-    std::vector<torrent_handle> torrents;
-    for(auto e : m_torrents)
-    {
-        torrent& t = e.second;
-        if(t.is_uploading()) { torrents.emplace_back(t.get_handle()); }
-    }
-    return torrents;
+
 }
 
-std::vector<torrent_handle> engine::paused_torrents()
+std::queue<std::unique_ptr<event>> engine::events()
 {
-    std::vector<torrent_handle> torrents;
-    for(auto e : m_torrents)
-    {
-        torrent& t = e.second;
-        if(t.is_paused()) { torrents.emplace_back(t.get_handle()); }
-    }
-    return torrents;
+    return m_event_queue.extract_events();
 }
-*/
 
 void engine::parse_metainfo(const path& path)
 {
@@ -82,11 +60,10 @@ void engine::add_torrent(torrent_args args)
     {
         // torrent calls disk_io::allocate_torrent() so we don't have to here
         const torrent_id_t torrent_id = get_torrent_id();
-        auto it = m_torrents.emplace(torrent_id, std::make_shared<torrent>(
-            torrent_id, m_network_ios, m_disk_io, m_bandwidth_controller, m_settings,
-            get_trackers(args.metainfo), m_endpoint_filter, m_event_queue,
-            std::move(args))).first;
-        m_event_queue.emplace<add_torrent_completion>(it->second->get_handle());
+        m_torrents.emplace_back(std::make_shared<torrent>(torrent_id, m_network_ios,
+            m_disk_io, m_bandwidth_controller, m_settings, get_trackers(args.metainfo),
+            m_endpoint_filter, m_event_queue, std::move(args)));
+        m_event_queue.emplace<add_torrent_completion>(m_torrents.back()->get_handle());
     });
 }
 
@@ -172,6 +149,7 @@ std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
                     //tracker.url, m_network_ios, m_settings);
                 //trackers.emplace_back(std::move(entry));
             }
+            // add new tracker to the engine's tracker collection as well
             m_trackers.emplace_back(trackers.back().tracker);
         }
     };

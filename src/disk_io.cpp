@@ -13,6 +13,12 @@
 
 namespace tide {
 
+constexpr int block_index(const int offset) noexcept
+{
+    assert(offset % 0x4000 == 0);
+    return offset / 0x4000;
+}
+
 // -- partial_piece --
 
 disk_io::partial_piece::partial_piece(piece_index_t index_, int length_,
@@ -277,7 +283,7 @@ void disk_io::save_block(const torrent_id_t id,
     std::function<void(const std::error_code&)> save_handler,
     std::function<void(bool)> piece_completion_handler)
 {
-#define FORMAT_BLOCK_STRING "block(torrent: %i; index: %i; offset: %i; length: %i)"
+#define FORMAT_BLOCK_STRING "block(torrent: %i; piece: %i; offset: %i; length: %i)"
 #define FORMAT_BLOCK_ARGS id, block_info.index, block_info.offset, block_info.length
     if(m_settings.max_buffered_blocks > 0
        && m_stats.num_buffered_blocks >= m_settings.max_buffered_blocks)
@@ -307,31 +313,41 @@ void disk_io::save_block(const torrent_id_t id,
     // if none is found, this is the first block in piece, i.e. a new piece download
     if(it == torrent.write_buffer.end())
     {
-        log(log_event::write, "new piece(%i) in torrent#%i", block_info.index, id);
         torrent.write_buffer.emplace_back(std::make_unique<partial_piece>(
             block_info.index, torrent.storage.piece_length(block_info.index),
             m_settings.write_cache_line_size, std::move(piece_completion_handler),
             m_network_ios));
         it = torrent.write_buffer.end() - 1;
         ++m_stats.num_partial_pieces;
+        log(log_event::write,
+            "new piece(%i) in torrent#%i (diskIO total: %i pieces; %i blocks)",
+            block_info.index, id, m_stats.num_partial_pieces,
+            m_stats.num_buffered_blocks);
+#ifdef TIDE_ENABLE_DEBUGGING
+        std::string s;
+        for(const auto& piece : torrent.write_buffer)
+            s += std::to_string(piece->index) + ' ';
+        log(log_event::write, "pieces in torrent#%i write buffer: %s", id, s.c_str());
+#endif //  TIDE_ENABLE_LOGGING
     }
     partial_piece& piece = **it;
 
-    // insert new block such that the resulting set of blocks remains sorted by
-    // block::offset; find the first block whose offset is larger than this block's
+    // buffer must always be sorted by block::offset
     const auto pos = std::find_if(piece.buffer.begin(), piece.buffer.end(),
         [offset = block_info.offset](const auto& b) { return b.offset >= offset; });
     // before insertion, check if we don't already have this block
     if(((pos != piece.buffer.end()) && (pos->offset == block_info.offset))
-       || piece.save_progress[block_info.offset / 0x4000])
+       || piece.save_progress[block_index(block_info.offset)])
     {
         log(log_event::write, "duplicate " FORMAT_BLOCK_STRING, FORMAT_BLOCK_ARGS);
+        m_network_ios.post([handler = std::move(save_handler)]
+            { handler(make_error_code(disk_io_errc::duplicate_block)); });
         return;
     }
-
     log(log_event::write, FORMAT_BLOCK_STRING " save issued", FORMAT_BLOCK_ARGS);
     piece.buffer.emplace(pos, partial_piece::block(std::move(block_data),
         block_info.offset, std::move(save_handler)));
+    ++m_stats.num_buffered_blocks;
     if(m_settings.write_buffer_expiry_timeout > seconds(0))
     {
         start_timer(piece.buffer_expiry_timer, m_settings.write_buffer_expiry_timeout,
@@ -383,7 +399,8 @@ inline void disk_io::dispatch_write(torrent_entry& torrent, partial_piece& piece
             if(!blocks.empty() && (blocks[0].offset == offset))
                 blocks.trim_front(1);
             else
-                assert(piece.save_progress[offset / 0x4000]);
+                // FIXME this fired!!!
+                assert(piece.save_progress[block_index(offset)]);
         }
 #endif // TIDE_ENABLE_EXPENSIVE_ASSERTS
         piece.is_busy = true;
@@ -452,7 +469,7 @@ inline void disk_io::dispatch_write(torrent_entry& torrent, partial_piece& piece
     // they are not hashable, so as an optimization we try to wait for the blocks that 
     // fill the gap between the last hashed block and the beginning of the contiguous 
     // sequence, which would help us to avoid reading them back later
-    const int gap_size = contiguous_range.begin - (piece.unhashed_offset / 0x4000);
+    const int gap_size = contiguous_range.begin - block_index(piece.unhashed_offset);
     if(num_contiguous_blocks >= m_settings.write_cache_line_size
        && gap_size < m_settings.write_buffer_capacity - piece.buffer.size())
     {
@@ -539,7 +556,7 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
             m_network_ios.post([&torrent, &piece]
             { 
                 piece.completion_handler(false);
-                const auto error = make_error_code(disk_io_errc::drop_corrupt_piece_data);
+                const auto error = make_error_code(disk_io_errc::corrupt_data_dropped);
                 for(auto& block : piece.work_buffer) { block.save_handler(error); }
                 // since piece is corrupt, we won't be saving it, so it's safe to remove
                 // it in this callback, as we'll no longer refer to it
@@ -616,7 +633,6 @@ inline sha1_hash disk_io::finish_hashing(torrent_entry& torrent, partial_piece& 
     auto block = std::find_if(piece.work_buffer.begin(), piece.work_buffer.end(),
         [&piece](const auto& b) { return b.offset == piece.unhashed_offset; });
     const auto end = piece.work_buffer.end();
-    // FIXME this sometimes throws
     if(block == end)
     {
         std::stringstream ss;
@@ -640,16 +656,16 @@ inline sha1_hash disk_io::finish_hashing(torrent_entry& torrent, partial_piece& 
         else
         {
             // next block to be hashed is not in piece's buffer, so we need to read it
-            // back from disk
-            const int block_index = piece.unhashed_offset / 0x4000;
-            // check how many blocks follow this one, so we can pull them back in one
+            // back from disk; check how many follow it, so we can pull them back in one
             int length = 0x4000;
             int num_contiguous = 1;
-            for(auto i = block_index + 1; i < piece.num_blocks(); ++i, ++num_contiguous)
+            for(auto i = block_index(piece.unhashed_offset) + 1;
+                i < piece.num_blocks(); ++i, ++num_contiguous)
             {
                 // note that we can't access save_progress from this thread so we loop
                 // through all blocks saved to disk or until we hit block
                 if((block != end) && (i * 0x4000 == block->offset)) { break; }
+                // account for the last block's possible shorter length
                 if(i == piece.num_blocks() - 1)
                     length += piece.length - (piece.num_blocks() - 1) * 0x4000;
                 else

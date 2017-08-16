@@ -12,7 +12,6 @@
 #include "torrent.hpp"
 #include "types.hpp"
 
-#include <unordered_map>
 #include <system_error>
 #include <functional>
 #include <cstdint>
@@ -46,16 +45,17 @@ class engine
     endpoint_filter m_endpoint_filter;
     
     // Internal entities within tide::engine communicate with user asynchronously via
-    // this event channel. This is done by accumulating events (stats, alerts, async
-    // op results etc) and user periodically, at their own convenience, query for the
-    // latest queue of events. thread-safe.
+    // an event channel. This is done by accumulating events (stats, alerts, async
+    // op results etc) in this queue and user extracts all thus far accrued events
+    // manually.
+    // thread-safe.
     event_queue m_event_queue;
 
     // All active and inactive torrents are stored here.
-    std::unordered_map<torrent_id_t, std::shared_ptr<torrent>> m_torrents;
+    std::vector<std::shared_ptr<torrent>> m_torrents;
 
-    // Torrents may have a priority ordering. TODO perhaps use a vector
-    std::deque<torrent_id_t> m_torrent_priority;
+    // Torrents may have a priority ordering.
+    std::vector<torrent_id_t> m_torrent_priority;
 
     // Every single tracker used by all torrents is stored here. This is because many
     // torrents share the same tracker, so when a torrent is created, we first check
@@ -98,6 +98,8 @@ public:
 
     void pause();
     void resume();
+
+    std::queue<std::unique_ptr<event>> events();
 
     /** Returns whether engine has managed to set up a listening port. */
     bool is_listening() const noexcept;
@@ -188,6 +190,12 @@ private:
      */
     std::vector<tracker_entry> get_trackers(const metainfo& metainfo);
     bool has_tracker(string_view url) const noexcept;
+
+    // -----------
+    // -- utils --
+    // -----------
+
+    void update_cached_clock();
 };
 
 } // namespace tide

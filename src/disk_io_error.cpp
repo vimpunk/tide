@@ -8,8 +8,9 @@ std::string disk_io_error_category::message(int env) const
     {
     case disk_io_errc::unknown: return "Unknown";
     case disk_io_errc::block_dropped: return "Block dropped due to insufficient space";
+    case disk_io_errc::duplicate_block: return "Duplicate block";
     case disk_io_errc::invalid_block: return "Invalid block information";
-    case disk_io_errc::drop_corrupt_piece_data: return "Dropped corrupt piece's data";
+    case disk_io_errc::corrupt_data_dropped: return "Dropped corrupt piece's data";
     case disk_io_errc::operation_aborted: return "Operation aborted";
     default: return "Unknown";
     }

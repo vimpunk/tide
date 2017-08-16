@@ -19,10 +19,12 @@ struct thread_pool
 
 private:
 
-    // Only the user's thread may change this vector, threads may not touch it.
+    // Only the user's thread may change this vector, threads may not touch it, so no
+    // synchronization is necessary.
     std::vector<std::thread> m_threads;
 
-    // Threads are notified of new jobs via this condition variable.
+    // Threads are notified of new jobs via this condition variable while they are
+    // holding onto m_job_queue_mutex.
     std::condition_variable m_job_available;
 
     // All jobs are first placed in this queue from which they are retrieved by threads.

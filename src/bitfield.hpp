@@ -21,15 +21,8 @@ namespace tide {
  * the bitfield over the wire (this means the excess bits are always kept zero, as
  * mandated by the protocol).
  */
-class bitfield
+struct bitfield
 {
-    using block_type = uint8_t;
-
-    std::vector<block_type> m_blocks;
-    int m_num_bits;
-
-public:
-
     class reference;
     class const_iterator;
 
@@ -40,6 +33,14 @@ public:
     using pointer = value_type*;
     using const_pointer = const value_type*;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+    using block_type = uint8_t;
+
+private:
+
+    std::vector<block_type> m_blocks;
+    size_type m_num_bits;
+
+public:
 
     bitfield() = default;
 
@@ -84,7 +85,7 @@ public:
         typename = decltype(std::declval<Bytes>().data())
     > static bool is_bitfield_data_valid(const Bytes& bytes, size_type num_bits) noexcept
     {
-        if(num_blocks_for(num_bits) != int(bytes.size()))
+        if(num_blocks_for(num_bits) != size_type(bytes.size()))
         {
             return false;
         }
@@ -111,9 +112,15 @@ public:
         return m_num_bits;
     }
 
-    bitfield& set(const int bit) noexcept
+    bitfield& set(const size_type bit) noexcept
     {
         get_block(bit) |= make_bit_mask(bit);
+        return *this;
+    }
+
+    bitfield& set(const std::initializer_list<size_type> bits) noexcept
+    {
+        for(const auto b : bits) { set(b); }
         return *this;
     }
 
@@ -124,9 +131,15 @@ public:
         return *this;
     }
 
-    bitfield& reset(const int bit) noexcept
+    bitfield& reset(const size_type bit) noexcept
     {
         get_block(bit) &= ~make_bit_mask(bit);
+        return *this;
+    }
+
+    bitfield& reset(const std::initializer_list<size_type> bits) noexcept
+    {
+        for(const auto b : bits) { reset(b); }
         return *this;
     }
 
@@ -136,7 +149,7 @@ public:
         return *this;
     }
 
-    bitfield& flip(const int bit) noexcept
+    bitfield& flip(const size_type bit) noexcept
     {
         get_block(bit) ^= make_bit_mask(bit);
         return *this;
@@ -155,8 +168,8 @@ public:
     bool are_all_set() const noexcept
     {
         static constexpr auto all_set = std::numeric_limits<block_type>::max();
-        const int last_block = m_blocks.size() - 1;
-        for(auto i = 0; i < last_block; ++i)
+        const size_type last_block = m_blocks.size() - 1;
+        for(size_type i = 0; i < last_block; ++i)
         {
             if(m_blocks[i] != all_set) { return false; }
         }
@@ -179,17 +192,17 @@ public:
         return true;
     }
 
-    reference operator[](const int bit) noexcept
+    reference operator[](const size_type bit) noexcept
     {
         return reference(get_block(bit), make_bit_mask(bit));
     }
 
-    const_reference operator[](const int bit) const noexcept
+    const_reference operator[](const size_type bit) const noexcept
     {
         return (get_block(bit) & make_bit_mask(bit)) != 0;
     }
 
-    reference at(const int bit)
+    reference at(const size_type bit)
     {
         if((bit < 0) || (bit >= m_num_bits))
         {
@@ -198,7 +211,7 @@ public:
         return operator[](bit);
     }
 
-    const_reference at(const int bit) const
+    const_reference at(const size_type bit) const
     {
         if((bit < 0) || (bit >= m_num_bits))
         {
@@ -213,10 +226,10 @@ public:
     const_iterator cend() const noexcept { return const_iterator(*this, m_num_bits); }
 
     /** Returns the Hamming weight of this bitfield. */
-    int count() const
+    size_type count() const
     {
-        int n = 0;
-        for(auto i = 0; i < size(); ++i)
+        size_type n = 0;
+        for(size_type i = 0; i < size(); ++i)
         {
             if((*this)[i]) { ++n; }
         }
@@ -226,7 +239,7 @@ public:
     std::string to_string() const
     {
         std::string s(size(), '0');
-        for(auto i = 0; i < size(); ++i)
+        for(size_type i = 0; i < size(); ++i)
         {
             if((*this)[i])
             {
@@ -327,28 +340,28 @@ public:
 
 private:
 
-    static constexpr int num_blocks_for(const size_type num_bits) noexcept
+    static constexpr size_type num_blocks_for(const size_type num_bits) noexcept
     {
         return std::ceil(double(num_bits) / bits_per_block());
     }
 
-    block_type& get_block(const int bit) noexcept
+    block_type& get_block(const size_type bit) noexcept
     {
         return m_blocks[block_index(bit)];
     }
 
-    const block_type& get_block(const int bit) const noexcept
+    const block_type& get_block(const size_type bit) const noexcept
     {
         assert(bit < size());
         return m_blocks[block_index(bit)];
     }
 
-    static constexpr int block_index(const int bit) noexcept
+    static constexpr size_type block_index(const size_type bit) noexcept
     {
         return bit / bits_per_block();
     }
 
-    static constexpr block_type make_bit_mask(const int bit) noexcept
+    static constexpr block_type make_bit_mask(const size_type bit) noexcept
     {
         // note that because of BitTorrent the least significant bit is on the left side
         // rather than on the right (as is the case with traditional bit layouts), so
@@ -357,7 +370,7 @@ private:
         return 1 << shift;
     }
 
-    static constexpr size_type bit_index(const int bit) noexcept
+    static constexpr size_type bit_index(const size_type bit) noexcept
     {
         return bit % bits_per_block();
     }
@@ -379,7 +392,7 @@ private:
     template<
         typename Bytes,
         typename = decltype(std::declval<Bytes>().data())
-    > static block_type num_excess_bits(const Bytes& bytes, const int num_bits) noexcept
+    > static block_type num_excess_bits(const Bytes& bytes, const size_type num_bits) noexcept
     {
         return bits_per_block() * bytes.size() - num_bits;
     }
@@ -399,9 +412,9 @@ public:
         friend class bitfield;
 
         block_type& m_block;
-        const int m_mask;
+        const size_type m_mask;
 
-        reference(block_type& block, int mask)
+        reference(block_type& block, size_type mask)
             : m_block(block)
             , m_mask(mask)
         {}

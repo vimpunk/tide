@@ -137,8 +137,10 @@ void file::open(std::error_code& error)
 
 void file::open(open_mode_flags open_mode, std::error_code& error)
 {
+#ifdef TIDE_ENABLE_DEBUGGING
     log::log_disk_io("{FILE}", util::format("opening file %s",
         absolute_path().c_str()), true, log::priority::high);
+#endif // TIDE_ENABLE_DEBUGGING
     error.clear();
     if(is_open())
     {
@@ -216,8 +218,10 @@ void file::allocate(std::error_code& error)
 
 void file::allocate(const size_type length, std::error_code& error)
 {
+#ifdef TIDE_ENABLE_DEBUGGING
     log::log_disk_io("{FILE}", util::format("allocating file %s",
         absolute_path().c_str()), true, log::priority::high);
+#endif // TIDE_ENABLE_DEBUGGING
     error.clear();
     verify_handle(error);
     // only (re)allocate if we're not allocated, or if we are if the requested length
@@ -549,14 +553,18 @@ file::size_type file::positional_vector_io(view<iovec>& buffers,
     // ideally this will loop once but preadv/pwritev are not guaranteed to transfer
     // the requested bytes so we have to call it again until all requested bytes are
     // transferred
+#ifdef TIDE_ENABLE_DEBUGGING
     log::log_disk_io("{FILE}", util::format("buffers.size() = %i, file_length_left = %lli",
             buffers.size(), file_length_left), false, log::priority::high);
+#endif // TIDE_ENABLE_DEBUGGING
     int loop_counter = 0;
     while(!buffers.empty() && (file_length_left > 0))
     {
+#ifdef TIDE_ENABLE_DEBUGGING
         log::log_disk_io("{FILE}",
             util::format("%ith loop in trying to transfer data from/to file",
                 loop_counter), false, log::priority::high);
+#endif // TIDE_ENABLE_DEBUGGING
         const size_type num_transferred = fn(buffers, file_offset);
         if(num_transferred < 0)
         {

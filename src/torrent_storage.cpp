@@ -410,10 +410,12 @@ void torrent_storage::write(view<iovec> buffers,
             // we should have written to the entire file slice since file::write
             // guarantees this (and file slice describes the largest possible portion
             // of buffers that can be written to file without enlarging it)
+#ifdef TIDE_ENABLE_DEBUGGING
             if(num_written != slice.length)
                 log::log_disk_io("{TORRENT_STORAGE}",
                     util::format("FATAL! num_written(%i) <> slice.length(%i)",
                     num_written, slice.length), false, log::priority::high);
+#endif // TIDE_ENABLE_DEBUGGING
             assert(num_written == slice.length);
             return num_written;
         },
@@ -432,20 +434,24 @@ void torrent_storage::for_each_file(Function fn,
         error = std::make_error_code(std::errc::no_such_file_or_directory);
         return;
     }
-        log::log_disk_io("{TORRENT_STORAGE}",
-            util::format("writing %i bytes in piece(%i) to %i files",
-                block.length, block.index, files.size()),
-            false, log::priority::high);
+#ifdef TIDE_ENABLE_DEBUGGING
+    log::log_disk_io("{TORRENT_STORAGE}",
+        util::format("writing %i bytes in piece(%i) to %i files",
+            block.length, block.index, files.size()),
+        false, log::priority::high);
+#endif // TIDE_ENABLE_DEBUGGING
 
     int64_t offset = int64_t(block.index) * m_piece_length + block.offset;
     int num_left = block.length;
     for(file_entry& file : files)
     {
         const auto slice = get_file_slice(file, offset, num_left);
-            log::log_disk_io("{TORRENT_STORAGE}",
-                util::format("writing %i bytes to %s at offset(%lli)", 
-                    slice.length, file.storage.absolute_path().c_str(), slice.offset),
-                false, log::priority::high);
+#ifdef TIDE_ENABLE_DEBUGGING
+        log::log_disk_io("{TORRENT_STORAGE}",
+            util::format("writing %i bytes to %s at offset(%lli)", 
+                slice.length, file.storage.absolute_path().c_str(), slice.offset),
+            false, log::priority::high);
+#endif // TIDE_ENABLE_DEBUGGING
         const int num_transferred = fn(file, slice, error);
         if(error) { return; }
         assert(num_transferred > 0);

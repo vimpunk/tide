@@ -83,9 +83,8 @@ struct engine_settings
     // This is the granularity at which statistics of a torrent are sent to the user.
     // Note that user may manually request statistics of a certain torrent or even
     // peer_session at arbitrary intervals.
-    // Note that this value should ideally not go below 500ms as it would be prohibitive
-    // in the face of many torrents.
-    milliseconds stats_aggregation_interval{2000};
+    // TODO should we support millisecond granularity?
+    seconds stats_aggregation_interval{1};
 
     // This is the amount of time between the torrent engine's event loop which, among
     // other things, is responsible for meting out bandwidth quota to peers. A lower

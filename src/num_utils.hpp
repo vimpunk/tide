@@ -50,6 +50,12 @@ constexpr uint32_t nearest_power_of_two(uint32_t x) noexcept
     return x;
 }
 
+template<typename T>
+constexpr T clamp(const T& t, const T& min, const T& max) noexcept
+{
+    return std::min(max, std::max(min, t));
+}
+
 } // namespace util
 } // namespace tide
 

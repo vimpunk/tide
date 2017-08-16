@@ -53,6 +53,11 @@ int64_t to_int(const Duration& d)
     return duration_cast<Unit>(d).count();
 }
 
+inline duration elapsed_since(const time_point& t)
+{
+    return cached_clock::now() - t;
+}
+
 template<typename Duration, typename Handler>
 void start_timer(deadline_timer& timer, const Duration& expires_in, Handler handler)
 {

@@ -90,6 +90,14 @@ struct disk_io_stats : public stats_event
 
 // - alerts -
 
+struct torrent_stopped_alert : public alert_event
+{
+};
+
+struct download_complete_alert : public alert_event
+{
+};
+
 // - async_completions -
 
 struct async_completion_error : public async_completion_event
@@ -136,13 +144,13 @@ public:
     /** Constructs a new event in place. */
     template<typename Event, typename... Args> void emplace(Args&&... args);
 
+    /** Removes and returns all events that have been placed in the queue under a mutex. */
     std::queue<std::unique_ptr<event>> extract_events();
 };
 
 template<typename Event, typename... Args>
 void event_queue::emplace(Args&&... args)
 {
-    // TODO just a placeholder
     std::lock_guard<std::mutex> l(m_queue_mutex);
     m_queue.emplace(std::make_unique<Event>(std::forward<Args>(args)...));
 }

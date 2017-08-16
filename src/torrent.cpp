@@ -64,6 +64,10 @@ torrent::torrent(
         global_settings, std::move(trackers), endpoint_filter, event_queue) 
 {
     apply_torrent_args(args);
+    if(!m_info.settings.download_sequentially && m_piece_picker.num_have_pieces() < 4)
+    {
+        m_piece_picker.set_strategy(piece_picker::strategy::random);
+    }
 }
 
 // for resumed torrents
@@ -84,32 +88,45 @@ torrent::torrent(
         endpoint_filter, event_queue) 
 {
     restore_resume_data(resume_data);
+    if(!m_info.settings.download_sequentially)
+    {
+        m_piece_picker.set_strategy(piece_picker::strategy::random);
+    }
 }
 
 void torrent::apply_torrent_args(torrent_args& args)
 {
     m_piece_hashes = args.metainfo.piece_hashes;
 
-    // TODO how expensive is this?
     m_info.info_hash = create_sha1_digest(
         args.metainfo.source.find_bmap("info").encode());
     m_info.save_path = std::move(args.save_path);
+
     m_info.num_pieces = args.metainfo.num_pieces;
+    m_info.num_wanted_pieces = args.metainfo.num_pieces;
     m_info.size = args.metainfo.total_length;
+
     m_info.piece_length = args.metainfo.piece_length;
     m_info.last_piece_length =
         m_info.size - (m_info.num_pieces - 1) * m_info.piece_length;
+
     m_info.settings = std::move(args.settings);
     m_info.files = std::move(args.metainfo.files);
     // we'll apply file priorities once storage is allocated
     // TODO we should probably apply priorities right away
     m_info.priority_files = std::move(args.priority_files);
 
+    // TODO is this correct?
+    m_info.num_blocks =
+        ((m_info.piece_length + (0x4000 - 1)) / 0x4000) * (m_info.num_pieces - 1)
+        + (m_info.last_piece_length + (0x4000 - 1)) / 0x4000;
     m_info.wanted_size = 0;
+
     for(const auto& f : m_info.files)
     {
         if(f.is_wanted) { m_info.wanted_size += f.length; }
     }
+    // FIXME num_wanted_piece calculation is a bit more involved, unfortunately
 
     if(args.name.empty())
         args.metainfo.source.try_find_string("name", m_info.name);
@@ -123,6 +140,7 @@ void torrent::start()
 
     log(log_event::update, "starting torrent");
     m_info.state[torrent_info::active] = true;
+
     if(!m_storage)
     {
         log(log_event::disk, "allocating torrent storage");
@@ -131,12 +149,19 @@ void torrent::start()
         auto handle = m_disk_io.allocate_torrent(m_info, m_piece_hashes, error);
         on_torrent_allocated(error, handle);
     }
+
     announce(tracker_request::started);
+
     if(!m_peer_sessions.empty())
     {
         log(log_event::update, "trying to reconnect %i peers", m_peer_sessions.size());
         for(auto& session : m_peer_sessions) { session->start(); }
         update();
+    }
+
+    if((m_info.download_started_time == time_point()) && !is_seed())
+    {
+        m_info.download_started_time = cached_clock::now();
     }
 }
 
@@ -596,6 +621,8 @@ void torrent::on_announce_response(tracker_entry& tracker, const std::error_code
         tracker.tracker->url().c_str(), response.peers.size()
         + response.ipv4_peers.size() + response.ipv6_peers.size(), response.interval,
         response.num_seeders, response.num_leechers, response.tracker_id.c_str());
+    //m_event_queue.emplace<announce_response_alert>(tracker.tracker.url(),
+        //response.interval, response.num_seeders, response.num_leechers);
 
     const auto now = cached_clock::now();
     m_info.last_announce_time = now;
@@ -692,7 +719,7 @@ void torrent::update(const std::error_code& error)
         return;
     }
 
-    log(log_event::update, "upload rate: %i b/s; download rate: %i b/s",
+    log(log_event::update, "upload rate: %i bytes/s; download rate: %i bytes/s",
         m_info.upload_rate.rate(), m_info.download_rate.rate());
 
     remove_finished_peer_sessions();
@@ -724,13 +751,14 @@ void torrent::update(const std::error_code& error)
     // connected ones may not be unchokable, but waiting 10s for the next unchoke round
     // would be too much, so we check every second whether there are peers we can unchoke
     // TODO this feels ugly
+    /*
     if(m_info.num_unchoked_peers < m_info.settings.max_upload_slots
        && m_peer_sessions.size() > m_info.settings.max_upload_slots)
     {
         fill_free_upload_slots();
     }
+    */
 
-    // TODO send stats event
     m_event_queue.emplace<torrent_stats>(torrent_stats{m_info});
 
     start_timer(m_update_timer, seconds(1),
@@ -826,8 +854,7 @@ void torrent::on_peer_session_finished(peer_session& session)
 void torrent::unchoke()
 {
     const bool unchoke_optimistically = m_info.num_choke_cycles % 3 == 0;
-    const int num_to_unchoke = [this, unchoke_optimistically]() -> int
-    {
+    const int num_to_unchoke = [this, unchoke_optimistically]() -> int {
         int n = std::min(m_info.settings.max_upload_slots, int(m_peer_sessions.size()));
         // if we're optimistically unchoking, we need to normal unchoke one fewer peer
         // as we're going to unchoke an additional peer and we must still observe 
@@ -860,8 +887,8 @@ void torrent::unchoke()
                 log(log_event::choke, "unchoking peer(%s:%i)", address.c_str(),
                     session->remote_endpoint().port());
             }
-            // even if peer is already unchoked, we count it so that we don't unchoke
-            // more than we should
+            // even if peer is already unchoked, we count it so that we don't end up
+            // with more unchoked peers than we should
             // we may not have been successful at unchoking peer (e.g. if connection has
             // not been established yet), so need to check
             if(!session->is_peer_choked()) { ++m_info.num_unchoked_peers; }
@@ -894,7 +921,6 @@ void torrent::optimistic_unchoke()
 
     int num_candidates = 0;
     for_each_candidate([&num_candidates](const auto& _) { ++num_candidates; });
-
     std::vector<peer_session*> candidates;
     candidates.reserve(num_candidates);
     for_each_candidate([&candidates](const auto& c) { candidates.emplace_back(c); });
@@ -970,44 +996,62 @@ bool torrent::choke_ranker::download_rate_based(
 
 void torrent::on_new_piece(piece_download& download, const bool is_valid)
 {
-    // let the peer_sessions that participated in the download know of the piece's
-    // hash result
-    // note: call this first
+    // let know the peer_sessions that participated in the download of the piece's
+    // hash result (note: call this before everything else)
     download.post_hash_result(is_valid);
+    --m_info.num_pending_pieces;
 
     if(is_valid)
         handle_valid_piece(download);
     else
         handle_corrupt_piece(download);
 
-    log(log_event::update, log::priority::high, "received new piece(%i, %s) (%i/%i)",
+    log(log_event::download, log::priority::high, "received new piece(%i, %s) (%i/%i)",
         download.piece_index(), is_valid ? "valid" : "corrupt",
         m_piece_picker.num_have_pieces(), m_info.num_pieces);
 
-    auto it = std::find_if(m_downloads.begin(), m_downloads.end(),
+    const auto it = std::find_if(m_downloads.begin(), m_downloads.end(),
         [&download](const auto& d) { return d->piece_index() == download.piece_index(); });
     // if we could not find this piece download it means that it was a parole/unique
     // download, i.e. peer_session didn't put it in m_downloads because it wanted
     // to test whether peer was the one sending corrupt data, and for this the piece
     // download was not shared among other peer_sessions
     if(it != m_downloads.end()) { m_downloads.erase(it); }
+
+#ifdef TIDE_ENABLE_DEBUGGING
+    std::string s;
+    for(const auto& d : m_downloads)
+    {
+        const int num_blocks = d->num_blocks();
+        const int num_have_blocks = d->num_received_blocks();
+        s += std::to_string(d->piece_index()) + "-(" + std::to_string(num_have_blocks)
+          + '/' + std::to_string(num_blocks) + "|" + std::to_string(d->peers().size())
+          + ") ";
+    }
+    log(log_event::download, log::priority::high,
+        "active piece downloads: %s", s.c_str());
+#endif // TIDE_ENABLE_DEBUGGING
 }
 
 inline void torrent::handle_valid_piece(piece_download& download)
 {
     ++m_info.num_downloaded_pieces;
+
     // notify piece piecker that this piece was downloaded
     m_piece_picker.got(download.piece_index());
+
     // notify each peer of our new piece so that they can request it
     for(auto& session : m_peer_sessions)
     {
         assert(session);
         session->announce_new_piece(download.piece_index());
     }
+
     // update stats
     const int piece_length = get_piece_length(m_info, download.piece_index());
     m_info.total_verified_piece_bytes += piece_length;
     ++m_info.num_downloaded_pieces;
+
     // update file progress
     const interval files = m_storage.files_containing_piece(download.piece_index());
     assert(!files.empty());
@@ -1018,10 +1062,19 @@ inline void torrent::handle_valid_piece(piece_download& download)
         const double fraction = double(slice.length) / m_info.files[i].length;
         m_info.files[i].completion += fraction;
     }
-    if(m_info.num_downloaded_pieces == m_info.num_wanted_pieces)
+
+    if(m_piece_picker.num_pieces_left() == 0)
     {
         on_download_complete();
     }
+    else if(!m_info.settings.download_sequentially
+            && m_piece_picker.num_have_pieces() > 4
+            && m_piece_picker.strategy() != piece_picker::strategy::rarest_first)
+    {
+        m_piece_picker.set_strategy(piece_picker::strategy::rarest_first);
+        log(log_event::download, "leaving quick-start download strategy");
+    }
+
     m_is_state_changed = true;
 }
 
@@ -1043,7 +1096,7 @@ inline void torrent::handle_corrupt_piece(piece_download& download)
         // bad piece, erase it
         auto it = std::find_if(m_peer_sessions.begin(), m_peer_sessions.end(),
             [peer_id = download.peers()[0].id](const auto& session)
-            { return session->peer_id() == peer_id; });
+            { return session->remote_endpoint() == peer_id; });
         assert(it != m_peer_sessions.end());
         auto& session = *it;
         if(session->is_stopped())
@@ -1059,8 +1112,9 @@ inline void torrent::handle_corrupt_piece(piece_download& download)
 inline void torrent::on_download_complete()
 {
     m_info.state[torrent_info::seeding] = true;
+    m_info.state[torrent_info::end_game] = false;
     m_info.download_finished_time = cached_clock::now();
-    log(log_event::update, log::priority::high, "download complete in %lli seconds",
+    log(log_event::download, log::priority::high, "download complete in %lli seconds",
         to_int<seconds>(m_info.download_finished_time - m_info.download_started_time));
     // now that we're seeders we want to compare the upload rate of peers to rank them
     // TODO once we support more algorithms we have to make this a conditional
@@ -1077,7 +1131,8 @@ inline void torrent::on_download_complete()
     // since we have become a seeder, and if any of our peers were seeders, they were
     // disconnected, so clean up those finished sessions
     if(m_info.num_seeders > 1) { remove_finished_peer_sessions(); }
-    // TODO send event::alert that we've become seeders
+    //TODO
+    //m_event_queue.emplace<download_complete>(get_handle());
 }
 
 template<typename... Args>
@@ -1096,6 +1151,8 @@ void torrent::log(const log_event event, const log::priority priority,
         switch(event)
         {
         case log_event::update: return "UPDATE";
+        case log_event::download: return "DOWNLOAD";
+        case log_event::upload: return "UPLOAD";
         case log_event::disk: return "DISK";
         case log_event::tracker: return "TRACKER";
         case log_event::choke: return "CHOKE";

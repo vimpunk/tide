@@ -61,6 +61,19 @@ struct torrent_info : public stats
     int num_pieces;
     int num_wanted_pieces;
     int num_downloaded_pieces = 0;
+    // TODO comment
+    int num_pending_pieces = 0;
+
+    // The total number of blocks in this torrent.
+    int num_blocks;
+    // The number of unserviced requests that all peer_sessions in torrent have issued.
+    // It's decremented if we cancel or drop a request. This is used to determine when
+    // to enter end-game mode. Note that some blocks may be requested by multiple peers,
+    // so if this value reaches num_blocks, it may not mean that we have requested all
+    // blocks in torrent, but it's a close enough approximation.
+    // TODO or, we could enter end game when the number of pending pieces + num_downloaded_pieces
+    // equals num_pieces, which would be another rough approximation
+    int num_pending_blocks = 0;
 
     int num_seeders = 0;
     int num_leechers = 0;
@@ -109,6 +122,11 @@ struct torrent_info : public stats
         // a response.
         announcing,
         seeding,
+        // When a download is almost complete, there's a tendency for the last few
+        // blocks to trickle in slowly. Torrent enters end-game mode when all of its
+        // blocks have been requested, after which it rerequests all missing blocks
+        // from all of its peers that have them.
+        end_game,
         max
     };
 

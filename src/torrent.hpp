@@ -516,6 +516,8 @@ private:
     enum class log_event
     {
         update,
+        download,
+        upload,
         disk,
         tracker,
         choke

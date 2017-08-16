@@ -10,12 +10,15 @@ namespace tide {
 namespace log {
 namespace detail {
 
+#define TIDE_FLUSH(f) do if(f.is_open()) f.flush(); while(0)
+
 class engine_logger
 {
     std::ofstream m_file;
 public:
     void log(const std::string& header, const std::string& log,
         const priority priority = priority::normal);
+    void flush() { TIDE_FLUSH(m_file); }
 };
 
 /** disk_io runs on muliple threads so this logger is thread-safe. */
@@ -26,6 +29,7 @@ class disk_io_logger
 public:
     void log(const std::string& header, const std::string& log,
         const bool concurrent, const priority priority);
+    void flush() { TIDE_FLUSH(m_file); }
 };
 
 class torrent_logger
@@ -34,6 +38,10 @@ class torrent_logger
 public:
     void log(const torrent_id_t torrent, const std::string& header,
         const std::string& log, const priority priority);
+    void flush()
+    {
+        for(auto& e : m_files) { TIDE_FLUSH(e.second); }
+    }
 };
 
 class peer_session_logger
@@ -45,6 +53,13 @@ class peer_session_logger
 public:
     void log(const torrent_id_t torrent, const tcp::endpoint& endpoint,
         const std::string& header, const std::string& log, const priority priority);
+    void flush()
+    {
+    #ifdef TIDE_LOG_PEERS_SEPARATELY
+        for(auto& e : m_files) { TIDE_FLUSH(e.second); }
+    #endif // TIDE_LOG_PEERS_SEPARATELY
+        TIDE_FLUSH(m_incoming_connections);
+    }
 };
 
 engine_logger engine_logger;
@@ -202,6 +217,14 @@ void log_disk_io(const std::string& header, const std::string& log,
     const bool concurrent, const priority priority)
 {
     detail::disk_io_logger.log(header, log, concurrent, priority);
+}
+
+void flush()
+{
+    detail::torrent_logger.flush();
+    detail::peer_session_logger.flush();
+    detail::engine_logger.flush();
+    detail::disk_io_logger.flush();
 }
 
 } // namespace log

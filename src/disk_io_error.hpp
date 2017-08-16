@@ -12,9 +12,11 @@ enum class disk_io_errc
     // The maximum number of blocks that may be buffered after an unsuccessful attempt
     // at saving them to disk has been reached, so any further blocks are dropped.
     block_dropped,
+    // If we try to save a block more than once.
+    duplicate_block,
     // Block's piece index and/or offset and/or length are invalid.
     invalid_block,
-    drop_corrupt_piece_data,
+    corrupt_data_dropped,
     // Used when we abort a block read.
     operation_aborted
 };

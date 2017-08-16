@@ -84,7 +84,7 @@ template<
     using const_reference = value_type;
     using flag_type = Flag;
     // note: we can't just use std::underlying_type<Flag> because an int representation
-    // of an enum value does not map to the number of bits needed express that many
+    // of an enum value does not map to the number of bits needed to express that many
     // flags (e.g. the value 64 can be represented by a single 8-bit int, but we'd need
     // an uint64_t to represent 64 flags)
     using underlying_type = typename util::integral_type_for<
