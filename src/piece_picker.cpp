@@ -13,7 +13,6 @@ piece_picker::piece_picker(const int num_pieces)
     , m_pieces(num_pieces)
     , m_piece_pos_map(num_pieces)
 {
-    // initially pieces are sorted by their index in m_pieces
     for(auto i = 0; i < num_pieces; ++i)
     {
         m_pieces[i].index = i;
@@ -160,11 +159,15 @@ void piece_picker::decrease_frequency(const bitfield& available_pieces)
 
 piece_index_t piece_picker::pick(const bitfield& available_pieces)
 {
-    if(m_is_dirty) { rebuild_frequency_map(); }
+    if(num_pieces_left() == 0) { return invalid_piece; }
 
-    if(m_strategy == strategy::random)
+    if((m_strategy == strategy::rarest_first) && m_is_dirty)
     {
-        // TODO!!!
+        rebuild_frequency_map();
+    }
+    else if(m_strategy == strategy::random)
+    {
+        return m_pieces[util::random_int(0, m_pieces.size() - 1)].index;
     }
 
     const auto can_pick = [&available_pieces](const auto& piece)
@@ -192,11 +195,6 @@ piece_index_t piece_picker::pick(const bitfield& available_pieces)
 
 inline void piece_picker::rebuild_frequency_map() noexcept
 {
-    m_is_dirty = false;
-    // if we're downloading pieces sequentially m_pieces remains ordered by piece index
-    // at all times; this logic is only necessary if m_pieces is ordered according to
-    // priority and frequency
-    if(m_strategy != strategy::rarest_first) { return; }
     if(m_priority_groups.empty())
     {
         rebuild_group(m_pieces.begin(), m_pieces.end());
@@ -210,6 +208,7 @@ inline void piece_picker::rebuild_frequency_map() noexcept
         const int last_group_end = m_priority_groups.back().end;
         rebuild_group(m_pieces.begin() + last_group_end, m_pieces.end());
     }
+    m_is_dirty = false;
 }
 
 inline void piece_picker::rebuild_group(std::vector<piece>::iterator begin,
@@ -243,7 +242,7 @@ void piece_picker::unreserve(const piece_index_t piece)
     const auto pos = m_piece_pos_map[piece];
     if(pos != invalid_pos)
     {
-        m_pieces[pos].is_reserved = true;
+        m_pieces[pos].is_reserved = false;
     }
 }
 

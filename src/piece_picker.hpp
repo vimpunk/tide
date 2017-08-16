@@ -64,17 +64,14 @@ public:
         // Random is usually enabled when a torrent is starting out. This is because by
         // choosing the rarest pieces at the beginning will most likely result in the
         // slowest ones to download, whereas choosing a popular piece is more likely to
-        // be available from more peers, potentially speeding up the boostrapping
-        // process. Enabled for the frist few pieces.
+        // be available from more peers, potentially speeding up the bootsrapping
+        // process. Enabled until the frist few pieces are downloaded.
         random,
         // This is the mode in which a torrent operates after concluding the initial
-        // phase with random.
+        // phase with random, unless set to sequential.
         rarest_first,
-        // If we donwload sequentially, we can drop a lot of the piece map logic by
+        // If we download sequentially, we can drop a lot of the piece map logic by
         // always keeping m_pieces ordered by piece indices.
-        // Pieces are requested in order [0, n). Useful for streaming. Also, piece picker
-        // should operate much faster this way, since pieces are no longer ordered by
-        // their frequency, we never have to reorder the internal piece registry.
         sequential
     };
 
@@ -97,7 +94,10 @@ public:
     bool has_no_pieces() const noexcept;
     bool has_all_pieces() const noexcept;
 
-    /** Returns the total number of pieces in this torrent (my_bitfield().size()). */
+    /**
+     * Returns the total number of pieces in this torrent, the number of pieces that
+     * we have and need.
+     */
     int num_pieces() const noexcept;
     int num_have_pieces() const noexcept;
     int num_pieces_left() const noexcept;
@@ -106,15 +106,15 @@ public:
     enum strategy strategy() const noexcept;
     void set_strategy(const enum strategy s) noexcept;
 
-    /** Index corresponds to piece index, and the value at index is the frequency. */
-    std::vector<int> piece_availability() const;
 
     /**
      * The piece availability is written into the input vector.
-     * This method should be prefered over the above if piece availability is regularly
-     * requested to avoid allocations when creating new vectors.
+     * TODO we no longer track the availability of all pieces, only the ones that we
+     * need, so a plain vector<int> is insufficient--or, the untracked pieces could be
+     * mapped to a value of -1 in frequency_map
      */
-    void piece_availability(std::vector<int>& frequency_map) const;
+    //void piece_availability(std::vector<int>& frequency_map) const;
+    //std::vector<int> piece_availability() const;
 
     /** Returns the piece's frequency. */
     int frequency(const piece_index_t piece) const noexcept;
@@ -131,17 +131,21 @@ public:
      * availability now that peer no longer provides its pieces; or when peer turns out
      * not to have the piece it had previously advertised.
      */
-    void decrease_frequency(const bitfield& available_pieces);
     void decrease_frequency(const piece_index_t piece);
+    void decrease_frequency(const bitfield& available_pieces);
 
-    /** Picks and reserves the most suitable piece among available_pieces. */
+    /**
+     * Picks and reserves the most suitable piece from available_pieces, or returns
+     * invalid_piece if none could be picked.
+     */
     piece_index_t pick(const bitfield& available_pieces);
 
     void reserve(const piece_index_t piece);
 
     /**
-     * Called when the client decides not to download the piece it has reserved using
-     * pick_and_reserve(). It is also called by got(), which marks that we got a piece.
+     * Called when the client decides no longer to download the piece it has reserved
+     * using pick_and_reserve(). It is also called by got(), which marks that we got a
+     * piece.
      */
     void unreserve(const piece_index_t piece);
     void got(const piece_index_t piece);
@@ -152,6 +156,9 @@ public:
     /**
      * User may not wish to download all files in a torrent, in which case the file's
      * corresponding pieces will have to be marked as unwanted here.
+     *
+     * Note that since unwanted pieces are not tracked, calling want_piece(s) may entail
+     * a delay in downloading those pieces until their availability is next registered.
      */
     void set_wanted_pieces(bitfield wanted_pieces);
     void want_piece(const piece_index_t piece);
@@ -168,27 +175,28 @@ public:
 
     /**
      * Places pieces at the beginning of the to-download-next queue if and only if all
-     * the pieces in the interval [begin, end) are available to download. This is done
-     * to favor those priority intervals that are fully available, as it is reasonable
-     * to assume that the user would want a complete file rather than a half-complete
-     * one.
+     * the pieces in the interval [begin, end) are available to download, otherwise
+     * they are placed after the last priority group. This is done to favor those
+     * priority intervals that are fully available, for it is reasonable to assume that
+     * the user would prefer a complete file over a half-complete one.
+     *
      * If it is absolutely instrumental that these pieces be download first regardless
-     * of availability, use make_top_priority() above.
+     * of availability, use make_top_priority().
      */
     void make_priority(const piece_index_t begin, const piece_index_t end);
     void make_priority(interval pieces);
 
     /**
      * Makes pieces in the interval [begin, end) normal priority. If however the first
-     * and/or last pieces of the range overlap with another priority interval, the
-     * priority on them is preserved.
+     * and/or last pieces of the range overlap with another priority interval, their
+     * priority is preserved.
      */
     void clear_priority(const piece_index_t begin, const piece_index_t end);
     void clear_priority(interval pieces);
 
     /**
      * Used only for debugging, returns a beautified string of the to-be-downloaded
-     * pieces, ordered by priority groups and by frequency.
+     * pieces, ordered by priority groups and frequency.
      */
     std::string to_string() const;
 
@@ -251,35 +259,6 @@ inline enum piece_picker::strategy piece_picker::strategy() const noexcept
 {
     return m_strategy;
 }
-
-/*
-inline void piece_picker::set_wanted_pieces(bitfield wanted_pieces)
-{
-    assert(wanted_pieces.size() == m_my_pieces.size());
-    m_wanted_pieces = std::move(wanted_pieces);
-}
-
-inline void piece_picker::want_piece(const piece_index_t piece)
-{
-    assert(piece >= 0 && piece < num_pieces());
-    m_wanted_pieces.set(piece);
-}
-
-inline void piece_picker::want_pieces(const interval pieces)
-{
-    for(auto i = pieces.begin; i < pieces.end; ++i) { want_piece(i); }
-}
-
-inline void piece_picker::dont_want_piece(const piece_index_t piece)
-{
-    m_wanted_pieces.reset(piece);
-}
-
-inline void piece_picker::dont_want_pieces(const interval pieces)
-{
-    for(auto i = pieces.begin; i < pieces.end; ++i) { dont_want_piece(i); }
-}
-*/
 
 } // namespace tide
 
