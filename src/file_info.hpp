@@ -15,8 +15,8 @@ struct file_info
     class path path;
     // In bytes.
     int64_t length;
-    // A value in the range [0, 100] denoting the percentage of the file's completion.
-    double completion = 0.0f;
+    // How many bytes of the file we have downloaded.
+    int64_t downloaded_length = 0;
     // User may choose not to download a file, in which case this must be marked false.
     bool is_wanted = true;
 

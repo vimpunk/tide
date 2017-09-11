@@ -226,15 +226,12 @@ inline void message_parser::shift_last_message_to_front()
 {
     // the number of bytes we have of the message (not necessarily the length of the
     // complete message)
-    const int num_have = m_unused_begin - m_message_begin;
-    const auto msg_begin = m_buffer.begin() + m_message_begin;
-    const auto msg_end = msg_begin + num_have;
-    assert(msg_begin != msg_end);
+    const auto begin = m_buffer.begin();
+    assert(begin + m_message_begin != begin + m_unused_begin);
+    std::copy(begin + m_message_begin, begin + m_unused_begin, begin);
 
-    std::copy(msg_begin, msg_end, m_buffer.begin());
-
+    m_unused_begin -= m_message_begin;
     m_message_begin = 0;
-    m_unused_begin = num_have;
 }
 
 } // namespace tide

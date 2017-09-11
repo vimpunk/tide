@@ -5,5 +5,6 @@
 #include "src/torrent_args.hpp"
 #include "src/settings.hpp"
 #include "src/time.hpp"
+#include "src/alerts.hpp"
 
 #endif // TIDE_TIDE_HEADER

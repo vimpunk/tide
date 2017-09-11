@@ -8,6 +8,7 @@
 #include "socket.hpp"
 #include "types.hpp"
 #include "time.hpp"
+#include "http.hpp"
 #include "log.hpp"
 
 #include <unordered_map>
@@ -231,7 +232,7 @@ protected:
 
 public:
 
-    tracker(std::string url, asio::io_service& ios, const settings& settings);
+    tracker(std::string url, const settings& settings);
     virtual ~tracker() = default;
 
     /**
@@ -291,14 +292,29 @@ protected:
 };
 
 /** Currently not implemented. */
-struct http_tracker final : public tracker
+class http_tracker final : public tracker
 {
-    http_tracker(std::string host, asio::io_service& ios, const settings& settings);
+    tcp::socket m_socket;
+    tcp::resolver m_resolver;
+
+    http::request<http::string_body> m_request;
+    http::response<http::string_body> m_response;
+
+    // Holds the raw response data. m_resposne is just a view into this.
+    http::flat_buffer m_buffer;
+
+public:
+
+    http_tracker(asio::io_service& ios, std::string host, const settings& settings);
     void announce(tracker_request params,
         std::function<void(const std::error_code&, tracker_response)> handler) override;
     void scrape(std::vector<sha1_hash> info_hashes,
         std::function<void(const std::error_code&, scrape_response)> handler) override;
     void abort() override;
+
+private:
+
+    void on_host_resolved(const std::error_code& error, udp::resolver::iterator it);
 };
 
 /**
@@ -439,7 +455,7 @@ public:
      * url may or may not include the "udp://" protocol identifier, but it must include
      * the port number.
      */
-    udp_tracker(const std::string& url, asio::io_service& ios, const settings& settings);
+    udp_tracker(asio::io_service& ios, const std::string& url, const settings& settings);
     ~udp_tracker();
 
     // TODO add a stop function that waits for the current request to finish

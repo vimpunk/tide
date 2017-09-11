@@ -15,6 +15,12 @@ engine::engine()
     update_cached_clock();
 }
 
+engine::engine(const settings& s)
+    : engine()
+{
+    m_settings = s;
+}
+
 void engine::update_cached_clock()
 {
     cached_clock::update();
@@ -24,17 +30,17 @@ void engine::update_cached_clock()
 
 void engine::pause()
 {
-
+    m_network_ios.post([this] { for(auto& torrent : m_torrents) { torrent->stop(); } });
 }
 
 void engine::resume()
 {
-
+    m_network_ios.post([this] { for(auto& torrent : m_torrents) { torrent->start(); } });
 }
 
-std::queue<std::unique_ptr<event>> engine::events()
+std::deque<std::unique_ptr<alert>> engine::alerts()
 {
-    return m_event_queue.extract_events();
+    return m_alert_queue.extract_alerts();
 }
 
 void engine::parse_metainfo(const path& path)
@@ -44,10 +50,12 @@ void engine::parse_metainfo(const path& path)
         m_disk_io.read_metainfo(path,
             [this](const std::error_code& error, metainfo m)
             {
+            /*
                 if(error)
-                    m_event_queue.emplace<async_completion_error>(error);
+                    m_alert_queue.emplace<async_completion_error>(error);
                 else
-                    m_event_queue.emplace<metainfo_parse_completion>(std::move(m));
+                    m_alert_queue.emplace<metainfo_parse_completion>(std::move(m));
+            */
             });
     });
 }
@@ -62,8 +70,8 @@ void engine::add_torrent(torrent_args args)
         const torrent_id_t torrent_id = get_torrent_id();
         m_torrents.emplace_back(std::make_shared<torrent>(torrent_id, m_network_ios,
             m_disk_io, m_bandwidth_controller, m_settings, get_trackers(args.metainfo),
-            m_endpoint_filter, m_event_queue, std::move(args)));
-        m_event_queue.emplace<add_torrent_completion>(m_torrents.back()->get_handle());
+            m_endpoint_filter, m_alert_queue, std::move(args)));
+        m_alert_queue.emplace<torrent_added_alert>(m_torrents.back()->get_handle());
     });
 }
 
@@ -145,6 +153,8 @@ std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
             }
             else if(util::is_http_tracker(tracker.url))
             {
+                // we don't yet support http trackers
+                return;
                 //entry.tracker = std::make_shared<http_tracker>(
                     //tracker.url, m_network_ios, m_settings);
                 //trackers.emplace_back(std::move(entry));

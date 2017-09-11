@@ -12,6 +12,7 @@ namespace tide {
 struct string_view : public const_view<std::string::value_type>
 {
     string_view() = default;
+    template<typename T> string_view(view<T> v) : view(v) {}
     string_view(pointer str, size_type length) : view(str, length) {}
     string_view(pointer begin, pointer end) : view(begin, end) {}
     string_view(const char* s) : string_view(std::string(s)) {}

@@ -11,8 +11,7 @@ namespace tide {
 struct message
 {
     // A keep alive message has no identifier (it's just 4 zero bytes), this is used
-    // only by message_parser::type to tell caller that the current message is a
-    // keep_alive.
+    // only by message_parser::type to tell caller that a message's type is keep_alive.
     static constexpr int keep_alive = -1;
 
     /**
@@ -25,7 +24,8 @@ struct message
      * to denote the piece chunks sent over the network, while 'piece' is only used to
      * describe the file partitions.
      */
-    enum type {
+    enum type
+    {
         // -- standard BitTorrent messages --
         choke          = 0,
         unchoke        = 1,

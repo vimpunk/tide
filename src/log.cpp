@@ -91,9 +91,9 @@ std::string make_log_path(const String& name)
 # define TIDE_LOG(priority, stream, header, log) \
     stream << '[' << TIDE_PRIORITY_CHAR(priority) << '|' << header << "] " << log << '\n';
 
-#define TIDE_STREAM std::clog
 
 # ifdef TIDE_ENABLE_STREAM_DEBUGGING
+#  define TIDE_STREAM std::clog
 #  define TIDE_CLOG(priority, file, header, log) do { \
     assert(file.is_open()); \
     TIDE_LOG(priority, file, header, log); \
@@ -125,7 +125,9 @@ void disk_io_logger::log(const std::string& header, const std::string& log,
     // otherwise we can't use stream debugging/clog with disk_io when concurrent logging
     // is requested, as we'd need to mutually exclude clog each time some entity wanted
     // to do some logging, which is too expensive
+# ifdef TIDE_ENABLE_STREAM_DEBUGGING
     if(!concurrent) { TIDE_LOG(priority, TIDE_STREAM, header, log); }
+# endif // TIDE_ENABLE_STREAM_DEBUGGING
     std::lock_guard<std::mutex> l(m_file_mutex);
     if(!m_file.is_open())
     {

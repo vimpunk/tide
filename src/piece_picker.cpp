@@ -90,6 +90,7 @@ bool piece_picker::am_interested_in(const bitfield& available_pieces) const noex
     return false;
 }
 
+/*
 std::vector<int> piece_picker::piece_availability() const
 {
     std::vector<int> frequency_map;
@@ -109,6 +110,7 @@ void piece_picker::piece_availability(std::vector<int>& frequency_map) const
             frequency_map[i] = -1;
     }
 }
+*/
 
 int piece_picker::frequency(const piece_index_t piece) const noexcept
 {

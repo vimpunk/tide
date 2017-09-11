@@ -27,7 +27,7 @@ class bandwidth_controller;
 class torrent_settings;
 class endpoint_filter;
 class piece_download;
-class event_queue;
+class alert_queue;
 class disk_io;
 struct settings;
 
@@ -49,6 +49,7 @@ struct settings;
 class torrent : public std::enable_shared_from_this<torrent>
 {
     friend class torrent_frontend;
+    friend class torrent_handle;
 
     // This is main network io_service that runs everything network related. It's used
     // to instantiate peer_sessions.
@@ -76,7 +77,7 @@ class torrent : public std::enable_shared_from_this<torrent>
     endpoint_filter& m_endpoint_filter;
 
     // Alerts to user are sent via this.
-    event_queue& m_event_queue;
+    alert_queue& m_alert_queue;
 
     // Some storage specific operations are done directly via torrent's storage, but
     // the actual disk interaction is done indirectly through m_disk_io.
@@ -106,12 +107,6 @@ class torrent : public std::enable_shared_from_this<torrent>
     // list and a corresponding peer_session is added to m_peer_sessions.
     std::vector<tcp::endpoint> m_available_peers;
 
-    // This is used for internal stats and state bookkeeping, and is passed to each
-    // peer_session, each of which updates the network and disk related fields, so
-    // torrent doesn't have to periodically loop over each peer_session to collect
-    // stats. This way stats collection is relatively inexpensive.
-    torrent_info m_info;
-
     // Passed to every peer_session, tracks the availability of every piece in the swarm
     // and decides, using this knowledge, which piece to pick next (which by default is
     // the rarest piece in the swarm, unless sequential download is set).
@@ -124,6 +119,12 @@ class torrent : public std::enable_shared_from_this<torrent>
     // point it's no longer needed.
     std::vector<std::shared_ptr<piece_download>> m_downloads;
 
+    // This is used for internal stats and state bookkeeping, and is passed to each
+    // peer_session, each of which updates the network and disk related fields, so
+    // torrent doesn't have to periodically loop over each peer_session to collect
+    // stats. This way stats collection is relatively inexpensive.
+    torrent_info m_info;
+
     // Since torrent is exposed to user through torrent_handle and since torrent runs on
     // a different thread than where these query functions are likely to be called, it's 
     // public query methods need to enforce mutual exclusion on their data. So as not to
@@ -131,9 +132,8 @@ class torrent : public std::enable_shared_from_this<torrent>
     // a copy of m_info is kept, and thus acquiring a mutex is only necessary while
     // handling this copy. Moreover, it need only be updated on demand, further
     // decreasing the use of mutexes.
-    // TODO this is an idea
-    //torrent_info m_ts_info;
-    //mutable std::mutex m_ts_info_mutex;
+    torrent_info m_ts_info;
+    mutable std::mutex m_ts_info_mutex;
 
     // The update cycle runs every second (TODO), cleans up finished peer_sessions,
     // connects to new peers, if necessary, and does general housekeeping. Also, every
@@ -198,7 +198,7 @@ public:
         const settings& global_settings,
         std::vector<tracker_entry> trackers,
         endpoint_filter& endpoint_filter,
-        event_queue& event_queue,
+        alert_queue& alert_queue,
         torrent_args args);
 
     /**
@@ -218,7 +218,7 @@ public:
         const settings& global_settings,
         std::vector<tracker_entry> trackers,
         endpoint_filter& endpoint_filter,
-        event_queue& event_queue,
+        alert_queue& alert_queue,
         bmap resume_data);
 
     /**
@@ -270,15 +270,16 @@ public:
     int max_download_rate() const noexcept;
     int max_connections() const noexcept;
 
+    /*
     std::vector<peer_session::stats> peer_stats() const;
     void peer_stats(std::vector<peer_session::stats>& s) const;
     std::vector<peer_session::detailed_stats> detailed_peer_stats() const;
     void detailed_peer_stats(std::vector<peer_session::detailed_stats>& s) const;
 
     void piece_availability(std::vector<int>& piece_map);
+    */
 
     const torrent_info& info() const;
-    //void info(torrent_info& info) const;
 
     torrent_id_t id() const noexcept;
     const sha1_hash& info_hash() const noexcept;
@@ -302,18 +303,18 @@ public:
     bool is_seed() const noexcept;
 
     /**
-     * Announces to trackers are usually spaced fixed intervals apart (this is set by
-     * the tracker) and torrent doesn't violate this. However user may request an
-     * announce, in which case this will override the tracker timer.
-     */
-    void force_tracker_announce();
-
-    /**
      * This saves torrent's current state to disk. This is done automatically if a
      * change to torrent's state occurs, but user may request it manually. It will not
      * issue a disk_io job if torrent's state has not changed since the last save.
      */
     void save_state();
+
+    /**
+     * Announces to trackers are usually spaced fixed intervals apart (this is set by
+     * the tracker) and torrent doesn't violate this. However user may request an
+     * announce, in which case this will override the tracker timer.
+     */
+    void force_tracker_announce(string_view url);
 
     void force_storage_integrity_check();
     void force_resume_data_check();
@@ -341,7 +342,7 @@ private:
         const settings& global_settings,
         std::vector<tracker_entry> trackers,
         endpoint_filter& endpoint_filter,
-        event_queue& event_queue);
+        alert_queue& alert_queue);
 
     void apply_torrent_args(torrent_args& args);
 
@@ -355,6 +356,12 @@ private:
      * update cycle is reinstated.
      */
     void update(const std::error_code& error = std::error_code());
+
+    /**
+     * Copies the parts of m_info into m_ts_info that change (i.e. not redundant copies
+     * of constants structures such as the info_hash, files etc are done).
+     */
+    void update_thread_safe_info();
 
     /** Checks whether the current number of connected peers is below some threshold. */
     bool should_connect_peers() const noexcept;
@@ -487,14 +494,6 @@ private:
     void optimistic_unchoke();
 
     /**
-     * We may not be able to unchoke all peers we can unchoke (e.g. if peers are not yet
-     * connected, we can't send an unchoke message), so, if we have sessions available,
-     * we try to unchoke as many peers as many upload slots are left. Thus, it does not
-     * choke any peers, it only attempts to unchoke some.
-     */
-    void fill_free_upload_slots();
-
-    /**
      * These are the currently supported peer score comparators for the choking
      * algorithm. Before we decide which peers to {un,}choke, m_peer_sessions is sorted
      * according to m_unchoke_comparator, which is one of these functions.
@@ -530,23 +529,45 @@ private:
         const char* format, Args&&... args) const;
 };
 
-inline bool torrent::is_stopped() const noexcept { return !is_running(); }
-
-inline bool torrent::is_running() const noexcept
+int torrent::max_upload_slots() const noexcept
 {
-    return m_info.state[torrent_info::active];
+    return m_info.settings.max_upload_slots;
 }
 
-inline void piece_availability(std::vector<int>& piece_map);
+int torrent::max_upload_rate() const noexcept
+{
+    return m_info.settings.max_upload_rate;
+}
+
+int torrent::max_download_rate() const noexcept
+{
+    return m_info.settings.max_download_rate;
+}
+
+int torrent::max_connections() const noexcept
+{
+    return m_info.settings.max_connections;
+}
 
 inline const torrent_info& torrent::info() const { return m_info; }
 
 inline torrent_id_t torrent::id() const noexcept { return m_info.id; }
 inline const sha1_hash& torrent::info_hash() const noexcept { return m_info.info_hash; }
 
-//inline seconds torrent::total_seed_time() const noexcept;
-//inline seconds torrent::total_leech_time() const noexcept;
-//inline seconds torrent::total_active_time() const noexcept;
+inline seconds torrent::total_seed_time() const noexcept
+{
+    return m_info.total_seed_time;
+}
+
+inline seconds torrent::total_leech_time() const noexcept
+{
+    return m_info.total_leech_time;
+}
+
+inline seconds torrent::total_active_time() const noexcept
+{
+    return total_seed_time() + total_leech_time();
+}
 
 inline time_point torrent::download_started_time() const noexcept
 {
@@ -555,10 +576,7 @@ inline time_point torrent::download_started_time() const noexcept
 
 inline time_point torrent::download_finished_time() const noexcept
 {
-    if(is_leech())
-        return {};
-    else
-        return m_info.download_finished_time;
+    return m_info.download_finished_time;
 }
 
 inline int torrent::total_peers() const noexcept
@@ -569,7 +587,7 @@ inline int torrent::total_peers() const noexcept
 inline int torrent::num_connected_peers() const noexcept
 {
     // we use this metric because if torrent is paused it does not clear m_peer_sessions
-    // in the hopes of reconnecting them, so calling m_peer_sessions.size is not always
+    // in the hopes of reconnecting them, so calling m_peer_sessions.size would not be
     // accurate
     return num_seeders() + num_leechers();
 }
@@ -577,15 +595,29 @@ inline int torrent::num_connected_peers() const noexcept
 inline int torrent::num_seeders() const noexcept { return m_info.num_seeders; }
 inline int torrent::num_leechers() const noexcept { return m_info.num_leechers; }
 
+inline torrent_handle torrent::get_handle() noexcept
+{
+    return torrent_handle(shared_from_this());
+}
+
+inline torrent_storage_handle torrent::get_storage_handle() noexcept
+{
+    return m_storage;
+}
+
+inline bool torrent::is_stopped() const noexcept { return !is_running(); }
+
+inline bool torrent::is_running() const noexcept
+{
+    return m_info.state[torrent_info::active];
+}
+
 inline bool torrent::is_leech() const noexcept { return !is_seed(); }
 
 inline bool torrent::is_seed() const noexcept
 {
     return m_info.state[torrent_info::state::seeding];
 }
-
-inline torrent_handle torrent::get_handle() noexcept { return torrent_handle(*this); }
-inline torrent_storage_handle torrent::get_storage_handle() noexcept { return m_storage; }
 
 } // namespace tide
 

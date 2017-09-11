@@ -96,8 +96,9 @@ struct torrent_info : public stats
     // so that every 3rd time we can run optimistic_unchoke.
     int num_choke_cycles = 0;
 
-    seconds total_seed_time;
-    seconds total_leech_time;
+    seconds total_seed_time{0};
+    seconds total_leech_time{0};
+
     time_point download_started_time;
     time_point download_finished_time;
     time_point last_announce_time;

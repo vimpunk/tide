@@ -5,7 +5,7 @@
 #include "endpoint_filter.hpp"
 #include "torrent_handle.hpp"
 #include "torrent_args.hpp"
-#include "event_queue.hpp"
+#include "alert_queue.hpp"
 #include "settings.hpp"
 #include "metainfo.hpp"
 #include "disk_io.hpp"
@@ -45,11 +45,11 @@ class engine
     endpoint_filter m_endpoint_filter;
     
     // Internal entities within tide::engine communicate with user asynchronously via
-    // an event channel. This is done by accumulating events (stats, alerts, async
-    // op results etc) in this queue and user extracts all thus far accrued events
+    // an alert channel. This is done by accumulating alerts (stats, alerts, async
+    // op results etc) in this queue and user extracts all thus far accrued alerts
     // manually.
     // thread-safe.
-    event_queue m_event_queue;
+    alert_queue m_alert_queue;
 
     // All active and inactive torrents are stored here.
     std::vector<std::shared_ptr<torrent>> m_torrents;
@@ -99,7 +99,11 @@ public:
     void pause();
     void resume();
 
-    std::queue<std::unique_ptr<event>> events();
+    /**
+     * Returns a queue of all the alerts that occurred since the last call to this
+     * function. Events are chronologically ordered.
+     */
+    std::deque<std::unique_ptr<alert>> alerts();
 
     /** Returns whether engine has managed to set up a listening port. */
     bool is_listening() const noexcept;

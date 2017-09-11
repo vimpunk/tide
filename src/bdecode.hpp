@@ -65,7 +65,7 @@ struct btoken
 
     btoken() = default;
 
-    explicit btoken(btype t, int o)
+    btoken(btype t, int o)
         : type(t)
         , offset(o)
     {

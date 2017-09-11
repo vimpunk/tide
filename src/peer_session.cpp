@@ -1849,8 +1849,10 @@ inline void peer_session::handle_corrupt_piece(const piece_download& download)
 void peer_session::on_block_saved(const std::error_code& error,
     const block_info& block, const time_point start_time)
 {
-    m_op_state.unset(op::disk_write);
     m_info.num_pending_disk_write_bytes -= block.length;
+    // there may be multiple concurrent disk operations, so we can only unset this state
+    // if we don't expect more bytes to be written to disk
+    if(m_info.num_pending_disk_write_bytes == 0) { m_op_state.unset(op::disk_write); }
     m_torrent.info().num_pending_disk_write_bytes -= block.length;
     assert(error != disk_io_errc::invalid_block);
     // it's not really an error if piece turned out to be bad or it was a duplicate block
@@ -1908,8 +1910,6 @@ void peer_session::on_block_saved(const std::error_code& error,
 void peer_session::on_block_fetched(const std::error_code& error,
     const block_source& block)
 {
-    m_op_state.unset(op::disk_read);
-
     if(error == disk_io_errc::operation_aborted)
     {
         // the block read was cancelled
@@ -1939,6 +1939,10 @@ void peer_session::on_block_fetched(const std::error_code& error,
             block.index, block.offset, block.length, m_info.total_bytes_read_from_disk,
             m_info.num_pending_disk_read_bytes);
     }
+
+    // there may be multiple concurrent disk operations, so we can only unset this state
+    // if we don't expect more bytes to be written to disk
+    if(m_info.num_pending_disk_read_bytes == 0) { m_op_state.unset(op::disk_read); }
 
     // note: don't move this above, we still need to record stats for torrent,
     // but even more importantly, THIS ALWAYS HAS TO BE CALLED

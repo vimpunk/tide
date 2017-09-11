@@ -3,7 +3,7 @@
 #include "piece_download.hpp"
 #include "string_utils.hpp"
 #include "piece_picker.hpp"
-#include "event_queue.hpp"
+#include "alert_queue.hpp"
 #include "sha1_hasher.hpp"
 #include "settings.hpp"
 #include "disk_io.hpp"
@@ -29,14 +29,14 @@ torrent::torrent(
     const settings& global_settings,
     std::vector<tracker_entry> trackers,
     endpoint_filter& endpoint_filter,
-    event_queue& event_queue
+    alert_queue& alert_queue
 )
     : m_ios(ios)
     , m_disk_io(disk_io)
     , m_bandwidth_controller(bandwidth_controller)
     , m_global_settings(global_settings)
     , m_endpoint_filter(endpoint_filter)
-    , m_event_queue(event_queue)
+    , m_alert_queue(alert_queue)
     , m_trackers(std::move(trackers))
     , m_piece_picker(num_pieces)
     , m_update_timer(ios)
@@ -57,11 +57,11 @@ torrent::torrent(
     const settings& global_settings,
     std::vector<tracker_entry> trackers,
     endpoint_filter& endpoint_filter,
-    event_queue& event_queue,
+    alert_queue& alert_queue,
     torrent_args args
 )
     : torrent(id, args.metainfo.num_pieces, ios, disk_io, bandwidth_controller,
-        global_settings, std::move(trackers), endpoint_filter, event_queue) 
+        global_settings, std::move(trackers), endpoint_filter, alert_queue) 
 {
     apply_torrent_args(args);
     if(!m_info.settings.download_sequentially && m_piece_picker.num_have_pieces() < 4)
@@ -80,12 +80,12 @@ torrent::torrent(
     const settings& global_settings,
     std::vector<tracker_entry> trackers,
     endpoint_filter& endpoint_filter,
-    event_queue& event_queue,
+    alert_queue& alert_queue,
     bmap resume_data
 )
     : torrent(id, resume_data.find_number("num_pieces"), ios, disk_io, 
         bandwidth_controller, global_settings, std::move(trackers),
-        endpoint_filter, event_queue) 
+        endpoint_filter, alert_queue) 
 {
     restore_resume_data(resume_data);
     if(!m_info.settings.download_sequentially)
@@ -126,12 +126,17 @@ void torrent::apply_torrent_args(torrent_args& args)
     {
         if(f.is_wanted) { m_info.wanted_size += f.length; }
     }
-    // FIXME num_wanted_piece calculation is a bit more involved, unfortunately
+    // FIXME num_wanted_piece calculation is a bit more involved, unfortunately, because
+    // we also need to count the pieces that overlap into unwanted files, which the
+    // above calculation does not take into consideration
 
     if(args.name.empty())
         args.metainfo.source.try_find_string("name", m_info.name);
     else
         m_info.name = std::move(args.name);
+
+    // initialize the thread-safe torrent_info copy with these variables as well
+    m_ts_info = m_info;
 }
 
 void torrent::start()
@@ -159,10 +164,14 @@ void torrent::start()
         update();
     }
 
+    // I doubt this is going to be run exactly at the Unix epoch, so this should
+    // be good enough :D
     if((m_info.download_started_time == time_point()) && !is_seed())
     {
         m_info.download_started_time = cached_clock::now();
     }
+
+    m_alert_queue.emplace<torrent_stopped_alert>(get_handle());
 }
 
 void torrent::stop()
@@ -199,7 +208,8 @@ void torrent::on_peer_session_gracefully_stopped(peer_session& session)
         assert(m_info.num_leechers == 0);
         assert(m_info.num_unchoked_peers == 0);
         save_state();
-        // TODO send alert event that we finished shutting down
+
+        m_alert_queue.emplace<torrent_stopped_alert>(get_handle());
     }
 }
 
@@ -223,6 +233,58 @@ void torrent::abort()
     m_info.num_leechers = 0;
     m_info.num_unchoked_peers = 0;
     save_state();
+
+    m_alert_queue.emplace<torrent_stopped_alert>(get_handle());
+}
+
+void torrent::attach_peer_session(std::shared_ptr<peer_session> session)
+{
+
+}
+
+void torrent::prioritize_file(const int file_index)
+{
+
+}
+
+void torrent::deprioritize_file(const int file_index)
+{
+
+}
+
+void torrent::prioritize_piece(const piece_index_t piece)
+{
+
+}
+
+void torrent::deprioritize_piece(const piece_index_t piece)
+{
+
+}
+
+void torrent::apply_settings(const torrent_settings& settings)
+{
+
+}
+
+void torrent::set_max_upload_slots(const int n)
+{
+
+}
+
+void torrent::set_max_upload_rate(const int n)
+{
+
+}
+
+void torrent::set_max_download_rate(const int n)
+{
+
+}
+
+void torrent::set_max_connections(const int n)
+{
+
 }
 
 inline void torrent::on_torrent_allocated(
@@ -311,7 +373,7 @@ bmap_encoder torrent::create_resume_data() const
         bmap_encoder file_map;
         file_map["path"] = f.path.c_str();
         file_map["length"] = f.length;
-        file_map["completion"] = f.completion * 100;
+        file_map["downloaded_length"] = f.downloaded_length;
         file_map["is_wanted"] = f.is_wanted ? 1 : 0;
         files_list.push_back(file_map);
     }
@@ -399,7 +461,7 @@ void torrent::restore_resume_data(const bmap& resume_data)
         bmap_encoder file_map;
         file_map["path"] = f.path.c_str();
         file_map["length"] = f.length;
-        file_map["completion"] = f.completion * 100;
+        file_map["downloaded_length"] = f.downloaded_length;
         file_map["is_wanted"] = f.is_wanted ? 1 : 0;
         files_list.push_back(file_map);
     }
@@ -621,7 +683,7 @@ void torrent::on_announce_response(tracker_entry& tracker, const std::error_code
         tracker.tracker->url().c_str(), response.peers.size()
         + response.ipv4_peers.size() + response.ipv6_peers.size(), response.interval,
         response.num_seeders, response.num_leechers, response.tracker_id.c_str());
-    //m_event_queue.emplace<announce_response_alert>(tracker.tracker.url(),
+    //m_alert_queue.emplace<announce_response_alert>(tracker.tracker.url(),
         //response.interval, response.num_seeders, response.num_leechers);
 
     const auto now = cached_clock::now();
@@ -745,21 +807,19 @@ void torrent::update(const std::error_code& error)
             return;
         }
     }
+
     if(cached_clock::now() - m_info.last_unchoke_time >= seconds(10)) { unchoke(); }
 
-    // in the rare circumstance when we have as many peers as upload slots, the freshly
-    // connected ones may not be unchokable, but waiting 10s for the next unchoke round
-    // would be too much, so we check every second whether there are peers we can unchoke
-    // TODO this feels ugly
-    /*
-    if(m_info.num_unchoked_peers < m_info.settings.max_upload_slots
-       && m_peer_sessions.size() > m_info.settings.max_upload_slots)
-    {
-        fill_free_upload_slots();
-    }
-    */
+    // FIXME this is wrong because this update function may not be invoked if we don't
+    // have any seeds, in which case these counters still need incrementing
+    if(is_seed())
+        m_info.total_seed_time += seconds(1);
+    else
+        m_info.total_leech_time += seconds(1);
 
-    m_event_queue.emplace<torrent_stats>(torrent_stats{m_info});
+    update_thread_safe_info();
+
+    m_alert_queue.emplace<torrent_stats_alert>(get_handle());
 
     start_timer(m_update_timer, seconds(1),
         [SHARED_THIS](const std::error_code& error) { update(error); });
@@ -809,6 +869,8 @@ inline void torrent::connect_peer(tcp::endpoint& peer)
     m_peer_sessions.emplace_back(std::make_shared<peer_session>(m_ios, std::move(peer),
         m_bandwidth_controller, m_global_settings, torrent_frontend(*this)));
     m_peer_sessions.back()->start();
+    // FIXME TODO we need to know how many seeds and leeches we have in the swarm.
+    // should we periodically loop through all peers in session to find out?
 }
 
 inline void torrent::remove_finished_peer_sessions()
@@ -850,6 +912,11 @@ void torrent::on_peer_session_finished(peer_session& session)
     else
         --m_info.num_leechers;
 }
+
+inline void torrent::update_thread_safe_info()
+{
+    std::unique_lock<std::mutex> l(m_ts_info_mutex);
+};
 
 void torrent::unchoke()
 {
@@ -941,25 +1008,6 @@ void torrent::optimistic_unchoke()
         assert(!candidates[peer_index]->is_peer_choked());
     }
     m_info.last_optimistic_unchoke_time = cached_clock::now();
-}
-
-inline void torrent::fill_free_upload_slots()
-{
-    const int num_to_unchoke = std::min(
-        m_info.settings.max_upload_slots - m_info.num_unchoked_peers,
-        int(m_peer_sessions.size()) - m_info.num_unchoked_peers);
-    if(num_to_unchoke <= 0) { return; }
-
-    for(auto it = m_peer_sessions.begin() + m_info.num_unchoked_peers,
-        end = m_peer_sessions.end(); it != end; ++it)
-    {
-        auto& session = *it;
-        if(session->is_connected())
-        {
-            session->unchoke_peer();
-            if(!session->is_peer_choked()) { ++m_info.num_unchoked_peers; }
-        }
-    }
 }
 
 bool torrent::choke_ranker::upload_rate_based(
@@ -1055,12 +1103,15 @@ inline void torrent::handle_valid_piece(piece_download& download)
     // update file progress
     const interval files = m_storage.files_containing_piece(download.piece_index());
     assert(!files.empty());
-    for(auto i = files.begin; i < files.end; ++i)
+    for(file_index_t i = files.begin; i < files.end; ++i)
     {
-        const auto slice = m_storage.get_file_slice(file_index_t(i),
+        const auto slice = m_storage.get_file_slice(i,
             block_info(download.piece_index(), 0, piece_length));
-        const double fraction = double(slice.length) / m_info.files[i].length;
-        m_info.files[i].completion += fraction;
+        m_info.files[i].downloaded_length += slice.length;
+        if(m_info.files[i].downloaded_length == m_info.files[i].length)
+        {
+            m_alert_queue.emplace<file_complete_alert>(get_handle(), i);
+        }
     }
 
     if(m_piece_picker.num_pieces_left() == 0)
@@ -1131,8 +1182,7 @@ inline void torrent::on_download_complete()
     // since we have become a seeder, and if any of our peers were seeders, they were
     // disconnected, so clean up those finished sessions
     if(m_info.num_seeders > 1) { remove_finished_peer_sessions(); }
-    //TODO
-    //m_event_queue.emplace<download_complete>(get_handle());
+    m_alert_queue.emplace<download_complete_alert>(get_handle());
 }
 
 template<typename... Args>

@@ -56,7 +56,7 @@ std::error_condition make_error_condition(tracker_errc e)
 // -- tracker base --
 // ------------------
 
-tracker::tracker(std::string url, asio::io_service& ios, const settings& settings)
+tracker::tracker(std::string url, const settings& settings)
     : m_url(std::move(url))
     , m_settings(settings)
 {}
@@ -88,7 +88,65 @@ void tracker::log(const log_event event, const log::priority priority,
 // ------------------
 // -- http tracker --
 // ------------------
-// TODO
+
+http_tracker::http_tracker(asio::io_service& ios,
+    std::string host, const settings& settings)
+    : tracker(host, settings)
+    , m_socket(ios)
+    , m_resolver(ios)
+{}
+
+void http_tracker::announce(tracker_request params,
+    std::function<void(const std::error_code&, tracker_response)> handler)
+{
+
+}
+
+void http_tracker::scrape(std::vector<sha1_hash> info_hashes,
+    std::function<void(const std::error_code&, scrape_response)> handler)
+{
+
+}
+
+void http_tracker::abort()
+{
+
+}
+
+void http_tracker::on_host_resolved(
+    const std::error_code& error, udp::resolver::iterator it)
+{
+    /*
+    if(m_is_aborted) { return; }
+    if(error)
+    {
+        // host resolution is done on the first request, though it is possible that
+        // other torrents have issued requests while this was working, so let all
+        // of them know that we could not resolve host
+        for(auto& entry : m_requests) { entry.second->on_error(error); }
+        return;
+    }
+
+    // if there was no error we should have a valid endpoint
+    assert(it != udp::resolver::iterator());
+    udp::endpoint ep(*it);
+    ep.port(util::extract_port(m_url));
+
+    log(log_event::connecting, "tracker (%s) resolved to: %s:%i",
+        m_url.c_str(), ep.address().to_string().c_str(), ep.port());
+
+    // connect also opens socket
+    std::error_code ec;
+    m_socket.connect(ep, ec);
+    if(ec)
+    {
+        for(auto& entry : m_requests) { entry.second->on_error(error); }
+        return;
+    }
+    m_is_resolved = true;
+    resume_stalled_requests();
+    */
+}
 
 // -----------------
 // -- udp tracker --
@@ -117,10 +175,10 @@ inline udp_tracker::scrape_request::scrape_request(
     , handler(std::move(h))
 {}
 
-udp_tracker::udp_tracker(const std::string& url,
-    asio::io_service& ios, const settings& settings
+udp_tracker::udp_tracker(asio::io_service& ios,
+    const std::string& url, const settings& settings
 )
-    : tracker(/*util::strip_protocol_identifier(*/url/*)*/, ios, settings)
+    : tracker(/*util::strip_protocol_identifier(*/url/*)*/, settings)
     , m_socket(ios)
     , m_resolver(ios)
 {}
