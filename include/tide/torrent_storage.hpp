@@ -69,35 +69,35 @@ class torrent_storage
     // on disk, i.e. when they are first accessed. The vector itself is never changed
     // (resize/reallocation), therefore the buffer's memory remains intact, which can be 
     // relied upon when ensuring thread-safety.
-    std::vector<file_entry> m_files;
+    std::vector<file_entry> files_;
 
     // This is the file where torrent resume data is stored.
-    file m_resume_data;
+    file resume_data_;
 
     // The expected hashes of all pieces, represented as a single block of memory for
     // optimal memory layout. To retrieve a piece's hash:
-    // string_view(m_piece_hashes.data() + piece_index * m_piece_length, 20)
+    // string_view(piece_hashes_.data() + piece_index * piece_length_, 20)
     // TODO make this const to semantically ensure thread safety
-    std::string m_piece_hashes;
+    std::string piece_hashes_;
 
     // This is an absolute path to the root directory in which torrent is saved. If
     // torrent is multi-file, the root directory is save path / torrent name, otherwise
     // it's just save path.
-    path m_root_path;
+    path root_path_;
 
     // The name of the root directory if this is a multi-file torrent.
-    std::string m_name;
+    std::string name_;
 
-    int m_piece_length; // const
+    int piece_length_; // const
 
     // This is the total number of pieces in torrent, but may not be the same as the
     // number of pieces we actually want to download.
-    int m_num_pieces; // const
+    int num_pieces_; // const
 
     // This is the number of bytes we download, which may not be the same as the sum of
     // each file's length, as we may not download all files.
-    int64_t m_size_to_download = 0;
-    int64_t m_size = 0; // const
+    int64_t size_to_download_ = 0;
+    int64_t size_ = 0; // const
 
 public:
 
@@ -116,17 +116,17 @@ public:
      * These return the root path of the torrent, which is save path / torrent name for
      * multi-file torrents and save path for single file torrents.
      */
-    const path& root_path() const noexcept { return m_root_path; }
+    const path& root_path() const noexcept { return root_path_; }
 
     /**
      * Returns the total number of bytes of all files we'll have once all the wanted
      * files are downloaded (that is, if we're not downloading all files, then this
      * value won't match the summed lengths of all files in metainfo).
      */
-    int64_t size_to_download() const noexcept { return m_size_to_download; }
-    int64_t size() const noexcept { return m_size; }
+    int64_t size_to_download() const noexcept { return size_to_download_; }
+    int64_t size() const noexcept { return size_; }
 
-    int num_pieces() const noexcept { return m_num_pieces; }
+    int num_pieces() const noexcept { return num_pieces_; }
     int piece_length(const piece_index_t index) const noexcept;
 
     /**
@@ -314,9 +314,9 @@ private:
 inline int torrent_storage::piece_length(const piece_index_t index) const noexcept
 {
     if(index == num_pieces() - 1)
-        return size() - index * m_piece_length;
+        return size() - index * piece_length_;
     else
-        return m_piece_length;
+        return piece_length_;
 }
 
 } // namespace tide

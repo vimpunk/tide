@@ -47,21 +47,21 @@ std::string bencode_string(string_view s)
 // -- bmap -- 
 // ----------
 
-bmap_encoder::proxy::proxy(const int64_t i) : m_value(bencode_number(i)) {}
-bmap_encoder::proxy::proxy(const char* s) : m_value(bencode_string(s)) {}
-bmap_encoder::proxy::proxy(const std::string& s) : m_value(bencode_string(s)) {}
-bmap_encoder::proxy::proxy(const bmap_encoder& b) : m_value(b.encode()) {}
-bmap_encoder::proxy::proxy(const blist_encoder& b) : m_value(b.encode()) {}
+bmap_encoder::proxy::proxy(const int64_t i) : value_(bencode_number(i)) {}
+bmap_encoder::proxy::proxy(const char* s) : value_(bencode_string(s)) {}
+bmap_encoder::proxy::proxy(const std::string& s) : value_(bencode_string(s)) {}
+bmap_encoder::proxy::proxy(const bmap_encoder& b) : value_(b.encode()) {}
+bmap_encoder::proxy::proxy(const blist_encoder& b) : value_(b.encode()) {}
 bmap_encoder::proxy& bmap_encoder::proxy::operator=(const int64_t i)
-{ m_value = bencode_number(i); }
+{ value_ = bencode_number(i); }
 bmap_encoder::proxy& bmap_encoder::proxy::operator=(const char* s)
-{ m_value = bencode_string(s); }
+{ value_ = bencode_string(s); }
 bmap_encoder::proxy& bmap_encoder::proxy::operator=(const std::string& s)
-{ m_value = bencode_string(s); }
+{ value_ = bencode_string(s); }
 bmap_encoder::proxy& bmap_encoder::proxy::operator=(const bmap_encoder& b)
-{ m_value = b.encode(); }
+{ value_ = b.encode(); }
 bmap_encoder::proxy& bmap_encoder::proxy::operator=(const blist_encoder& b)
-{ m_value = b.encode(); }
+{ value_ = b.encode(); }
 
 std::string bmap_encoder::encode() const
 {
@@ -69,10 +69,10 @@ std::string bmap_encoder::encode() const
     assert(result.length() >= 2);
     auto it = result.begin();
     *it++ = 'd';
-    for(const auto& entry : m_map)
+    for(const auto& entry : map_)
     {
         it += util::bencode_string(entry.first, it);
-        const std::string& value = entry.second.m_value;
+        const std::string& value = entry.second.value_;
         std::copy(value.begin(), value.end(), it);
         it += value.length();
     }
@@ -84,10 +84,10 @@ int bmap_encoder::encoded_length() const
 {
     // start at 2, for even empty maps have the 'd' ... 'e' identifiers at both ends
     int length = 2;
-    for(const auto& entry : m_map)
+    for(const auto& entry : map_)
     {
         length += util::bencoded_string_length(entry.first);
-        length += entry.second.m_value.length();
+        length += entry.second.value_.length();
     }
     return length;
 }
@@ -99,29 +99,29 @@ int bmap_encoder::encoded_length() const
 void blist_encoder::push_back(const int64_t i)
 {
     std::string encoded = bencode_number(i);
-    m_num_bytes += encoded.length();
-    m_list.emplace_back(std::move(encoded));
+    num_bytes_ += encoded.length();
+    list_.emplace_back(std::move(encoded));
 }
 
 void blist_encoder::push_back(string_view s)
 {
     std::string encoded = bencode_string(s);
-    m_num_bytes += encoded.length();
-    m_list.emplace_back(std::move(encoded));
+    num_bytes_ += encoded.length();
+    list_.emplace_back(std::move(encoded));
 }
 
 void blist_encoder::push_back(const blist_encoder& l)
 {
     std::string encoded = l.encode();
-    m_num_bytes += encoded.length();
-    m_list.emplace_back(std::move(encoded));
+    num_bytes_ += encoded.length();
+    list_.emplace_back(std::move(encoded));
 }
 
 void blist_encoder::push_back(const bmap_encoder& m)
 {
     std::string encoded = m.encode();
-    m_num_bytes += encoded.length();
-    m_list.emplace_back(std::move(encoded));
+    num_bytes_ += encoded.length();
+    list_.emplace_back(std::move(encoded));
 }
 
 std::string blist_encoder::encode() const
@@ -129,7 +129,7 @@ std::string blist_encoder::encode() const
     std::string result(encoded_length(), 0);
     result.front() = 'l';
     int i = 1;
-    for(auto& s : m_list)
+    for(auto& s : list_)
     {
         std::copy(s.begin(), s.end(), &result[i]);
         i += s.length();

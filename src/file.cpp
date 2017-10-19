@@ -90,9 +90,9 @@ std::error_condition make_error_condition(file_errc e)
 // ----------
 
 file::file(path path, size_type length, open_mode_flags open_mode)
-    : m_absolute_path(std::move(path))
-    , m_length(length)
-    , m_open_mode(open_mode)
+    : absolute_path_(std::move(path))
+    , length_(length)
+    , open_mode_(open_mode)
 {}
 
 file::~file()
@@ -115,24 +115,24 @@ void file::erase(std::error_code& error)
     }
 #ifdef _WIN32
     // TODO filepath name might be restricted
-    if(DeleteFile(m_absolute_path.c_str()) == 0) { error = sys::latest_error(); }
+    if(DeleteFile(absolute_path_.c_str()) == 0) { error = sys::latest_error(); }
 #else // _WIN32
-    if(unlink(m_absolute_path.c_str()) != 0) { error = sys::latest_error(); }
+    if(unlink(absolute_path_.c_str()) != 0) { error = sys::latest_error(); }
 #endif // _WIN32
 }
 
 void file::move(const path& new_path, std::error_code& error)
 {
-    sys::move(m_absolute_path, new_path, error);
+    sys::move(absolute_path_, new_path, error);
     if(!error)
     {
-        m_absolute_path = new_path;
+        absolute_path_ = new_path;
     }
 }
 
 void file::open(std::error_code& error)
 {
-    return open(m_open_mode, error);
+    return open(open_mode_, error);
 }
 
 void file::open(open_mode_flags open_mode, std::error_code& error)
@@ -144,7 +144,7 @@ void file::open(open_mode_flags open_mode, std::error_code& error)
     error.clear();
     if(is_open())
     {
-        if(open_mode == m_open_mode) { return; }
+        if(open_mode == open_mode_) { return; }
         // close file because we want to open it in a different mode
         close();
     }
@@ -179,36 +179,36 @@ void file::open(open_mode_flags open_mode, std::error_code& error)
     else if(open_mode[write_only])
         mode |= O_WRONLY | O_CREAT;
 
-    m_file_handle = ::open(m_absolute_path.c_str(), mode, permissions);
+    file_handle_ = ::open(absolute_path_.c_str(), mode, permissions);
 
-    if(m_file_handle == INVALID_HANDLE_VALUE
+    if(file_handle_ == INVALID_HANDLE_VALUE
        && open_mode[no_atime]
        && errno == EPERM)
     {
         // O_NOATIME is not allowed for files we don't own, so try again without it
         mode &= ~O_NOATIME;
         open_mode.unset(no_atime);
-        m_file_handle = ::open(m_absolute_path.c_str(), mode, permissions);
+        file_handle_ = ::open(absolute_path_.c_str(), mode, permissions);
     }
 
-    if(m_file_handle == INVALID_HANDLE_VALUE)
+    if(file_handle_ == INVALID_HANDLE_VALUE)
     {
         error = sys::latest_error();
         return;
     }
 #endif // _WIN32
-    m_open_mode = open_mode;
+    open_mode_ = open_mode;
 }
 
 void file::close()
 {
     if(!is_open()) { return; }
 #ifdef _WIN32
-    ::CloseHandle(m_file_handle);
+    ::CloseHandle(file_handle_);
 #else
-    ::close(m_file_handle);
+    ::close(file_handle_);
 #endif
-    m_file_handle = INVALID_HANDLE_VALUE;
+    file_handle_ = INVALID_HANDLE_VALUE;
 }
 
 void file::allocate(std::error_code& error)
@@ -230,7 +230,7 @@ void file::allocate(const size_type length, std::error_code& error)
 
 #ifdef _WIN32
     LARGE_INTEGER size;
-    if(GetFileSizeEx(m_file_handle, &size) == FALSE)
+    if(GetFileSizeEx(file_handle_, &size) == FALSE)
     {
         error = sys::latest_error();
         return;
@@ -240,12 +240,12 @@ void file::allocate(const size_type length, std::error_code& error)
     {
         LARGE_INTEGER distance;
         distance.QuadPart = length;
-        if(SetFilePointerEx(m_file_handle, distance, &distance, FILE_BEGIN) == FALSE)
+        if(SetFilePointerEx(file_handle_, distance, &distance, FILE_BEGIN) == FALSE)
         {
             error = sys::latest_error();
             return;
         }
-        if(SetEndOfFile(m_file_handle) == FALSE)
+        if(SetEndOfFile(file_handle_) == FALSE)
         {
             error = sys::latest_error();
             return;
@@ -253,7 +253,7 @@ void file::allocate(const size_type length, std::error_code& error)
     }
 #else // _WIN32
     struct stat stat;
-    if(fstat(m_file_handle, &stat) != 0)
+    if(fstat(file_handle_, &stat) != 0)
     {
         error = sys::latest_error();
         return;
@@ -262,12 +262,12 @@ void file::allocate(const size_type length, std::error_code& error)
     // don't truncate file if it has the correct length
     if(stat.st_size == length)
     {
-        m_is_allocated = true;
-        m_length = length;
+        is_allocated_ = true;
+        length_ = length;
         return;
     }
 
-    if(ftruncate(m_file_handle, length) < 0)
+    if(ftruncate(file_handle_, length) < 0)
     {
         error = sys::latest_error();
         return;
@@ -278,7 +278,7 @@ void file::allocate(const size_type length, std::error_code& error)
     // here) are allocated)
     if(stat.st_blocks < (length + stat.st_blksize - 1) / stat.st_blksize)
     {
-        const int ret = posix_fallocate(m_file_handle, 0, length);
+        const int ret = posix_fallocate(file_handle_, 0, length);
         if(ret != 0)
         {
             error.assign(ret, std::system_category());
@@ -286,8 +286,8 @@ void file::allocate(const size_type length, std::error_code& error)
         }
     }
 #endif // _WIN32
-    m_is_allocated = true;
-    m_length = length;
+    is_allocated_ = true;
+    length_ = length;
 }
 
 mmap_source file::create_mmap_source(const size_type file_offset,
@@ -298,7 +298,7 @@ mmap_source file::create_mmap_source(const size_type file_offset,
     if(error) { return {}; }
 
     mmap_source mmap;
-    mmap.map(m_file_handle, file_offset, length, error);
+    mmap.map(file_handle_, file_offset, length, error);
     return mmap;
 }
 
@@ -310,7 +310,7 @@ mmap_sink file::create_mmap_sink(const size_type file_offset,
     if(error) { return {}; }
 
     mmap_sink mmap;
-    mmap.map(m_file_handle, file_offset, length, error);
+    mmap.map(file_handle_, file_offset, length, error);
     return mmap;
 }
 
@@ -328,7 +328,7 @@ file::size_type file::read(iovec buffer, size_type file_offset, std::error_code&
     {
         return single_buffer_io(buffer, file_offset, error,
             [this](void* buffer, size_type length, size_type offset) -> size_type
-            { return pread(m_file_handle, buffer, length, offset); });
+            { return pread(file_handle_, buffer, length, offset); });
     }
     return 0;
 }
@@ -347,7 +347,7 @@ file::size_type file::write(iovec buffer, size_type file_offset, std::error_code
     {
         return single_buffer_io(buffer, file_offset, error,
             [this](void* buffer, size_type length, size_type offset) -> size_type
-            { return pwrite(m_file_handle, buffer, length, offset); });
+            { return pwrite(file_handle_, buffer, length, offset); });
     }
     return 0;
 }
@@ -396,7 +396,7 @@ file::size_type file::read(view<iovec>& buffers,
     error.clear();
     return positional_vector_io(buffers, file_offset, error,
         [this](view<iovec>& buffers, size_type file_offset) -> size_type
-        { return preadv(m_file_handle, buffers.data(), buffers.size(), file_offset); });
+        { return preadv(file_handle_, buffers.data(), buffers.size(), file_offset); });
 }
 
 file::size_type file::write(view<iovec>& buffers,
@@ -457,7 +457,7 @@ file::size_type file::write(view<iovec>& buffers,
         num_written = positional_vector_io(buffers, file_offset, error,
             [this](view<iovec>& buffers, size_type file_offset) -> size_type
             {
-                return pwritev(m_file_handle, buffers.data(),
+                return pwritev(file_handle_, buffers.data(),
                     buffers.size(), file_offset);
             });
 
@@ -488,12 +488,12 @@ file::size_type file::write(view<iovec>& buffers,
         num_written = positional_vector_io(buffers, file_offset, error,
             [this](view<iovec>& buffers, size_type file_offset) -> size_type
             {
-                return pwritev(m_file_handle, buffers.data(),
+                return pwritev(file_handle_, buffers.data(),
                     buffers.size(), file_offset);
             });
     }
 
-    if(!error && m_open_mode[no_os_cache]) { sync_with_disk(error); }
+    if(!error && open_mode_[no_os_cache]) { sync_with_disk(error); }
     return num_written;
 }
 
@@ -597,12 +597,12 @@ void file::sync_with_disk(std::error_code& error)
     // no need to sync if we're not in write mode
     if(is_read_only()) { return; }
 #ifdef _WIN32
-    if(!FlushFileBuffers(m_file_handle))
+    if(!FlushFileBuffers(file_handle_))
     {
         error = sys::latest_error();
     }
 #else
-    if(fdatasync(m_file_handle) != 0)
+    if(fdatasync(file_handle_) != 0)
     {
         error = sys::latest_error();
     }
@@ -615,7 +615,7 @@ inline void file::before_mapping_source(const size_type file_offset,
     before_reading(file_offset, error);
     if(!error)
     {
-        if(file_offset + length > m_length)
+        if(file_offset + length > length_)
         {
             error = std::make_error_code(std::errc::invalid_argument);
         }
@@ -628,7 +628,7 @@ inline void file::before_mapping_sink(const size_type file_offset,
     before_writing(file_offset, error);
     if(!error)
     {
-        if(file_offset + length > m_length)
+        if(file_offset + length > length_)
         {
             error = std::make_error_code(std::errc::invalid_argument);
         }

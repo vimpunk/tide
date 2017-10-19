@@ -29,61 +29,61 @@ template<typename T> struct view
 
 private:
 
-    pointer m_data = nullptr;
-    size_type m_length = 0;
+    pointer data_ = nullptr;
+    size_type length_ = 0;
 
 public:
 
     view() = default;
 
     constexpr view(pointer data, size_type length)
-        : m_data(data)
-        , m_length(length)
+        : data_(data)
+        , length_(length)
     {}
 
     constexpr view(pointer begin, pointer end)
-        : m_data(begin)
-        , m_length(end - begin)
+        : data_(begin)
+        , length_(end - begin)
     {}
 
     template<typename U>
     constexpr view(view<U>& other)
-        : m_data(other.data())
-        , m_length(other.length())
+        : data_(other.data())
+        , length_(other.length())
     {}
 
     template<typename U, size_type N>
     constexpr view(std::array<U, N>& arr)
-        : m_data(arr.data())
-        , m_length(arr.size())
+        : data_(arr.data())
+        , length_(arr.size())
     {}
 
     template<typename U, size_type N>
     constexpr view(U (&arr)[N])
-        : m_data(&arr[0])
-        , m_length(N)
+        : data_(&arr[0])
+        , length_(N)
     {}
 
     template<
         typename Container,
         typename = decltype(std::declval<Container>().data())
     > view(Container& c)
-        : m_data(c.data())
-        , m_length(c.size())
+        : data_(c.data())
+        , length_(c.size())
     {}
 
     constexpr size_type size() const noexcept { return length(); }
-    constexpr size_type length() const noexcept { return m_length; }
+    constexpr size_type length() const noexcept { return length_; }
     constexpr bool empty() const noexcept { return length() == 0; }
 
-    constexpr pointer data() noexcept { return m_data; }
-    constexpr const_pointer data() const noexcept { return m_data; }
+    constexpr pointer data() noexcept { return data_; }
+    constexpr const_pointer data() const noexcept { return data_; }
 
     constexpr reference front() noexcept { return *data(); }
     constexpr const_reference front() const noexcept { return *data(); }
 
-    constexpr reference back() noexcept { return m_data[m_length - 1]; }
-    constexpr const_reference back() const noexcept { return m_data[m_length - 1]; }
+    constexpr reference back() noexcept { return data_[length_ - 1]; }
+    constexpr const_reference back() const noexcept { return data_[length_ - 1]; }
 
     constexpr iterator begin() noexcept { return data(); }
     constexpr const_iterator begin() const noexcept { return data(); }
@@ -103,8 +103,8 @@ public:
     { return const_reverse_iterator(begin()); }
     constexpr const_reverse_iterator crend() const noexcept { return rend(); }
 
-    constexpr reference operator[](const size_type i) noexcept { return m_data[i]; }
-    constexpr const_reference operator[](const size_type i) const noexcept { return m_data[i]; }
+    constexpr reference operator[](const size_type i) noexcept { return data_[i]; }
+    constexpr const_reference operator[](const size_type i) const noexcept { return data_[i]; }
 
     constexpr view subview(const size_type offset)
     {
@@ -130,8 +130,8 @@ public:
         {
             throw std::out_of_range("tried to trim more from front of view than its size");
         }
-        m_data += n;
-        m_length -= n;
+        data_ += n;
+        length_ -= n;
     }
 
     constexpr void trim_back(const size_type n)
@@ -140,7 +140,7 @@ public:
         {
             throw std::out_of_range("tried to trim more from back of view than its size");
         }
-        m_length -= n;
+        length_ -= n;
     }
 };
 

@@ -14,14 +14,14 @@ namespace tide {
 void message_parser::reserve(const int n)
 {
     if(n <= buffer_size()) { return; }
-    m_buffer.resize(n);
+    buffer_.resize(n);
 }
 
 void message_parser::shrink_to_fit(const int n)
 {
     if(n >= buffer_size()) { return; }
     // make sure not to delete unparsed messages
-    m_buffer.resize(std::max(n, size()));
+    buffer_.resize(std::max(n, size()));
 }
 
 view<uint8_t> message_parser::get_receive_buffer(const int n)
@@ -30,16 +30,16 @@ view<uint8_t> message_parser::get_receive_buffer(const int n)
     // (which may be useful when higher control over memory usage is needed)
     if(n > free_space_size())
     {
-        m_buffer.resize(buffer_size() + n - free_space_size());
+        buffer_.resize(buffer_size() + n - free_space_size());
     }
-    return view<uint8_t>(&m_buffer[m_unused_begin], n);
+    return view<uint8_t>(&buffer_[unused_begin_], n);
 }
 
 void message_parser::record_received_bytes(const int n) noexcept
 {
     assert(n > 0);
     assert(size() + n <= buffer_size());
-    m_unused_begin += n;
+    unused_begin_ += n;
 }
 
 bool message_parser::has_message() const noexcept
@@ -55,7 +55,7 @@ bool message_parser::has_handshake() const noexcept
 {
     if(has(1))
     {
-        const uint8_t protocol_length = m_buffer[m_message_begin];
+        const uint8_t protocol_length = buffer_[message_begin_];
         return has(49 + protocol_length);
     }
     return false;
@@ -67,31 +67,31 @@ handshake message_parser::extract_handshake()
     {
         throw std::logic_error("message_parser has no handshake message");
     }
-    const uint8_t protocol_length = m_buffer[m_message_begin];
+    const uint8_t protocol_length = buffer_[message_begin_];
     if(!has(49 + protocol_length))
     {
         throw std::logic_error("message_parser has no handshake message");
     }
 
-    const uint8_t* pos = &m_buffer[m_message_begin + 1];
+    const uint8_t* pos = &buffer_[message_begin_ + 1];
     handshake handshake;
     handshake.protocol = const_view<uint8_t>(pos, protocol_length);
     handshake.reserved = const_view<uint8_t>(pos += protocol_length, 8);
     handshake.info_hash = const_view<uint8_t>(pos += 8, 20);
     handshake.peer_id = const_view<uint8_t>(pos += 20, 20);
 
-    m_message_begin += 49 + protocol_length;
+    message_begin_ += 49 + protocol_length;
     return handshake;
 }
 
 message message_parser::extract_message()
 {
     auto msg = view_message();
-    m_message_begin += 4 + msg.data.size();
+    message_begin_ += 4 + msg.data.size();
     // keep_alive messages don't have a type field
     if(msg.type != message::keep_alive)
     {
-        ++m_message_begin;
+        ++message_begin_;
     }
     return msg;
 }
@@ -116,9 +116,9 @@ message message_parser::view_message() const
     }
     else
     {
-        const int msg_id_pos = m_message_begin + 4;
-        msg.type = m_buffer[msg_id_pos];
-        msg.data = const_view<uint8_t>(&m_buffer[msg_id_pos + 1], msg_length - 1);
+        const int msg_id_pos = message_begin_ + 4;
+        msg.type = buffer_[msg_id_pos];
+        msg.data = const_view<uint8_t>(&buffer_[msg_id_pos + 1], msg_length - 1);
         // subtract message type
     }
     return msg;
@@ -139,15 +139,15 @@ int message_parser::type() const
     {
         throw std::logic_error("type (5): message_parser has no messages");
     }
-    return m_buffer[m_message_begin + 4];
+    return buffer_[message_begin_ + 4];
 }
 
 const_view<uint8_t> message_parser::view_raw_bytes() const noexcept
 {
-    assert(m_unused_begin >= m_message_begin);
+    assert(unused_begin_ >= message_begin_);
     return {
-        m_buffer.data() + m_message_begin,
-        size_t(m_unused_begin - m_message_begin)
+        buffer_.data() + message_begin_,
+        size_t(unused_begin_ - message_begin_)
     };
 }
 
@@ -157,7 +157,7 @@ int message_parser::num_bytes_left_till_completion() const noexcept
     {
         return -1;
     }
-    const int num_available = m_unused_begin - m_message_begin;
+    const int num_available = unused_begin_ - message_begin_;
     const int total_msg_length = 4 + view_message_length();
     const int left = total_msg_length - num_available;
     return std::max(left, 0);
@@ -174,27 +174,27 @@ void message_parser::skip_message()
     {
         throw std::logic_error("skip (4 + msg_length): message_parser has no messages");
     }
-    m_message_begin += 4 + msg_length;
+    message_begin_ += 4 + msg_length;
 }
 
 inline bool message_parser::has(const int n) const noexcept
 {
-    return m_unused_begin - m_message_begin >= n;
+    return unused_begin_ - message_begin_ >= n;
 }
 
 inline int message_parser::view_message_length() const noexcept
 {
     assert(has(4));
-    return endian::parse<int>(&m_buffer[m_message_begin]);
+    return endian::parse<int>(&buffer_[message_begin_]);
 }
 
 void message_parser::optimize_receive_space()
 {
-    if(m_message_begin >= m_unused_begin)
+    if(message_begin_ >= unused_begin_)
     {
         // message pointer wrapped around, reset it to the beginning of the buffer
-        m_message_begin = 0;
-        m_unused_begin = 0;
+        message_begin_ = 0;
+        unused_begin_ = 0;
         return;
     }
 
@@ -202,7 +202,7 @@ void message_parser::optimize_receive_space()
     {
         // check if this is the last message
         const int total_length = 4 + view_message_length();
-        if(has(total_length) && (total_length < m_unused_begin - m_message_begin))
+        if(has(total_length) && (total_length < unused_begin_ - message_begin_))
         {
             // we only want to shift the message to the front if it's the last one
             // (message is not the last if all its bytes are available and there's a
@@ -216,7 +216,7 @@ void message_parser::optimize_receive_space()
             // that it completely fits in the buffer
             // TODO decide if we want to do this here or whether this should be done
             // by user manually
-            m_buffer.resize(total_length);
+            buffer_.resize(total_length);
         }
     }
     shift_last_message_to_front();
@@ -226,12 +226,12 @@ inline void message_parser::shift_last_message_to_front()
 {
     // the number of bytes we have of the message (not necessarily the length of the
     // complete message)
-    const auto begin = m_buffer.begin();
-    assert(begin + m_message_begin != begin + m_unused_begin);
-    std::copy(begin + m_message_begin, begin + m_unused_begin, begin);
+    const auto begin = buffer_.begin();
+    assert(begin + message_begin_ != begin + unused_begin_);
+    std::copy(begin + message_begin_, begin + unused_begin_, begin);
 
-    m_unused_begin -= m_message_begin;
-    m_message_begin = 0;
+    unused_begin_ -= message_begin_;
+    message_begin_ = 0;
 }
 
 } // namespace tide

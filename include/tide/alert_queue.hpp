@@ -18,16 +18,16 @@ namespace tide {
  */
 class alert_queue
 {
-    std::deque<std::unique_ptr<alert>> m_queue;
-    std::mutex m_queue_mutex;
+    std::deque<std::unique_ptr<alert>> queue_;
+    std::mutex queue_mutex_;
 
-    // If the number of alerts in m_queue reaches this value, new entries will push out
-    // the oldest entries in m_queue.
-    int m_capacity;
+    // If the number of alerts in queue_ reaches this value, new entries will push out
+    // the oldest entries in queue_.
+    int capacity_;
 
 public:
 
-    alert_queue(const int capacity = 0) : m_capacity(capacity) {}
+    alert_queue(const int capacity = 0) : capacity_(capacity) {}
 
     /** Constructs a new alert in place. */
     template<typename Event, typename... Args> void emplace(Args&&... args);
@@ -39,16 +39,16 @@ public:
 template<typename Event, typename... Args>
 void alert_queue::emplace(Args&&... args)
 {
-    std::lock_guard<std::mutex> l(m_queue_mutex);
-    m_queue.emplace_back(std::make_unique<Event>(std::forward<Args>(args)...));
-    if(m_queue.size() > m_capacity) { m_queue.pop_front(); }
+    std::lock_guard<std::mutex> l(queue_mutex_);
+    queue_.emplace_back(std::make_unique<Event>(std::forward<Args>(args)...));
+    if(queue_.size() > capacity_) { queue_.pop_front(); }
 }
 
 inline std::deque<std::unique_ptr<alert>> alert_queue::extract_alerts()
 {
     std::deque<std::unique_ptr<alert>> queue;
-    std::lock_guard<std::mutex> l(m_queue_mutex);
-    queue.swap(m_queue);
+    std::lock_guard<std::mutex> l(queue_mutex_);
+    queue.swap(queue_);
     return queue;
 }
 

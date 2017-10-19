@@ -6,22 +6,22 @@ namespace tide {
 /** A simple binary exponential backoff generator. */
 template<int Max> class exponential_backoff
 {
-    int m_value;
+    int value_;
 
 public:
 
-    explicit exponential_backoff(int t = 2) : m_value(t) {}
+    explicit exponential_backoff(int t = 2) : value_(t) {}
 
-    void reset(int t = 2) noexcept { m_value = t; }
+    void reset(int t = 2) noexcept { value_ = t; }
 
     int operator()() noexcept
     {
-        if(m_value == Max) { return Max; }
-        const auto tmp = m_value;
-        m_value <<= 1;
-        if(m_value > Max)
+        if(value_ == Max) { return Max; }
+        const auto tmp = value_;
+        value_ <<= 1;
+        if(value_ > Max)
         {
-            m_value = Max;
+            value_ = Max;
         }
         return tmp;
     }

@@ -9,68 +9,68 @@
 namespace tide {
 
 torrent_frontend::torrent_frontend(torrent& t)
-    : m_torrent(t.shared_from_this())
+    : torrent_(t.shared_from_this())
 {}
 
 disk_buffer torrent_frontend::get_disk_buffer(const int length)
 {
-    return m_torrent->m_disk_io.get_disk_buffer(length);
+    return torrent_->disk_io_.get_disk_buffer(length);
 }
 
 class piece_picker& torrent_frontend::piece_picker() noexcept
 {
-    return m_torrent->m_piece_picker;
+    return torrent_->piece_picker_;
 }
 
 const class piece_picker& torrent_frontend::piece_picker() const noexcept
 {
-    return m_torrent->m_piece_picker;
+    return torrent_->piece_picker_;
 }
 
 torrent_info& torrent_frontend::info() noexcept
 {
-    return m_torrent->m_info;
+    return torrent_->info_;
 }
 
 const torrent_info& torrent_frontend::info() const noexcept
 {
-    return m_torrent->m_info;
+    return torrent_->info_;
 }
 
 std::vector<std::shared_ptr<piece_download>>& torrent_frontend::downloads() noexcept
 {
-    return m_torrent->m_downloads;
+    return torrent_->downloads_;
 }
 
 const std::vector<std::shared_ptr<piece_download>>&
 torrent_frontend::downloads() const noexcept
 {
-    return m_torrent->m_downloads;
+    return torrent_->downloads_;
 }
 
 // NOTE: must not capture `this` as `this` is owned by a peer_session that may die by
-// the time some of the handlers are invoked, so only capture m_torrent.
+// the time some of the handlers are invoked, so only capture torrent_.
 
 void torrent_frontend::save_block(
     const block_info& block_info, disk_buffer block_data, piece_download& download,
     std::function<void(const std::error_code&)> handler)
 {
-    m_torrent->m_disk_io.save_block(m_torrent->m_info.id, block_info,
+    torrent_->disk_io_.save_block(torrent_->info_.id, block_info,
         std::move(block_data), std::move(handler), 
-        [t = m_torrent, &download](bool is_valid)
+        [t = torrent_, &download](bool is_valid)
         { t->on_new_piece(download, is_valid); });
 }
 
 void torrent_frontend::fetch_block(const block_info& block_info,
     std::function<void(const std::error_code&, block_source)> handler)
 {
-    m_torrent->m_disk_io.fetch_block(m_torrent->m_info.id,
+    torrent_->disk_io_.fetch_block(torrent_->info_.id,
         block_info, std::move(handler));
 }
 
 void torrent_frontend::on_peer_session_stopped(peer_session& session)
 {
-    m_torrent->on_peer_session_gracefully_stopped(session);
+    torrent_->on_peer_session_gracefully_stopped(session);
 }
 
 } // namespace tide

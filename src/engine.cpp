@@ -8,52 +8,52 @@
 namespace tide {
 
 engine::engine()
-    : m_disk_io(m_network_ios, m_settings)
-    , m_work(m_network_ios)
-    , m_cached_clock_updater(m_network_ios)
+    : disk_io_(network_ios_, settings_)
+    , work_(network_ios_)
+    , cached_clock_updater_(network_ios_)
 {
     update_cached_clock();
 }
 
 engine::engine(const settings& s) : engine()
 {
-    m_settings = s;
+    settings_ = s;
 }
 
 void engine::update_cached_clock()
 {
     cached_clock::update();
-    start_timer(m_cached_clock_updater, milliseconds(100),
+    start_timer(cached_clock_updater_, milliseconds(100),
         [this](const auto& /*error*/) { update_cached_clock(); });
 }
 
 void engine::pause()
 {
-    m_network_ios.post([this] { for(auto& torrent : m_torrents) { torrent->stop(); } });
+    network_ios_.post([this] { for(auto& torrent : torrents_) { torrent->stop(); } });
 }
 
 void engine::resume()
 {
-    m_network_ios.post([this] { for(auto& torrent : m_torrents) { torrent->start(); } });
+    network_ios_.post([this] { for(auto& torrent : torrents_) { torrent->start(); } });
 }
 
 std::deque<std::unique_ptr<alert>> engine::alerts()
 {
-    return m_alert_queue.extract_alerts();
+    return alert_queue_.extract_alerts();
 }
 
 void engine::parse_metainfo(const path& path)
 {
-    m_network_ios.post([this, path]
+    network_ios_.post([this, path]
     {
-        m_disk_io.read_metainfo(path,
+        disk_io_.read_metainfo(path,
             [this](const std::error_code& error, metainfo m)
             {
             /*
                 if(error)
-                    m_alert_queue.emplace<async_completion_error>(error);
+                    alert_queue_.emplace<async_completion_error>(error);
                 else
-                    m_alert_queue.emplace<metainfo_parse_completion>(std::move(m));
+                    alert_queue_.emplace<metainfo_parse_completion>(std::move(m));
             */
             });
     });
@@ -63,14 +63,14 @@ void engine::add_torrent(torrent_args args)
 {
     verify_torrent_args(args);
     // TODO fill in default args if user didn't provide optional settings
-    m_network_ios.post([this, args = std::move(args)]
+    network_ios_.post([this, args = std::move(args)]
     {
         // torrent calls disk_io::allocate_torrent() so we don't have to here
         const torrent_id_t torrent_id = next_torrent_id();
-        m_torrents.emplace_back(std::make_shared<torrent>(torrent_id, m_network_ios,
-            m_disk_io, m_bandwidth_controller, m_settings, get_trackers(args.metainfo),
-            m_endpoint_filter, m_alert_queue, std::move(args)));
-        m_alert_queue.emplace<torrent_added_alert>(m_torrents.back()->get_handle());
+        torrents_.emplace_back(std::make_shared<torrent>(torrent_id, network_ios_,
+            disk_io_, bandwidth_controller_, settings_, get_trackers(args.metainfo),
+            endpoint_filter_, alert_queue_, std::move(args)));
+        alert_queue_.emplace<torrent_added_alert>(torrents_.back()->get_handle());
     });
 }
 
@@ -136,9 +136,9 @@ std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
     {
         tracker_entry entry;
         entry.tier = tracker.tier;
-        auto it = std::find_if(m_trackers.begin(), m_trackers.end(),
+        auto it = std::find_if(trackers_.begin(), trackers_.end(),
             [&tracker](const auto& t) { return t->url() == tracker.url; });
-        if(it != m_trackers.end())
+        if(it != trackers_.end())
         {
             entry.tracker = *it;
             trackers.emplace_back(std::move(entry));
@@ -149,7 +149,7 @@ std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
             if(util::is_udp_tracker(tracker.url))
             {
                 entry.tracker = std::make_shared<udp_tracker>(
-                    m_network_ios, tracker.url, m_settings);
+                    network_ios_, tracker.url, settings_);
                 trackers.emplace_back(std::move(entry));
             }
             else if(util::is_http_tracker(tracker.url))
@@ -157,11 +157,11 @@ std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
                 // we don't yet support http trackers
                 return;
                 //entry.tracker = std::make_shared<http_tracker>(
-                    //m_network_ios, tracker.url, m_settings);
+                    //network_ios_, tracker.url, settings_);
                 //trackers.emplace_back(std::move(entry));
             }
             // add new tracker to the engine's tracker collection as well
-            m_trackers.emplace_back(trackers.back().tracker);
+            trackers_.emplace_back(trackers.back().tracker);
         }
     };
 

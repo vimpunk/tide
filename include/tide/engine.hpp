@@ -37,57 +37,57 @@ class engine
     // All disk related tasks are done through this class, so only a single object
     // exists at any given time. Each torrent instance, and their peer_sessions receive
     // a reference to this object.
-    disk_io m_disk_io;
+    disk_io disk_io_;
 
-    bandwidth_controller m_bandwidth_controller;
+    bandwidth_controller bandwidth_controller_;
 
     // Rules may be applied for filtering specific IP addresses and ports.
-    endpoint_filter m_endpoint_filter;
+    endpoint_filter endpoint_filter_;
     
     // Internal entities within tide::engine communicate with user asynchronously via
     // an alert channel. This is done by accumulating alerts in this queue until user 
     // manually extracts them. It's thread-safe.
-    alert_queue m_alert_queue;
+    alert_queue alert_queue_;
 
     // All torrents (active and inactive) are stored here.
-    std::vector<std::shared_ptr<torrent>> m_torrents;
+    std::vector<std::shared_ptr<torrent>> torrents_;
 
     // Torrents may have a priority ordering, which is determined by a torrent's id's
     // position in this queue. Entries at the front have a higher priority.
-    std::vector<torrent_id_t> m_torrent_priority;
+    std::vector<torrent_id_t> torrent_priority_;
 
     // Every single tracker used by all torrents is stored here. This is because many
     // torrents share the same tracker, so when a torrent is created, we first check
     // if its trackers already exists, and if so, we can pass the existing instance to
     // torrent. A tracker is removed from here when all torrents that use it have been
     // removed (checked using shared_ptr's reference count).
-    std::vector<std::shared_ptr<tracker>> m_trackers;
+    std::vector<std::shared_ptr<tracker>> trackers_;
 
     // Incoming connections are stored here until the handshake has been concluded after
     // which we can determine to which torrent the peer belongs.
-    std::vector<std::shared_ptr<peer_session>> m_incoming_connections;
+    std::vector<std::shared_ptr<peer_session>> incoming_connections_;
 
     // This contains all the user configurable options, a const reference to which is
     // passed down to most components of the engine.
-    settings m_settings;
+    settings settings_;
 
     // This is the io_service that runs all network related connections. This is also
     // passed to disk_io for callbacks to be posted on network thread.
-    asio::io_service m_network_ios;
+    asio::io_service network_ios_;
 
-    // We want to keep m_network_ios running indefinitely until shutdown, so keep it
+    // We want to keep network_ios_ running indefinitely until shutdown, so keep it
     // busy with this work object.
-    asio::io_service::work m_work;
+    asio::io_service::work work_;
 
-    // m_network_ios is not run on user's thread, but on a separate network thread, so
+    // network_ios_ is not run on user's thread, but on a separate network thread, so
     // user does not have to handle thread synchronization. All torrents must be created
     // on the network thread so that all its operations execute there.
-    std::thread m_network_thread;
+    std::thread network_thread_;
 
     // Since the engine uses system time extensively, the time returned by the system
     // is cached and only updated every 100ms, which should save some costs as most
     // components don't need a higher resolution anyway.
-    deadline_timer m_cached_clock_updater;
+    deadline_timer cached_clock_updater_;
 
 public:
 
@@ -184,8 +184,8 @@ private:
     torrent_id_t next_torrent_id() noexcept;
 
     /**
-     * If any of torrent's trackers are already present in m_trackers, those are
-     * returned, and any that is not is created, added to m_trackers and returned.
+     * If any of torrent's trackers are already present in trackers_, those are
+     * returned, and any that is not is created, added to trackers_ and returned.
      * The trackers in announce-list come first, in the order they were specified, then,
      * if the traditional tracker is not in the announce-list (which is an uncommon
      * scenario), it is added last, as these are rarely used if an announce-list is

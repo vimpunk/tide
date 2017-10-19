@@ -94,27 +94,27 @@ template<
     class reference
     {
         friend class flag_set;
-        underlying_type& m_flags;
-        underlying_type m_mask;
+        underlying_type& flags_;
+        underlying_type mask_;
 
         reference(underlying_type& flags, underlying_type mask)
-            : m_flags(flags)
-            , m_mask(mask)
+            : flags_(flags)
+            , mask_(mask)
         {}
 
     public:
 
         operator bool() const noexcept
         {
-            return m_flags & m_mask;
+            return flags_ & mask_;
         }
 
         reference& operator=(bool x) noexcept
         {
             if(x)
-                m_flags |= m_mask;
+                flags_ |= mask_;
             else
-                m_flags &= ~m_mask;
+                flags_ &= ~mask_;
             return *this;
         }
 
@@ -125,7 +125,7 @@ template<
 
         friend bool operator==(const reference& a, const reference& b) noexcept
         {
-            return &a.m_flags == &b.m_flags;
+            return &a.flags_ == &b.flags_;
         }
 
         friend bool operator!=(const reference& a, const reference& b) noexcept
@@ -135,14 +135,14 @@ template<
     };
 
 private:
-    underlying_type m_flags = 0;
+    underlying_type flags_ = 0;
 public:
 
     flag_set() = default;
-    constexpr flag_set(underlying_type flags) : m_flags(flags) {}
+    constexpr flag_set(underlying_type flags) : flags_(flags) {}
     constexpr flag_set(const std::initializer_list<flag_type>& flags) { assign(flags); }
 
-    constexpr void assign(underlying_type flags) { m_flags = flags; }
+    constexpr void assign(underlying_type flags) { flags_ = flags; }
 
     constexpr void assign(const std::initializer_list<flag_type>& flags)
     {
@@ -157,43 +157,43 @@ public:
 
     constexpr bool empty() const noexcept
     {
-        return m_flags == 0;
+        return flags_ == 0;
     }
 
     constexpr bool is_full() const noexcept
     {
-        return m_flags == std::numeric_limits<underlying_type>::max();
+        return flags_ == std::numeric_limits<underlying_type>::max();
     }
 
     /** Used to query whether any flags are set. */
     constexpr operator bool() const noexcept { return !empty(); }
 
-    constexpr underlying_type data() const noexcept { return m_flags; }
+    constexpr underlying_type data() const noexcept { return flags_; }
 
     /** Used to query whether flag is active. */
     constexpr const_reference operator[](const flag_type flag) const noexcept
     {
-        return m_flags & bit_mask(flag);
+        return flags_ & bit_mask(flag);
     }
 
     constexpr reference operator[](const flag_type flag) noexcept
     {
-        return reference(m_flags, bit_mask(flag));
+        return reference(flags_, bit_mask(flag));
     }
 
     constexpr void set(const flag_type flag) noexcept
     {
-        m_flags |= bit_mask(flag);
+        flags_ |= bit_mask(flag);
     }
 
     constexpr void unset(const flag_type flag) noexcept
     {
-        m_flags &= ~bit_mask(flag);
+        flags_ &= ~bit_mask(flag);
     }
 
     constexpr void clear() noexcept
     {
-        m_flags = 0;
+        flags_ = 0;
     }
 
     /**
@@ -226,7 +226,7 @@ private:
 template<typename Flag, Flag N>
 constexpr bool operator==(const flag_set<Flag, N>& a, const flag_set<Flag, N>& b) noexcept
 {
-    return a.m_flags == b.m_flags;
+    return a.flags_ == b.flags_;
 }
 
 template<typename Flag, Flag N>

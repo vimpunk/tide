@@ -42,16 +42,16 @@ struct buffer
 
 class mmap_source_buffer : public detail::buffer
 {
-    mmap_source m_source;
+    mmap_source source_;
 public:
 
-    explicit mmap_source_buffer(mmap_source source) : m_source(std::move(source)) {}
+    explicit mmap_source_buffer(mmap_source source) : source_(std::move(source)) {}
 
-    size_type size() const noexcept override { return m_source.size(); }
-    bool empty() const noexcept override { return m_source.empty(); }
+    size_type size() const noexcept override { return source_.size(); }
+    bool empty() const noexcept override { return source_.empty(); }
 
     pointer data() noexcept override { assert(0 && "can't convert const to non-const"); }
-    const_pointer data() const noexcept override { return m_source.data(); }
+    const_pointer data() const noexcept override { return source_.data(); }
 };
 
 using disk_buffer_pool = boost::pool<>;
@@ -80,39 +80,39 @@ class disk_buffer : public detail::buffer
 {
     // TODO make this a unique_ptr but unfortunately asio handlers don't accept
     // move-only types so have to either manually reference count or use something else
-    std::shared_ptr<value_type> m_data;
+    std::shared_ptr<value_type> data_;
     // Reflects the desired size, not the amount of memory, which is always 16KiB.
-    size_type m_size = 0;
+    size_type size_ = 0;
 
 public:
 
     disk_buffer() = default; // default is invalid buffer
     disk_buffer(pointer data, size_type size, disk_buffer_pool& pool)
-        : m_data(data, [&pool](pointer p) { pool.free(p); })
-        , m_size(size)
+        : data_(data, [&pool](pointer p) { pool.free(p); })
+        , size_(size)
     {
         assert(size <= 0x4000);
         assert(size > 0);
     }
 
     disk_buffer(const disk_buffer& other)
-        : m_data(other.m_data)
-        , m_size(other.m_size)
+        : data_(other.data_)
+        , size_(other.size_)
     {}
 
     disk_buffer(disk_buffer&& other)
-        : m_data(std::move(other.m_data))
-        , m_size((other.m_size))
+        : data_(std::move(other.data_))
+        , size_((other.size_))
     {
-        other.m_size = 0;
+        other.size_ = 0;
     }
 
     disk_buffer& operator=(const disk_buffer& other)
     {
         if(this != &other)
         {
-            m_data = other.m_data;
-            m_size = other.m_size;
+            data_ = other.data_;
+            size_ = other.size_;
         }
         return *this;
     }
@@ -121,26 +121,26 @@ public:
     {
         if(this != &other)
         {
-            m_data = std::move(other.m_data);
-            m_size = (other.m_size);
-            other.m_size = 0;
+            data_ = std::move(other.data_);
+            size_ = (other.size_);
+            other.size_ = 0;
         }
         return *this;
     }
 
     ~disk_buffer()
     {
-        m_size = 0;
+        size_ = 0;
     }
 
-    operator bool() const noexcept { return m_data != nullptr; }
+    operator bool() const noexcept { return data_ != nullptr; }
 
-    size_type size() const noexcept override { return m_size; }
-    size_type length() const noexcept { return m_size; }
-    bool empty() const noexcept override { return m_size == 0; }
+    size_type size() const noexcept override { return size_; }
+    size_type length() const noexcept { return size_; }
+    bool empty() const noexcept override { return size_ == 0; }
 
-    pointer data() noexcept override { return m_data.get(); }
-    const_pointer data() const noexcept override { return m_data.get(); }
+    pointer data() noexcept override { return data_.get(); }
+    const_pointer data() const noexcept override { return data_.get(); }
 
     iterator begin() noexcept { return data(); }
     const_iterator begin() const noexcept { return data(); }
@@ -177,16 +177,16 @@ public:
     using iterator_tag = buffer_type::iterator_tag;
 
 private:
-    std::shared_ptr<buffer_type> m_buffer;
+    std::shared_ptr<buffer_type> buffer_;
 public:
     
-    source_buffer(std::shared_ptr<buffer_type> buffer) : m_buffer(std::move(buffer)) {}
+    source_buffer(std::shared_ptr<buffer_type> buffer) : buffer_(std::move(buffer)) {}
 
-    operator bool() const noexcept { return m_buffer != nullptr; }
+    operator bool() const noexcept { return buffer_ != nullptr; }
 
-    const_pointer data() const noexcept { return m_buffer->data(); }
-    size_type size() const noexcept { return m_buffer->size(); }
-    bool empty() const noexcept { return m_buffer->empty(); }
+    const_pointer data() const noexcept { return buffer_->data(); }
+    size_type size() const noexcept { return buffer_->size(); }
+    bool empty() const noexcept { return buffer_->empty(); }
 
     const_iterator begin() const noexcept { return data(); }
     const_iterator end() const noexcept { return data() + size(); }

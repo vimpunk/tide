@@ -20,7 +20,7 @@ class bmap_encoder
     class proxy
     {
         friend class bmap_encoder;
-        std::string m_value;
+        std::string value_;
     public:
         proxy() = default;
         // overloads so that map["key"] = value becomes valid
@@ -34,16 +34,16 @@ class bmap_encoder
         proxy& operator=(const std::string& s);
         proxy& operator=(const bmap_encoder& b);
         proxy& operator=(const blist_encoder& b);
-        operator const std::string&() const { return m_value; }
+        operator const std::string&() const { return value_; }
     };
 
     // Bencoded maps require that their elements be stored in lexicographical order of
     // their keys, so a std::map is used to ensure that the output is sorted.
-    std::map<std::string, proxy> m_map;
+    std::map<std::string, proxy> map_;
 
 public:
 
-    proxy& operator[](const std::string& key) { return m_map[key]; }
+    proxy& operator[](const std::string& key) { return map_[key]; }
 
     std::string encode() const;
     int encoded_length() const;
@@ -51,10 +51,10 @@ public:
 
 class blist_encoder
 {
-    std::vector<std::string> m_list;
+    std::vector<std::string> list_;
     // Every blist starts with a list header token (l) and closes with an end token (e).
     // Thus empty lists have an encoded length of 2.
-    int m_num_bytes = 2;
+    int num_bytes_ = 2;
 
 public:
 
@@ -64,7 +64,7 @@ public:
     void push_back(const bmap_encoder& m);
 
     std::string encode() const;
-    int encoded_length() const { return m_num_bytes; }
+    int encoded_length() const { return num_bytes_; }
 };
 
 } // namespace tide

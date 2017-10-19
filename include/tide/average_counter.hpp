@@ -7,24 +7,24 @@ namespace tide {
 
 class average_counter
 {
-    int64_t m_sum = 0;
-    int m_num_samples = 0;
+    int64_t sum_ = 0;
+    int num_samples_ = 0;
 
 public:
 
     void add_sample(const int64_t s) noexcept
     {
-        m_sum += s;
-        ++m_num_samples;
+        sum_ += s;
+        ++num_samples_;
     }
 
     double mean() const noexcept
     {
-        if(m_num_samples == 0)
+        if(num_samples_ == 0)
         {
             return 0;
         }
-        return double(m_sum) / m_num_samples;
+        return double(sum_) / num_samples_;
     }
 };
 

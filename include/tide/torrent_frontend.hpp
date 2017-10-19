@@ -58,14 +58,14 @@ class torrent;
  */
 class torrent_frontend
 {
-    std::shared_ptr<torrent> m_torrent;
+    std::shared_ptr<torrent> torrent_;
 public:
 
     torrent_frontend() = default;
     explicit torrent_frontend(torrent& t);
 
     /** Tests whether this instance is valid, i.e. whether it refers to a torrent. */
-    operator bool() const noexcept { return m_torrent != nullptr; }
+    operator bool() const noexcept { return torrent_ != nullptr; }
 
     class piece_picker& piece_picker() noexcept;
     const class piece_picker& piece_picker() const noexcept;

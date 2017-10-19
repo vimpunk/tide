@@ -75,15 +75,15 @@ struct handshake
  */
 class message_parser
 {
-    std::vector<uint8_t> m_buffer;
+    std::vector<uint8_t> buffer_;
 
     // The index of the beginning of the current message, i.e. the beginning of the
     // message length field.
-    int m_message_begin = 0;
+    int message_begin_ = 0;
 
     // This is first byte after the last message byte, so anything in the range
-    // [m_unused_begin, buffer_size()) is garbage.
-    int m_unused_begin = 0;
+    // [unused_begin_, buffer_size()) is garbage.
+    int unused_begin_ = 0;
 
 public:
 
@@ -109,7 +109,7 @@ public:
     void reserve(const int n);
 
     /**
-     * If n is below m_unused_begin, it will only shrink to m_unused_begin, to preserve
+     * If n is below unused_begin_, it will only shrink to unused_begin_, to preserve
      * unhandled messages.
      */
     void shrink_to_fit(const int n);
@@ -208,12 +208,12 @@ private:
 
     /**
      * Determines if we have n more message bytes in buffer in the range
-     * [m_message_begin, m_message_begin + n).
+     * [message_begin_, message_begin_ + n).
      */
     bool has(const int n) const noexcept;
 
     /**
-     * Returns the current message's length but does not advance m_message_begin.
+     * Returns the current message's length but does not advance message_begin_.
      * The return value is the same as the message length field in the BitTorrent
      * message. That is, it only counts the content length, excluding the message length
      * field itself (which is 4 bytes).
@@ -252,7 +252,7 @@ inline bool message_parser::is_full() const noexcept
 
 inline int message_parser::size() const noexcept
 {
-    return m_unused_begin;
+    return unused_begin_;
 }
 
 inline int message_parser::free_space_size() const noexcept
@@ -262,7 +262,7 @@ inline int message_parser::free_space_size() const noexcept
 
 inline int message_parser::buffer_size() const noexcept
 {
-    return m_buffer.size();
+    return buffer_.size();
 }
 
 } // namespace tide

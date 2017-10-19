@@ -119,7 +119,7 @@ template<size_t N> class fixed_payload
 {
     // We can't push_back on an array so we need to know where to place the next byte,
     // which this field indicates.
-    int m_pos = 0;
+    int pos_ = 0;
 
 public:
 
@@ -127,18 +127,18 @@ public:
 
     constexpr void clear() noexcept
     {
-        m_pos = 0;
+        pos_ = 0;
     }
 
     constexpr fixed_payload& i8(const int8_t h)
     {
-        data[m_pos++] = h;
+        data[pos_++] = h;
         return *this;
     }
 
     constexpr fixed_payload& u8(const uint8_t h)
     {
-        data[m_pos++] = h;
+        data[pos_++] = h;
         return *this;
     }
 
@@ -182,9 +182,9 @@ public:
     fixed_payload& range(InputIt begin, InputIt end)
     {
         const auto d = std::distance(begin, end);
-        assert(m_pos + d <= N);
-        std::copy(begin, end, data.data() + m_pos);
-        m_pos += d;
+        assert(pos_ + d <= N);
+        std::copy(begin, end, data.data() + pos_);
+        pos_ += d;
         return *this;
     }
 
@@ -205,9 +205,9 @@ private:
     template<typename Int>
     constexpr void add_integer(const Int x)
     {
-        assert(m_pos + sizeof(Int) <= N && "fixed_payload overflow");
-        endian::write<Int>(x, &data[m_pos]);
-        m_pos += sizeof(Int);
+        assert(pos_ + sizeof(Int) <= N && "fixed_payload overflow");
+        endian::write<Int>(x, &data[pos_]);
+        pos_ += sizeof(Int);
     }
 };
 

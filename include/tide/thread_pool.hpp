@@ -21,31 +21,31 @@ private:
 
     // Only the user's thread may change this vector, threads may not touch it, so no
     // synchronization is necessary.
-    std::vector<std::thread> m_threads;
+    std::vector<std::thread> threads_;
 
     // Threads are notified of new jobs via this condition variable while they are
-    // holding onto m_job_queue_mutex.
-    std::condition_variable m_job_available;
+    // holding onto job_queue_mutex_.
+    std::condition_variable job_available_;
 
     // All jobs are first placed in this queue from which they are retrieved by threads.
     //
-    // NOTE: must only be handled after acquiring m_job_queue_mutex.
-    std::deque<job_type> m_job_queue;
+    // NOTE: must only be handled after acquiring job_queue_mutex_.
+    std::deque<job_type> job_queue_;
 
-    mutable std::mutex m_job_queue_mutex;
+    mutable std::mutex job_queue_mutex_;
 
-    std::atomic<bool> m_is_joining{false};
+    std::atomic<bool> is_joining_{false};
 
     // The total time in milliseonds all threads spent working (executing jobs) and
     // idling (waiting for jobs). Reaping dead threads is not counted.
-    std::atomic<int> m_work_time{0};
-    std::atomic<int> m_idle_time{0};
-    std::atomic<int> m_num_idle_threads{0};
-    std::atomic<int> m_num_executed_jobs{0};
+    std::atomic<int> work_time_{0};
+    std::atomic<int> idle_time_{0};
+    std::atomic<int> num_idle_threads_{0};
+    std::atomic<int> num_executed_jobs_{0};
 
     // This is the max number of threads that we may have running. It is only accessed
     // on the caller's thread, no mutual exclusion is necessary.
-    int m_concurrency;
+    int concurrency_;
 
 public:
 
@@ -101,7 +101,7 @@ private:
 
 inline int thread_pool::concurrency() const noexcept
 {
-    return m_concurrency;
+    return concurrency_;
 }
 
 inline bool thread_pool::is_idle() const
@@ -111,7 +111,7 @@ inline bool thread_pool::is_idle() const
 
 inline int thread_pool::num_threads() const
 {
-    return m_threads.size();
+    return threads_.size();
 }
 
 inline int thread_pool::num_active_threads() const
@@ -121,13 +121,13 @@ inline int thread_pool::num_active_threads() const
 
 inline int thread_pool::num_idle_threads() const
 {
-    return m_num_idle_threads.load(std::memory_order_relaxed);
+    return num_idle_threads_.load(std::memory_order_relaxed);
 }
 
 inline int thread_pool::num_pending_jobs() const
 {
-    std::lock_guard<std::mutex> l(m_job_queue_mutex);
-    return m_job_queue.size();
+    std::lock_guard<std::mutex> l(job_queue_mutex_);
+    return job_queue_.size();
 }
 
 } // namespace tide

@@ -8,21 +8,21 @@ namespace util {
 
 class scope_guard
 {
-    std::function<void()> m_function;
-    bool m_is_active = true;
+    std::function<void()> function_;
+    bool is_active_ = true;
 
 public:
 
-    explicit scope_guard(std::function<void()> f) : m_function(std::move(f)) {}
+    explicit scope_guard(std::function<void()> f) : function_(std::move(f)) {}
 
     ~scope_guard()
     {
-        if(m_is_active && m_function) { m_function(); }
+        if(is_active_ && function_) { function_(); }
     }
 
     void disable()
     {
-        m_is_active = false;
+        is_active_ = false;
     }
 };
 

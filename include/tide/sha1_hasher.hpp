@@ -21,7 +21,7 @@ namespace tide {
  */
 class sha1_hasher
 {
-    SHA_CTX m_context;
+    SHA_CTX context_;
 
 public:
 

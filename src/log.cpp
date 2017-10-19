@@ -14,51 +14,51 @@ namespace detail {
 
 class engine_logger
 {
-    std::ofstream m_file;
+    std::ofstream file_;
 public:
     void log(const std::string& header, const std::string& log,
         const priority priority = priority::normal);
-    void flush() { TIDE_FLUSH(m_file); }
+    void flush() { TIDE_FLUSH(file_); }
 };
 
 /** disk_io runs on muliple threads so this logger is thread-safe. */
 class disk_io_logger
 {
-    std::ofstream m_file;
-    std::mutex m_file_mutex;
+    std::ofstream file_;
+    std::mutex file_mutex_;
 public:
     void log(const std::string& header, const std::string& log,
         const bool concurrent, const priority priority);
-    void flush() { TIDE_FLUSH(m_file); }
+    void flush() { TIDE_FLUSH(file_); }
 };
 
 class torrent_logger
 {
-    std::map<torrent_id_t, std::ofstream> m_files;
+    std::map<torrent_id_t, std::ofstream> files_;
 public:
     void log(const torrent_id_t torrent, const std::string& header,
         const std::string& log, const priority priority);
     void flush()
     {
-        for(auto& e : m_files) { TIDE_FLUSH(e.second); }
+        for(auto& e : files_) { TIDE_FLUSH(e.second); }
     }
 };
 
 class peer_session_logger
 {
 #ifdef TIDE_LOG_PEERS_SEPARATELY
-    std::map<tcp::endpoint, std::ofstream> m_files;
+    std::map<tcp::endpoint, std::ofstream> files_;
 #endif
-    std::ofstream m_incoming_connections;
+    std::ofstream incoming_connections_;
 public:
     void log(const torrent_id_t torrent, const tcp::endpoint& endpoint,
         const std::string& header, const std::string& log, const priority priority);
     void flush()
     {
     #ifdef TIDE_LOG_PEERS_SEPARATELY
-        for(auto& e : m_files) { TIDE_FLUSH(e.second); }
+        for(auto& e : files_) { TIDE_FLUSH(e.second); }
     #endif // TIDE_LOG_PEERS_SEPARATELY
-        TIDE_FLUSH(m_incoming_connections);
+        TIDE_FLUSH(incoming_connections_);
     }
 };
 
@@ -108,11 +108,11 @@ void engine_logger::log(const std::string& header, const std::string& log, const
 {
 #ifdef TIDE_ENABLE_LOGGING
     if(priority < TIDE_MIN_LOG_PRIORITY) { return; }
-    if(!m_file.is_open())
+    if(!file_.is_open())
     {
-        m_file.open(make_log_path("engine"), g_open_mode);
+        file_.open(make_log_path("engine"), g_open_mode);
     }
-    TIDE_CLOG(priority, m_file, header, log);
+    TIDE_CLOG(priority, file_, header, log);
 #endif // TIDE_ENABLE_LOGGING
 }
 
@@ -128,12 +128,12 @@ void disk_io_logger::log(const std::string& header, const std::string& log,
 # ifdef TIDE_ENABLE_STREAM_DEBUGGING
     if(!concurrent) { TIDE_LOG(priority, TIDE_STREAM, header, log); }
 # endif // TIDE_ENABLE_STREAM_DEBUGGING
-    std::lock_guard<std::mutex> l(m_file_mutex);
-    if(!m_file.is_open())
+    std::lock_guard<std::mutex> l(file_mutex_);
+    if(!file_.is_open())
     {
-        m_file.open(make_log_path("diskIO"), g_open_mode);
+        file_.open(make_log_path("diskIO"), g_open_mode);
     }
-    TIDE_LOG(priority, m_file, header, log);
+    TIDE_LOG(priority, file_, header, log);
 #endif // TIDE_ENABLE_LOGGING
 }
 
@@ -142,11 +142,11 @@ void torrent_logger::log(const torrent_id_t torrent, const std::string& header,
 {
 #ifdef TIDE_ENABLE_LOGGING
     if(priority < TIDE_MIN_LOG_PRIORITY) { return; }
-    auto it = m_files.find(torrent);
-    if(it == m_files.end())
+    auto it = files_.find(torrent);
+    if(it == files_.end())
     {
         const auto path = make_log_path("torrent#" + std::to_string(torrent));
-        it = m_files.emplace(torrent, std::ofstream(path.c_str(), g_open_mode)).first;
+        it = files_.emplace(torrent, std::ofstream(path.c_str(), g_open_mode)).first;
     }
     TIDE_CLOG(priority, it->second, header, log);
 # ifdef TIDE_MERGE_TORRENT_LOGS
@@ -171,11 +171,11 @@ void peer_session_logger::log(const torrent_id_t torrent, const tcp::endpoint& e
     const auto new_header = ep_str + '|' + header; 
 
 # ifdef TIDE_LOG_PEERS_SEPARATELY
-    auto it = m_files.find(endpoint);
-    if(it == m_files.end())
+    auto it = files_.find(endpoint);
+    if(it == files_.end())
     {
         const auto path = make_log_path("peer(" + ep_str + ")");
-        it = m_files.emplace(endpoint, std::ofstream(path.c_str(), g_open_mode)).first;
+        it = files_.emplace(endpoint, std::ofstream(path.c_str(), g_open_mode)).first;
     }
     TIDE_LOG(priority, it->second, new_header, log);
 # endif // TIDE_LOG_PEERS_SEPARATELY
@@ -184,8 +184,8 @@ void peer_session_logger::log(const torrent_id_t torrent, const tcp::endpoint& e
     {
         // an incoming and as yet unattached peer requested logging, so can't put this
         // in any specific torrent log file, so put it in the incomming connections file
-        if(!m_incoming_connections.is_open())
-            m_incoming_connections.open(make_log_path("incoming_peers"), g_open_mode);
+        if(!incoming_connections_.is_open())
+            incoming_connections_.open(make_log_path("incoming_peers"), g_open_mode);
         TIDE_CLOG(priority, it->second, new_header, log);
     }
     else

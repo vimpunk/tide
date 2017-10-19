@@ -16,62 +16,62 @@ namespace tide {
  */
 class torrent_storage_handle
 {
-    torrent_storage* m_storage = nullptr;
+    torrent_storage* storage_ = nullptr;
 public:
 
     torrent_storage_handle() = default;
-    torrent_storage_handle(torrent_storage& storage) : m_storage(&storage) {}
+    torrent_storage_handle(torrent_storage& storage) : storage_(&storage) {}
 
-    operator bool() const noexcept { return m_storage != nullptr; }
+    operator bool() const noexcept { return storage_ != nullptr; }
 
-    torrent_storage* native_handle() noexcept { return m_storage; }
+    torrent_storage* native_handle() noexcept { return storage_; }
 
     const path& root_path() const noexcept
     {
         assert(*this);
-        return m_storage->root_path();
+        return storage_->root_path();
     }
 
     int64_t size_to_download() const noexcept
     {
         assert(*this);
-        return m_storage->size_to_download();
+        return storage_->size_to_download();
     }
 
     interval pieces_in_file(const file_index_t file_index) const noexcept
     {
         assert(*this);
-        return m_storage->pieces_in_file(file_index);
+        return storage_->pieces_in_file(file_index);
     }
 
     interval files_containing_piece(const piece_index_t piece) const noexcept
     {
         assert(*this);
-        return m_storage->files_containing_piece(piece);
+        return storage_->files_containing_piece(piece);
     }
 
     file_slice get_file_slice(const file_index_t file, const block_info& block) const
     {
         assert(*this);
-        return m_storage->get_file_slice(file, block);
+        return storage_->get_file_slice(file, block);
     }
 
     sha1_hash expected_piece_hash(const piece_index_t piece) const noexcept
     {
         assert(*this);
-        return m_storage->expected_piece_hash(piece);
+        return storage_->expected_piece_hash(piece);
     }
 
     void want_file(const file_index_t file)
     {
         assert(*this);
-        m_storage->want_file(file);
+        storage_->want_file(file);
     }
 
     void dont_want_file(const file_index_t file)
     {
         assert(*this);
-        m_storage->dont_want_file(file);
+        storage_->dont_want_file(file);
     }
 };
 

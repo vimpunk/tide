@@ -12,7 +12,7 @@ namespace tide {
 class piece_picker
 {
     // A full piece availability map of our pieces.
-    bitfield m_my_pieces;
+    bitfield my_pieces_;
 
     struct piece
     {
@@ -31,15 +31,15 @@ class piece_picker
     // These are the pieces that we still need (regardless of frequency) to download.
     // They are ordered according to priority (highest to lowest) and frequency (lowest
     // to highest). As soon as we get a piece, it is removed from here.
-    std::vector<piece> m_pieces;
+    std::vector<piece> pieces_;
 
-    // Since m_pieces is ordered by priority and frequency, we need a fast way to
+    // Since pieces_ is ordered by priority and frequency, we need a fast way to
     // retrieve individual pieces (by their indices). This vector is fully allocated to 
-    // num_pieces and stores indices into m_pieces, and a piece's position can be
-    // retrieved by m_piece_pos_map[piece_index].
+    // num_pieces and stores indices into pieces_, and a piece's position can be
+    // retrieved by piece_pos_map_[piece_index].
     // While this vector always holds all pieces, pieces that we no longer need to 
-    // download are removed from m_pieces. Those are mapped to invalid_pos.
-    std::vector<int> m_piece_pos_map;
+    // download are removed from pieces_. Those are mapped to invalid_pos.
+    std::vector<int> piece_pos_map_;
     static constexpr int invalid_pos = -1;
 
     // An entry in this vector represents a priority group with a [begin, end) interval
@@ -48,13 +48,13 @@ class piece_picker
     // always positioned as the last group. However, the default group is not allocated
     // a slot in this list as it's always the last group. This allows us to avoid
     // allocating the vector if there are no priority pieces.
-    std::vector<interval> m_priority_groups;
+    std::vector<interval> priority_groups_;
 
-    // Keeping m_pieces sorted at all times is an expensive operation, so we only need
+    // Keeping pieces_ sorted at all times is an expensive operation, so we only need
     // to reorder pieces when we actually pick a piece. That is, piece frequency
     // changes cause this flag to be set, and if this flag is set when picking, we
     // need to call rebuild_frequency_map() beforehand.
-    bool m_is_dirty = false;
+    bool is_dirty_ = false;
 
 public:
 
@@ -71,13 +71,13 @@ public:
         // phase with random, unless set to sequential.
         rarest_first,
         // If we download sequentially, we can drop a lot of the piece map logic by
-        // always keeping m_pieces ordered by piece indices.
+        // always keeping pieces_ ordered by piece indices.
         sequential
     };
 
 private:
 
-    strategy m_strategy = strategy::rarest_first;
+    strategy strategy_ = strategy::rarest_first;
 
 public:
 
@@ -209,7 +209,7 @@ private:
 
 inline int piece_picker::num_pieces() const noexcept
 {
-    return m_my_pieces.size();
+    return my_pieces_.size();
 }
 
 inline int piece_picker::num_have_pieces() const noexcept
@@ -219,7 +219,7 @@ inline int piece_picker::num_have_pieces() const noexcept
 
 inline int piece_picker::num_pieces_left() const noexcept
 {
-    return m_pieces.size();
+    return pieces_.size();
 }
 
 inline
@@ -242,7 +242,7 @@ void piece_picker::clear_priority(const piece_index_t begin, const piece_index_t
 
 inline const bitfield& piece_picker::my_bitfield() const noexcept
 {
-    return m_my_pieces;
+    return my_pieces_;
 }
 
 inline bool piece_picker::has_no_pieces() const noexcept
@@ -257,7 +257,7 @@ inline bool piece_picker::has_all_pieces() const noexcept
 
 inline enum piece_picker::strategy piece_picker::strategy() const noexcept
 {
-    return m_strategy;
+    return strategy_;
 }
 
 } // namespace tide

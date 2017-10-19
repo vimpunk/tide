@@ -80,20 +80,20 @@ class send_buffer
 
     // These are the bytes we want to send off to socket. It ensures their lifetime
     // until they are confirmed to be sent, after which the resources are released.
-    std::deque<std::unique_ptr<buffer_holder>> m_buffers;
+    std::deque<std::unique_ptr<buffer_holder>> buffers_;
 
-    // This is the offset into the first buffer in m_buffers that marks the beginning of
+    // This is the offset into the first buffer in buffers_ that marks the beginning of
     // unsent bytes. This is employed because it may be that not all of the buffer is
     // drained during a send operation, and if so, it is very likely that the number of
     // sent bytes will not align with buffer boundaries, leaving the first buffer with
     // sent and unsent fractions. Thus, this buffer must be kept alive until all its
     // unsent bytes have been sent off.
-    int m_first_unsent_byte = 0;
+    int first_unsent_byte_ = 0;
 
     // The total number of UNSENT bytes we have in buffer. That is, if the first buffer
-    // was not fully drained (m_first_unsent_byte > 0), it will have excess bytes, which
+    // was not fully drained (first_unsent_byte_ > 0), it will have excess bytes, which
     // are not counted (since it's a temporary state and is not relevant to the caller).
-    int m_size = 0;
+    int size_ = 0;
 
 public:
 
@@ -129,7 +129,7 @@ inline bool send_buffer::empty() const noexcept
 
 inline int send_buffer::size() const noexcept
 {
-    return m_size;
+    return size_;
 }
 
 inline void send_buffer::append(payload payload)
@@ -146,15 +146,15 @@ void send_buffer::append(const fixed_payload<N>& payload)
 template<size_t N>
 void send_buffer::append(const std::array<uint8_t, N>& bytes)
 {
-    m_buffers.emplace_back(std::make_unique<raw_fixed_buffer_holder<N>>(bytes));
-    m_size += N;
+    buffers_.emplace_back(std::make_unique<raw_fixed_buffer_holder<N>>(bytes));
+    size_ += N;
 }
 
 template<size_t N>
 void send_buffer::append(const uint8_t (&bytes)[N])
 {
-    m_buffers.emplace_back(std::make_unique<raw_fixed_buffer_holder<N>>(bytes));
-    m_size += N;
+    buffers_.emplace_back(std::make_unique<raw_fixed_buffer_holder<N>>(bytes));
+    size_ += N;
 }
 
 } // namespace tide

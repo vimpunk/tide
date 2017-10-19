@@ -18,18 +18,18 @@ template<
     typename TimeUnit = seconds
 > class per_round_counter
 {
-    mutable int m_prev_round_value = 0;
-    mutable int m_value = 0;
-    mutable time_point m_last_update_time;
+    mutable int prev_round_value_ = 0;
+    mutable int value_ = 0;
+    mutable time_point last_update_time_;
 
 public:
 
-    per_round_counter() : m_last_update_time(cached_clock::now()) {}
+    per_round_counter() : last_update_time_(cached_clock::now()) {}
 
     void clear() noexcept
     {
-        m_last_update_time = cached_clock::now();
-        m_prev_round_value = m_value = 0;
+        last_update_time_ = cached_clock::now();
+        prev_round_value_ = value_ = 0;
     }
 
     void update(const int n) noexcept
@@ -40,14 +40,14 @@ public:
     int value() const noexcept
     {
         update_impl(0);
-        return m_value;
+        return value_;
     }
 
     /** Returns the difference between the current round and the previous round. */
     int deviation() const noexcept
     {
         update_impl(0);
-        return m_value - m_prev_round_value;
+        return value_ - prev_round_value_;
     }
 
 private:
@@ -55,24 +55,24 @@ private:
     void update_impl(const int n) const noexcept
     {
         const TimeUnit elapsed = duration_cast<TimeUnit>(
-            cached_clock::now() - m_last_update_time);
+            cached_clock::now() - last_update_time_);
         if((elapsed >= TimeUnit(Interval)) && (elapsed < TimeUnit(2 * Interval)))
         {
-            m_prev_round_value = m_value;
-            m_value = n;
-            m_last_update_time += elapsed;
+            prev_round_value_ = value_;
+            value_ = n;
+            last_update_time_ += elapsed;
         }
         else if(elapsed >= TimeUnit(2 * Interval))
         {
             // since more than 2 rounds have passed, meaning there was nothing added to
             // counter, the previous value is 0
-            m_prev_round_value = 0;
-            m_value = n;
-            m_last_update_time += elapsed;
+            prev_round_value_ = 0;
+            value_ = n;
+            last_update_time_ += elapsed;
         }
         else
         {
-            m_value += n;
+            value_ += n;
         }
     }
 };
@@ -80,19 +80,19 @@ private:
 /*
 class counter
 {
-    int m_prev_value = 0;
-    int m_value = 0;
+    int prev_value_ = 0;
+    int value_ = 0;
 public:
 
-    operator int() const noexcept { return m_value; }
+    operator int() const noexcept { return value_; }
 
     counter& operator+=(const int n) noexcept
     {
-        m_value += n;
+        value_ += n;
         return *this;
     }
 
-    void clear() { m_value = 0; }
+    void clear() { value_ = 0; }
 
     void reset(const int elapsed_ms)
     {

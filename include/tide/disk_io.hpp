@@ -91,23 +91,23 @@ private:
     // This is the io_service that runs the network thread. It is used to post handlers
     // on the network thread so that no syncing is required between the two threads, as
     // io_service is thread-safe.
-    asio::io_service& m_network_ios;
+    asio::io_service& network_ios_;
 
-    const disk_io_settings& m_settings;
+    const disk_io_settings& settings_;
 
     // All disk jobs are posted to and executed by this thread pool. Note that anything
     // posted to this that accesses fields in disk_io will need to partake in mutual
     // exclusion.
-    thread_pool m_thread_pool;
+    thread_pool thread_pool_;
 
     // Before we attempt to read in blocks from disk we first check whether it's not
     // already in cache. Read in blocks are always placed in the cache. Cache is only
     // ever accessed from the network thread.
-    block_cache m_read_cache;
+    block_cache read_cache_;
 
     // Only disk_io can instantiate disk_buffers so that instances can be reused. All
     // buffers made by pool are 16KiB in size.
-    disk_buffer_pool m_disk_buffer_pool;
+    disk_buffer_pool disk_buffer_pool_;
 
     /**
      * This class represents an in-progress piece. It is used to store the hash context
@@ -201,12 +201,12 @@ private:
         // Only handled on the network thread.
         bool is_busy = false;
 
-        // A cached value of the number of true bits in m_blocks_saved.
+        // A cached value of the number of true bits in blocks_saved_.
         int num_saved_blocks = 0;
 
         // This is always the first byte of the first unhashed block (that is, one past
         // the last hashed block's last byte). It's used to check if we can hash blocks
-        // since they must be passed to m_hasher.update() in order.
+        // since they must be passed to hasher_.update() in order.
         //
         // It's handled on both network and worker threads, but never at the same time.
         // This is done by synchronizing using the is_busy field, i.e. if piece is busy,
@@ -334,20 +334,20 @@ private:
 
     // All torrents in engine have a corresponding torrent_entry. Entries are sorted
     // in ascending order of torrent_entry::id.
-    std::vector<std::unique_ptr<torrent_entry>> m_torrents;
+    std::vector<std::unique_ptr<torrent_entry>> torrents_;
 
     // Statistics are gathered here. One copy persists throughout the entire application
     // and copies for other modules are made on demand.
-    stats m_stats;
+    stats stats_;
 
     // When we encounter a fatal disk error, we keep retrying. This timer is used to
     // schedule retries.
     // TODO it's not implemented
-    deadline_timer m_retry_timer;
+    deadline_timer retry_timer_;
 
     // This is used to calculate how much time to wait between retries. We wait at most
     // 120 seconds.
-    exponential_backoff<120> m_retry_delay;
+    exponential_backoff<120> retry_delay_;
 
 public:
 

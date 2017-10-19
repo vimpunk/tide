@@ -90,11 +90,11 @@ struct file
 
 private:
 
-    handle_type m_file_handle = INVALID_HANDLE_VALUE;
-    path m_absolute_path;
-    bool m_is_allocated = false;
-    size_type m_length;
-    open_mode_flags m_open_mode;
+    handle_type file_handle_ = INVALID_HANDLE_VALUE;
+    path absolute_path_;
+    bool is_allocated_ = false;
+    size_type length_;
+    open_mode_flags open_mode_;
 
 public:
 
@@ -315,7 +315,7 @@ void trim_buffers_front(view<iovec>& buffers, int num_to_trim) noexcept;
 
 inline void file::set_path(path file_path)
 {
-    m_absolute_path = file_path;
+    absolute_path_ = file_path;
 }
 
 inline file::size_type file::size() const noexcept
@@ -325,37 +325,37 @@ inline file::size_type file::size() const noexcept
 
 inline file::size_type file::length() const noexcept
 {
-    return m_length;
+    return length_;
 }
 
 inline const path& file::absolute_path() const
 {
-    return m_absolute_path;
+    return absolute_path_;
 }
 
 inline std::string file::filename() const
 {
-    return m_absolute_path.filename().native();
+    return absolute_path_.filename().native();
 }
 
 inline bool file::is_open() const noexcept
 {
-    return m_file_handle != INVALID_HANDLE_VALUE;
+    return file_handle_ != INVALID_HANDLE_VALUE;
 }
 
 inline bool file::is_read_only() const noexcept
 {
-    return m_open_mode[read_only];
+    return open_mode_[read_only];
 }
 
 inline bool file::is_write_only() const noexcept
 {
-    return m_open_mode[write_only];
+    return open_mode_[write_only];
 }
 
 inline bool file::is_allocated() const noexcept
 {
-    return m_is_allocated;
+    return is_allocated_;
 }
 
 } // namespace tide

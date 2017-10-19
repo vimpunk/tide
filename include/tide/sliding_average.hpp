@@ -24,9 +24,9 @@ namespace tide {
  */
 template<int InvertedGain> class sliding_average
 {
-    int m_mean = 0;
-    int m_deviation = 0;
-    int m_num_samples = 0;
+    int mean_ = 0;
+    int deviation_ = 0;
+    int num_samples_ = 0;
 
 public:
 
@@ -36,36 +36,36 @@ public:
         // the mean, 32 is added to it before dividing back by 64 to the actual value
         s *= 64;
         int deviation = 0;
-        if(m_num_samples > 0)
+        if(num_samples_ > 0)
         {
-            deviation = std::abs(m_mean - s);
+            deviation = std::abs(mean_ - s);
         }
-        if(m_num_samples < InvertedGain)
+        if(num_samples_ < InvertedGain)
         {
-            ++m_num_samples;
+            ++num_samples_;
         }
-        m_mean += (s - m_mean) / m_num_samples;
-        if(m_num_samples > 1)
+        mean_ += (s - mean_) / num_samples_;
+        if(num_samples_ > 1)
         {
-            m_deviation += (deviation - m_deviation) / (m_num_samples - 1);
+            deviation_ += (deviation - deviation_) / (num_samples_ - 1);
         }
     }
 
     int mean() const noexcept
     {
-        return m_num_samples > 0 ? (m_mean + 32) / 64
+        return num_samples_ > 0 ? (mean_ + 32) / 64
                                  : 0;
     }
 
     int deviation() const noexcept
     {
-        return m_num_samples > 1 ? (m_deviation + 32) / 64
+        return num_samples_ > 1 ? (deviation_ + 32) / 64
                                  : 0;
     }
 
     void reset() noexcept
     {
-        m_mean = m_deviation = m_num_samples = 0;
+        mean_ = deviation_ = num_samples_ = 0;
     }
 };
 

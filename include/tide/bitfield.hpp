@@ -37,16 +37,16 @@ struct bitfield
 
 private:
 
-    std::vector<block_type> m_blocks;
-    size_type m_num_bits;
+    std::vector<block_type> blocks_;
+    size_type num_bits_;
 
 public:
 
     bitfield() = default;
 
     explicit bitfield(size_type num_bits, value_type initial_val = false)
-        : m_blocks(num_blocks_for(num_bits), initial_val ? ~block_type(0) : 0)
-        , m_num_bits(num_bits)
+        : blocks_(num_blocks_for(num_bits), initial_val ? ~block_type(0) : 0)
+        , num_bits_(num_bits)
     {
         clear_unused_bits();
     }
@@ -61,8 +61,8 @@ public:
         typename Bytes,
         typename = decltype(std::declval<Bytes>().begin())
     > explicit bitfield(const Bytes& bytes, size_type num_bits)
-        : m_blocks(bytes.begin(), bytes.end())
-        , m_num_bits(num_bits)
+        : blocks_(bytes.begin(), bytes.end())
+        , num_bits_(num_bits)
     {
         if(!is_bitfield_data_valid(bytes, num_bits))
         {
@@ -99,7 +99,7 @@ public:
     /** Returns the underlying byte sequence. */
     const std::vector<block_type>& data() const noexcept
     {
-        return m_blocks;
+        return blocks_;
     }
 
     /**
@@ -109,7 +109,7 @@ public:
      */
     size_type size() const noexcept
     {
-        return m_num_bits;
+        return num_bits_;
     }
 
     bitfield& set(const size_type bit) noexcept
@@ -126,7 +126,7 @@ public:
 
     bitfield& fill() noexcept
     {
-        std::fill(m_blocks.begin(), m_blocks.end(), ~block_type(0));
+        std::fill(blocks_.begin(), blocks_.end(), ~block_type(0));
         clear_unused_bits();
         return *this;
     }
@@ -145,7 +145,7 @@ public:
 
     bitfield& clear() noexcept
     {
-        std::fill(m_blocks.begin(), m_blocks.end(), block_type(0));
+        std::fill(blocks_.begin(), blocks_.end(), block_type(0));
         return *this;
     }
 
@@ -157,7 +157,7 @@ public:
 
     bitfield& flip_all() noexcept
     {
-        for(auto& block : m_blocks)
+        for(auto& block : blocks_)
         {
             block = ~block;
         }
@@ -168,14 +168,14 @@ public:
     bool are_all_set() const noexcept
     {
         static constexpr auto all_set = std::numeric_limits<block_type>::max();
-        const size_type last_block = m_blocks.size() - 1;
+        const size_type last_block = blocks_.size() - 1;
         for(size_type i = 0; i < last_block; ++i)
         {
-            if(m_blocks[i] != all_set) { return false; }
+            if(blocks_[i] != all_set) { return false; }
         }
         // need to check the last block separately because of the zerod out excess bits
         const block_type last_block_mask = ~block_type(0) << num_excess_bits();
-        return m_blocks[last_block] == last_block_mask;
+        return blocks_[last_block] == last_block_mask;
     }
 
     bool are_any_set() const noexcept
@@ -185,7 +185,7 @@ public:
 
     bool are_none_set() const noexcept
     {
-        for(const auto& block : m_blocks)
+        for(const auto& block : blocks_)
         {
             if(block != 0) { return false; }
         }
@@ -204,7 +204,7 @@ public:
 
     reference at(const size_type bit)
     {
-        if((bit < 0) || (bit >= m_num_bits))
+        if((bit < 0) || (bit >= num_bits_))
         {
             throw std::out_of_range("bitfield element ouf of range");
         }
@@ -213,7 +213,7 @@ public:
 
     const_reference at(const size_type bit) const
     {
-        if((bit < 0) || (bit >= m_num_bits))
+        if((bit < 0) || (bit >= num_bits_))
         {
             throw std::out_of_range("bitfield element ouf of range");
         }
@@ -222,8 +222,8 @@ public:
 
     const_iterator begin() const noexcept { return const_iterator(*this); }
     const_iterator cbegin() const noexcept { return const_iterator(*this); }
-    const_iterator end() const noexcept { return const_iterator(*this, m_num_bits); }
-    const_iterator cend() const noexcept { return const_iterator(*this, m_num_bits); }
+    const_iterator end() const noexcept { return const_iterator(*this, num_bits_); }
+    const_iterator cend() const noexcept { return const_iterator(*this, num_bits_); }
 
     /** Returns the Hamming weight of this bitfield. */
     size_type count() const
@@ -258,40 +258,40 @@ public:
 
     bitfield& operator&=(const bitfield& other)
     {
-        const size_type end = std::min(m_blocks.size(), other.m_blocks.size());
+        const size_type end = std::min(blocks_.size(), other.blocks_.size());
         for(size_type i = 0; i < end; ++i)
         {
-            m_blocks[i] &= other.m_blocks[i];
+            blocks_[i] &= other.blocks_[i];
         }
         return *this;
     }
 
     bitfield& operator|=(const bitfield& other)
     {
-        const size_type end = std::min(m_blocks.size(), other.m_blocks.size());
+        const size_type end = std::min(blocks_.size(), other.blocks_.size());
         for(size_type i = 0; i < end; ++i)
         {
-            m_blocks[i] |= other.m_blocks[i];
+            blocks_[i] |= other.blocks_[i];
         }
         return *this;
     }
 
     bitfield& operator^=(const bitfield& other)
     {
-        const size_type end = std::min(m_blocks.size(), other.m_blocks.size());
+        const size_type end = std::min(blocks_.size(), other.blocks_.size());
         for(size_type i = 0; i < end; ++i)
         {
-            m_blocks[i] ^= other.m_blocks[i];
+            blocks_[i] ^= other.blocks_[i];
         }
         return *this;
     }
 
     bitfield& operator-=(const bitfield& other)
     {
-        const size_type end = std::min(m_blocks.size(), other.m_blocks.size());
+        const size_type end = std::min(blocks_.size(), other.blocks_.size());
         for(size_type i = 0; i < end; ++i)
         {
-            m_blocks[i] = ~other.m_blocks[i];
+            blocks_[i] = ~other.blocks_[i];
         }
         return *this;
     }
@@ -330,7 +330,7 @@ public:
 
     friend bool operator==(const bitfield& a, const bitfield& b) noexcept
     {
-        return (a.m_num_bits == b.m_num_bits) && (a.m_blocks == b.m_blocks);
+        return (a.num_bits_ == b.num_bits_) && (a.blocks_ == b.blocks_);
     }
 
     friend bool operator!=(const bitfield& a, const bitfield& b) noexcept
@@ -347,13 +347,13 @@ private:
 
     block_type& get_block(const size_type bit) noexcept
     {
-        return m_blocks[block_index(bit)];
+        return blocks_[block_index(bit)];
     }
 
     const block_type& get_block(const size_type bit) const noexcept
     {
         assert(bit < size());
-        return m_blocks[block_index(bit)];
+        return blocks_[block_index(bit)];
     }
 
     static constexpr size_type block_index(const size_type bit) noexcept
@@ -380,13 +380,13 @@ private:
         const auto num_excess = num_excess_bits();
         if(num_excess > 0)
         {
-            m_blocks.back() &= ~block_type(0) << num_excess;
+            blocks_.back() &= ~block_type(0) << num_excess;
         }
     }
 
     block_type num_excess_bits() const noexcept
     {
-        return num_excess_bits(m_blocks, m_num_bits);
+        return num_excess_bits(blocks_, num_bits_);
     }
 
     template<
@@ -411,33 +411,33 @@ public:
     {
         friend class bitfield;
 
-        block_type& m_block;
-        const size_type m_mask;
+        block_type& block_;
+        const size_type mask_;
 
         reference(block_type& block, size_type mask)
-            : m_block(block)
-            , m_mask(mask)
+            : block_(block)
+            , mask_(mask)
         {}
 
     public:
 
         reference& flip() noexcept
         {
-            m_block ^= m_mask;
+            block_ ^= mask_;
             return *this;
         }
 
         operator bool() const noexcept
         {
-            return (m_block & m_mask) != 0;
+            return (block_ & mask_) != 0;
         }
 
         reference& operator=(bool x) noexcept
         {
             if(x)
-                m_block |= m_mask;
+                block_ |= mask_;
             else
-                m_block &= ~m_mask;
+                block_ &= ~mask_;
             return *this;
         }
 
@@ -448,31 +448,31 @@ public:
 
         reference& operator|=(bool x) noexcept
         {
-            if(x) m_block |= m_mask;
+            if(x) block_ |= mask_;
             return *this;
         }
 
         reference& operator&=(bool x) noexcept
         {
-            if(x) m_block &= m_mask;
+            if(x) block_ &= mask_;
             return *this;
         }
 
         reference& operator^=(bool x) noexcept
         {
-            if(x) m_block ^= m_mask;
+            if(x) block_ ^= mask_;
             return *this;
         }
 
         reference& operator-=(bool x) noexcept
         {
-            if(x) m_block &= ~m_mask;
+            if(x) block_ &= ~mask_;
             return *this;
         }
 
         friend bool operator==(const reference& a, const reference& b) noexcept
         {
-            return &a.m_block == &b.m_block;
+            return &a.block_ == &b.block_;
         }
 
         friend bool operator!=(const reference& a, const reference& b) noexcept
@@ -483,46 +483,46 @@ public:
 
     class const_iterator
     {
-        const bitfield* m_bitfield;
-        size_type m_bit;
+        const bitfield* bitfield_;
+        size_type bit_;
 
     public:
 
         using iterator_category = std::random_access_iterator_tag;
 
         const_iterator(const bitfield& bitfield, size_type bit = 0)
-            : m_bitfield(&bitfield)
-            , m_bit(bit)
+            : bitfield_(&bitfield)
+            , bit_(bit)
         {}
 
         const_reference operator*()
         {
-            return (*m_bitfield)[m_bit];
+            return (*bitfield_)[bit_];
         }
 
         const_iterator& operator++()
         {
-            ++m_bit;
+            ++bit_;
             return *this;
         }
 
         const_iterator operator++(int)
         {
             auto tmp(*this);
-            ++m_bit;
+            ++bit_;
             return tmp;
         }
 
         const_iterator& operator--()
         {
-            --m_bit;
+            --bit_;
             return *this;
         }
 
         const_iterator operator--(int)
         {
             auto tmp(*this);
-            --m_bit;
+            --bit_;
             return tmp;
         }
 
@@ -542,24 +542,24 @@ public:
 
         const_iterator& operator+=(const size_type n)
         {
-            m_bit += n;
+            bit_ += n;
             return *this;
         }
 
         const_iterator& operator-=(const size_type n)
         {
-            m_bit -= n;
+            bit_ -= n;
             return *this;
         }
 
         difference_type operator-(const_iterator other) noexcept
         {
-            return m_bit - other.m_bit;
+            return bit_ - other.bit_;
         }
 
         friend bool operator==(const const_iterator& a, const const_iterator& b) noexcept
         {
-            return (a.m_bitfield == b.m_bitfield) && (a.m_bit == b.m_bit);
+            return (a.bitfield_ == b.bitfield_) && (a.bit_ == b.bit_);
         }
 
         friend bool operator!=(const const_iterator& a, const const_iterator& b) noexcept
@@ -572,8 +572,8 @@ public:
 inline void swap(bitfield& a , bitfield& b)
 {
     using std::swap;
-    swap(a.m_blocks, b.m_blocks);
-    swap(a.m_num_bits, b.m_num_bits);
+    swap(a.blocks_, b.blocks_);
+    swap(a.num_bits_, b.num_bits_);
 }
 
 } // namespace tide

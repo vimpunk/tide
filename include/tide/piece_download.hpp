@@ -60,8 +60,8 @@ struct piece_download
         std::function<void(bool, int)> completion_handler;
         std::function<void(const block_info&)> cancel_handler;
 
-        // Stores the references to the entries in m_blocks which this peer has
-        // requested. (m_blocks is never reallocated so it's OK to store a reference.)
+        // Stores the references to the entries in blocks_ which this peer has
+        // requested. (blocks_ is never reallocated so it's OK to store a reference.)
         std::vector<std::reference_wrapper<block>> blocks;
 
         peer(peer_id_type id, std::function<void(bool, int)> completion_handler,
@@ -73,27 +73,27 @@ struct piece_download
 
 private:
 
-    std::vector<peer> m_peers;
-    std::vector<block> m_blocks;
+    std::vector<peer> peers_;
+    std::vector<block> blocks_;
 
     // To determine whether we can request blocks in this piece we must loop through
     // all blocks to see whether any have timed out. This is expensive for an
     // operation meant to be cheap and invoked often. So the oldest request made is
     // cached here until it arrives, in which case we look for the second oldest
     // request, or nullptr if none are found.
-    block* m_oldest_request = nullptr;
+    block* oldest_request_ = nullptr;
 
-    piece_index_t m_index;
-    int m_piece_length;
+    piece_index_t index_;
+    int piece_length_;
 
     // This is only decremented when we receive a block, i.e. on a call to got_block().
-    int m_num_blocks_left;
+    int num_blocks_left_;
 
     // This is decremented with every requested and received block, and incremented once
     // a block times out and becomes pickable. This means that once the piece is fully 
-    // downloaded this will equal m_num_blocks_left. It's used to check if we can make 
+    // downloaded this will equal num_blocks_left_. It's used to check if we can make 
     // requests for this piece or we should move on to another.
-    int m_num_pickable_blocks;
+    int num_pickable_blocks_;
 
     // A peer may be disconnected, so it's important not to rely on the current number
     // of participants to determine whether we downloaded the block from a single peer
@@ -102,7 +102,7 @@ private:
     // completes the download and the piece turns out to be bad, the remaining peer 
     // would be marked as the culprit, even though any one of the other peers may have 
     // sent the corrupt data.)
-    int m_num_downloaders = 0;
+    int num_downloaders_ = 0;
 
     // Every time got_block is called, this is updated. This is because timing out
     // blocks is handled by peer_sessions, not by piece_download itself (because each
@@ -115,7 +115,7 @@ private:
     // enforce an upper bound on the time a block may remain in the `requested` state. 
     // This is achieved by measuring average request round trip times and deriving the 
     // upper limit from this value.
-    milliseconds m_avg_request_rtt{0};
+    milliseconds avg_request_rtt_{0};
 
 public:
 
@@ -229,7 +229,7 @@ private:
     void set_oldest_request();
 
     /**
-     * m and m_avg_request_rtt are used to derive the maximum time a request can go
+     * m and avg_request_rtt_ are used to derive the maximum time a request can go
      * unanswered.
      */
     bool has_lingered_too_long(const block& b, const int m = 3) const noexcept;
@@ -244,17 +244,17 @@ private:
 
 inline bool piece_download::is_exclusive() const noexcept
 {
-    return m_num_downloaders == 1;
+    return num_downloaders_ == 1;
 }
 
 inline int piece_download::num_blocks() const noexcept
 {
-    return m_blocks.size();
+    return blocks_.size();
 }
 
 inline int piece_download::num_blocks_left() const noexcept
 {
-    return m_num_blocks_left;
+    return num_blocks_left_;
 }
 
 inline int piece_download::num_received_blocks() const noexcept
@@ -264,27 +264,27 @@ inline int piece_download::num_received_blocks() const noexcept
 
 inline int piece_download::piece_length() const noexcept
 {
-    return m_piece_length;
+    return piece_length_;
 }
 
 inline piece_index_t piece_download::piece_index() const noexcept
 {
-    return m_index;
+    return index_;
 }
 
 inline const std::vector<piece_download::peer>& piece_download::peers() const noexcept
 {
-    return m_peers;
+    return peers_;
 }
 
 inline const std::vector<piece_download::block>& piece_download::blocks() const noexcept
 {
-    return m_blocks;
+    return blocks_;
 }
 
 inline milliseconds piece_download::average_request_rtt() const noexcept
 {
-    return m_avg_request_rtt;
+    return avg_request_rtt_;
 }
 
 template<typename RequestQueue>
@@ -292,7 +292,7 @@ int piece_download::pick_blocks(RequestQueue& queue,
     const peer_id_type& id, const int n)
 {
     if(num_blocks_left() == 0) { return 0; }
-    queue.reserve(queue.size() + std::min(n, m_num_pickable_blocks));
+    queue.reserve(queue.size() + std::min(n, num_pickable_blocks_));
     auto& peer = find_peer(id);
     int num_picked = 0;
     for(auto hint = 0; num_picked < n;)

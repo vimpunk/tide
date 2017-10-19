@@ -30,12 +30,12 @@ class torrent;
  */
 class torrent_handle
 {
-    std::weak_ptr<torrent> m_torrent;
+    std::weak_ptr<torrent> torrent_;
     // Unlike the rest of the fields, this is remains valid for the lifetime of the
-    // engine instance, which owns m_ios.
-    asio::io_service* m_ios;
-    const torrent_info* m_info;
-    mutable std::mutex* m_info_mutex;
+    // engine instance, which owns ios_.
+    asio::io_service* ios_;
+    const torrent_info* info_;
+    mutable std::mutex* info_mutex_;
 
 public:
 
@@ -125,7 +125,7 @@ private:
 
 inline bool torrent_handle::is_valid() const noexcept
 {
-    return !m_torrent.expired();
+    return !torrent_.expired();
 }
 
 inline torrent_handle::operator bool() const noexcept
