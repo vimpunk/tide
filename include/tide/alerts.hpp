@@ -13,7 +13,7 @@
 
 namespace tide {
 
-/** This is an interface that all alerts must implement. */
+/** This is the interface all alerts must implement. */
 struct alert
 {
     enum category
@@ -34,6 +34,7 @@ struct alert
         performance = 1024,
     };
 
+    // The time this alert was posted.
     time_point timestamp;
 
     alert() : timestamp(cached_clock::now()) {}
@@ -158,4 +159,3 @@ template<typename T> T* alert_cast(alert* a)
 } // namespace tide
 
 #endif // TIDE_ALERTS_HEADER
-

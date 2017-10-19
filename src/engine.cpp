@@ -15,8 +15,7 @@ engine::engine()
     update_cached_clock();
 }
 
-engine::engine(const settings& s)
-    : engine()
+engine::engine(const settings& s) : engine()
 {
     m_settings = s;
 }
@@ -67,7 +66,7 @@ void engine::add_torrent(torrent_args args)
     m_network_ios.post([this, args = std::move(args)]
     {
         // torrent calls disk_io::allocate_torrent() so we don't have to here
-        const torrent_id_t torrent_id = get_torrent_id();
+        const torrent_id_t torrent_id = next_torrent_id();
         m_torrents.emplace_back(std::make_shared<torrent>(torrent_id, m_network_ios,
             m_disk_io, m_bandwidth_controller, m_settings, get_trackers(args.metainfo),
             m_endpoint_filter, m_alert_queue, std::move(args)));
@@ -82,6 +81,7 @@ inline void engine::verify_torrent_args(torrent_args& args) const
         throw std::invalid_argument("torrent_args::metainfo must not be empty");
     if(args.save_path.empty())
         throw std::invalid_argument("torrent_args::path must not be empty");
+
     for(auto tracker : args.metainfo.announce_list)
     {
         // TODO obviously the full url needs to be tested
@@ -92,6 +92,7 @@ inline void engine::verify_torrent_args(torrent_args& args) const
                 "metainfo::announce url must contain a protocol identifier");
         }
     }
+
     if(!args.metainfo.announce.empty()
        && !util::starts_with(args.metainfo.announce, "udp://")
        && !util::starts_with(args.metainfo.announce, "http://"))
@@ -102,7 +103,7 @@ inline void engine::verify_torrent_args(torrent_args& args) const
     // TODO check if save path is valid and exists
 }
 
-inline torrent_id_t engine::get_torrent_id() noexcept
+inline torrent_id_t engine::next_torrent_id() noexcept
 {
     static torrent_id_t s_id = 0;
     return s_id++;
@@ -148,7 +149,7 @@ std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
             if(util::is_udp_tracker(tracker.url))
             {
                 entry.tracker = std::make_shared<udp_tracker>(
-                    tracker.url, m_network_ios, m_settings);
+                    m_network_ios, tracker.url, m_settings);
                 trackers.emplace_back(std::move(entry));
             }
             else if(util::is_http_tracker(tracker.url))
@@ -156,7 +157,7 @@ std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
                 // we don't yet support http trackers
                 return;
                 //entry.tracker = std::make_shared<http_tracker>(
-                    //tracker.url, m_network_ios, m_settings);
+                    //m_network_ios, tracker.url, m_settings);
                 //trackers.emplace_back(std::move(entry));
             }
             // add new tracker to the engine's tracker collection as well

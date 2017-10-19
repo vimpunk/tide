@@ -3,6 +3,7 @@
 
 #include "string_view.hpp"
 
+#include <system_error>
 #include <stdexcept>
 #include <iterator>
 #include <sstream>
@@ -14,6 +15,43 @@
 #include <vector>
 
 // TODO move as much as possible to source
+
+namespace tide {
+
+enum class bencode_errc
+{
+    blist_missing_header,
+    blist_missing_end_token,
+    bmap_missing_header,
+    bmap_missing_end_token,
+    bmap_key_not_string,
+    bmap_keys_unordered,
+    bmap_missing_value,
+    bstring_invalid_length,
+    bstring_missing_colon,
+    bnumber_trailing_zeros,
+    bnumber_missing_end_token,
+    out_of_range,
+    unknown_type,
+};
+
+struct bencode_error_category : public std::error_category
+{
+    const char* name() const noexcept override { return "bencode"; }
+    std::string message(int env) const override;
+    std::error_condition default_error_condition(int ev) const noexcept override;
+};
+
+const bencode_error_category& bencode_category();
+std::error_code make_error_code(bencode_errc e);
+std::error_condition make_error_condition(bencode_errc e);
+
+} // namespace tide
+
+namespace std
+{
+    template<> struct is_error_code_enum<tide::bencode_errc> : public true_type {};
+}
 
 namespace tide {
 
@@ -97,15 +135,15 @@ class bcontainer
 {
     // This is the entire list of tokens, no matter if the container is nested and
     // only needs a subset of it. This is to always keep the reference count of
-    // m_tokens (and m_encoded) at at least one. To refer to the actual start of the
-    // container, use m_head.
-    std::shared_ptr<std::vector<btoken>> m_tokens;
-    std::shared_ptr<const std::string> m_encoded;
+    // tokens_ (and encoded_) at at least one. To refer to the actual start of the
+    // container, use head_.
+    std::shared_ptr<std::vector<btoken>> tokens_;
+    std::shared_ptr<const std::string> encoded_;
 
     // Both container types (list, map) have a head token that defines the start and
-    // size of the container. m_head points into m_tokens, to the btoken that's the
+    // size of the container. head_ points into tokens_, to the btoken that's the
     // conceptual head of this container.
-    const btoken* m_head = nullptr;
+    const btoken* head_ = nullptr;
 
 protected:
 
@@ -117,11 +155,11 @@ protected:
      * head of the container to the first element in the tokens buffer.
      */
     bcontainer(std::vector<btoken>&& tokens, std::string&& encoded)
-        : m_tokens(std::make_shared<std::vector<btoken>>(std::move(tokens)))
-        , m_encoded(std::make_shared<const std::string>(std::move(encoded)))
-        , m_head(m_tokens->data())
+        : tokens_(std::make_shared<std::vector<btoken>>(std::move(tokens)))
+        , encoded_(std::make_shared<const std::string>(std::move(encoded)))
+        , head_(tokens_->data())
     {
-        assert(!m_tokens->empty());
+        assert(!tokens_->empty());
     }
 
     /**
@@ -130,15 +168,15 @@ protected:
      * only the fields in bcontainer, so slicing the derived containers is OK).
      */
     bcontainer(const bcontainer& b, const btoken* head)
-        : m_tokens(b.m_tokens)
-        , m_encoded(b.m_encoded)
-        , m_head(head)
+        : tokens_(b.tokens_)
+        , encoded_(b.encoded_)
+        , head_(head)
     {}
 
     /** Returns the head of this container. */
     const btoken* head() const noexcept
     {
-        return m_head;
+        return head_;
     }
 
     /**
@@ -154,26 +192,26 @@ protected:
 public:
 
     bcontainer(const bcontainer& other)
-        : m_tokens(other.m_tokens)
-        , m_encoded(other.m_encoded)
-        , m_head(other.m_head)
+        : tokens_(other.tokens_)
+        , encoded_(other.encoded_)
+        , head_(other.head_)
     {}
 
     bcontainer(bcontainer&& other)
-        : m_tokens(std::move(other.m_tokens))
-        , m_encoded(std::move(other.m_encoded))
-        , m_head(other.m_head)
+        : tokens_(std::move(other.tokens_))
+        , encoded_(std::move(other.encoded_))
+        , head_(other.head_)
     {
-        other.m_head = nullptr;
+        other.head_ = nullptr;
     }
 
     bcontainer& operator=(const bcontainer& other)
     {
         if(this != &other)
         {
-            m_tokens = other.m_tokens;
-            m_encoded = other.m_encoded;
-            m_head = other.m_head;
+            tokens_ = other.tokens_;
+            encoded_ = other.encoded_;
+            head_ = other.head_;
         }
         return *this;
     }
@@ -182,17 +220,17 @@ public:
     {
         if(this != &other)
         {
-            m_tokens = std::move(other.m_tokens);
-            m_encoded = std::move(other.m_encoded);
-            m_head = std::move(other.m_head);
-            other.m_head = nullptr;
+            tokens_ = std::move(other.tokens_);
+            encoded_ = std::move(other.encoded_);
+            head_ = std::move(other.head_);
+            other.head_ = nullptr;
         }
         return *this;
     }
 
     int size() const noexcept
     {
-        return m_head ? m_head->length : 0;
+        return head_ ? head_->length : 0;
     }
 
     bool empty() const noexcept
@@ -203,7 +241,7 @@ public:
     /** Returns a refernce to the raw bencoded string of the entire container. */
     const std::string& source() const noexcept
     {
-        return *m_encoded;
+        return *encoded_;
     }
 
     /**
@@ -273,12 +311,12 @@ namespace detail
 {
     template<typename T, btype Type> class bprimitive : public belement
     {
-        T m_data;
+        T data_;
     public:
         bprimitive() = default;
-        bprimitive(T t) : m_data(t) {}
+        bprimitive(T t) : data_(t) {}
         btype type() const noexcept override { return Type; }
-        operator T() const noexcept { return m_data; }
+        operator T() const noexcept { return data_; }
     };
 }
 
@@ -404,7 +442,7 @@ private:
         btype TokenType
     > class list_proxy
     {
-        const blist& m_list;
+        const blist& list_;
 
     public:
 
@@ -415,7 +453,7 @@ private:
         using pointer = const value_type*;
         using iterator_category = std::forward_iterator_tag;
 
-        list_proxy(const blist& list) : m_list(list) {}
+        list_proxy(const blist& list) : list_(list) {}
 
         const_iterator begin() const noexcept
         {
@@ -424,13 +462,13 @@ private:
 
         const_iterator cbegin() const noexcept
         {
-            if(!m_list.head())
+            if(!list_.head())
             {
                 return const_iterator(*this, nullptr);
             }
 
-            const btoken* token = m_list.head();
-            const btoken* const list_end = m_list.tail();
+            const btoken* token = list_.head();
+            const btoken* const list_end = list_.tail();
 
             assert(token->type == btype::list);
 
@@ -452,8 +490,8 @@ private:
 
         const_iterator cend() const noexcept
         {
-            if(!m_list.head()) { return const_iterator(*this, nullptr); }
-            return const_iterator(*this, m_list.tail());
+            if(!list_.head()) { return const_iterator(*this, nullptr); }
+            return const_iterator(*this, list_.tail());
         }
 
         friend class const_iterator;
@@ -464,8 +502,8 @@ private:
          */
         class const_iterator
         {
-            const list_proxy* m_list_proxy;
-            const btoken* m_pos;
+            const list_proxy* list_proxy_;
+            const btoken* pos_;
 
         public:
 
@@ -473,8 +511,8 @@ private:
 
             /** pos must point to the first token in the list that matches TokenType. */
             const_iterator(const list_proxy& list_proxy, const btoken* pos)
-                : m_list_proxy(&list_proxy)
-                , m_pos(pos)
+                : list_proxy_(&list_proxy)
+                , pos_(pos)
             {}
 
             template<typename T = BType>
@@ -484,7 +522,7 @@ private:
             >::type operator*()
             {
                 return detail::make_number_from_token(
-                    m_list_proxy->m_list.source(), *m_pos);
+                    list_proxy_->list_.source(), *pos_);
             }
 
             template<typename T = BType>
@@ -494,7 +532,7 @@ private:
             >::type operator*()
             {
                 return detail::make_string_from_token(
-                    m_list_proxy->m_list.source(), *m_pos);
+                    list_proxy_->list_.source(), *pos_);
             }
 
             template<typename T = BType>
@@ -504,7 +542,7 @@ private:
             >::type operator*()
             {
                 return detail::make_string_view_from_token(
-                    m_list_proxy->m_list.source(), *m_pos);
+                    list_proxy_->list_.source(), *pos_);
             }
 
             template<typename T = BType>
@@ -514,7 +552,7 @@ private:
             >::type operator*()
             {
                 return blist(static_cast<detail::bcontainer>(
-                    m_list_proxy->m_list), m_pos);
+                    list_proxy_->list_), pos_);
             }
 
             template<typename T = BType>
@@ -524,7 +562,7 @@ private:
             >::type operator*()
             {
                 return bmap(static_cast<detail::bcontainer>(
-                    m_list_proxy->m_list), m_pos);
+                    list_proxy_->list_), pos_);
             }
 
             pointer operator->() noexcept
@@ -534,14 +572,14 @@ private:
 
             const_iterator& operator++() noexcept
             {
-                if(m_pos)
+                if(pos_)
                 {
-                    const btoken* list_end = m_list_proxy->m_list.tail();
+                    const btoken* list_end = list_proxy_->list_.tail();
                     do
                     {
-                        m_pos += m_pos->next_item_array_offset;
+                        pos_ += pos_->next_item_array_offset;
                     }
-                    while((m_pos != list_end) && (m_pos->type != TokenType));
+                    while((pos_ != list_end) && (pos_->type != TokenType));
                 }
                 return *this;
             }
@@ -556,13 +594,13 @@ private:
             friend
             bool operator==(const const_iterator& a, const const_iterator& b) noexcept
             {
-                return a.m_pos == b.m_pos;
+                return a.pos_ == b.pos_;
             }
 
             friend
             bool operator!=(const const_iterator& a, const const_iterator& b) noexcept
             {
-                return a.m_pos != b.m_pos;
+                return a.pos_ != b.pos_;
             }
         };
     };
@@ -585,6 +623,17 @@ public:
     btype type() const noexcept override
     {
         return btype::map;
+    }
+
+    bool contains(const std::string& key)
+    {
+        return find_token(key);
+    }
+
+    bool contains(const std::string& key, const btype type)
+    {
+        const auto t = find_token(key);
+        return t && (t->type == type);
     }
 
     int64_t find_number(const std::string& key) const
@@ -705,7 +754,7 @@ private:
      * Returns the first value in map (no matter at which level of nesting) whose key
      * matches the search key, or a nullptr if no match is found.
      *
-     * Searching is linear in the number of tokens in m_tokens.
+     * Searching is linear in the number of tokens in tokens_.
      *
      * start_pos must be a map token (i.e. a token with type == btype::map).
      */
@@ -736,12 +785,14 @@ inline std::ostream& operator<<(std::ostream& out, const bmap& b)
  * The resulting bmap instance takes ownership of the intput string.
  */
 bmap decode_bmap(std::string s);
+bmap decode_bmap(std::string s, std::error_code& error);
 
 /**
  * Decodes a bencoded list into a blist instance.
  * The resulting blist instance takes ownership of the intput string.
  */
 blist decode_blist(std::string s);
+blist decode_blist(std::string s, std::error_code& error);
 
 /**
  * Returns one of the four bencode types. If the parsed type is a single bnumber or
@@ -749,6 +800,7 @@ blist decode_blist(std::string s);
  * the container takes ownership of the input string.
  */
 std::unique_ptr<belement> decode(std::string s);
+std::unique_ptr<belement> decode(std::string s, std::error_code& error);
 
 } // namespace tide
 

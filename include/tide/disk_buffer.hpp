@@ -50,7 +50,7 @@ public:
     size_type size() const noexcept override { return m_source.size(); }
     bool empty() const noexcept override { return m_source.empty(); }
 
-    pointer data() noexcept override { return m_source.data(); }
+    pointer data() noexcept override { assert(0 && "can't convert const to non-const"); }
     const_pointer data() const noexcept override { return m_source.data(); }
 };
 
@@ -82,7 +82,7 @@ class disk_buffer : public detail::buffer
     // move-only types so have to either manually reference count or use something else
     std::shared_ptr<value_type> m_data;
     // Reflects the desired size, not the amount of memory, which is always 16KiB.
-    int m_size = 0;
+    size_type m_size = 0;
 
 public:
 
@@ -168,11 +168,11 @@ public:
     using value_type = buffer_type::value_type;
     using size_type = buffer_type::size_type;
     using difference_type = buffer_type::difference_type;
-    //using pointer = buffer_type::pointer;
+    using pointer = buffer_type::pointer;
     using const_pointer = buffer_type::const_pointer;
-    //using reference = buffer_type::reference;
+    using reference = buffer_type::reference;
     using const_reference = buffer_type::const_reference;
-    //using iterator = buffer_type::iterator;
+    using iterator = buffer_type::iterator;
     using const_iterator = buffer_type::const_iterator;
     using iterator_tag = buffer_type::iterator_tag;
 

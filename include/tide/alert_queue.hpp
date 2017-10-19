@@ -41,10 +41,7 @@ void alert_queue::emplace(Args&&... args)
 {
     std::lock_guard<std::mutex> l(m_queue_mutex);
     m_queue.emplace_back(std::make_unique<Event>(std::forward<Args>(args)...));
-    if(m_queue.size() == m_capacity)
-    {
-        m_queue.pop_front();
-    }
+    if(m_queue.size() > m_capacity) { m_queue.pop_front(); }
 }
 
 inline std::deque<std::unique_ptr<alert>> alert_queue::extract_alerts()

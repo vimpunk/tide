@@ -529,22 +529,22 @@ private:
         const char* format, Args&&... args) const;
 };
 
-int torrent::max_upload_slots() const noexcept
+inline int torrent::max_upload_slots() const noexcept
 {
     return m_info.settings.max_upload_slots;
 }
 
-int torrent::max_upload_rate() const noexcept
+inline int torrent::max_upload_rate() const noexcept
 {
     return m_info.settings.max_upload_rate;
 }
 
-int torrent::max_download_rate() const noexcept
+inline int torrent::max_download_rate() const noexcept
 {
     return m_info.settings.max_download_rate;
 }
 
-int torrent::max_connections() const noexcept
+inline int torrent::max_connections() const noexcept
 {
     return m_info.settings.max_connections;
 }

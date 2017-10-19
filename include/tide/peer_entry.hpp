@@ -9,7 +9,7 @@ namespace tide {
 /** Represents a peer collected from a tracker. */
 struct peer_entry
 {
-    sha1_hash id;
+    peer_id_t id;
     tcp::endpoint endpoint;
 
     bool operator==(const peer_entry& other) const noexcept

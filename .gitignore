@@ -1,6 +1,13 @@
+.syntastic_cpp_config
+headers
+sources
+*.swp
+build/
 exp/
 test/
 notes/
+include/*.swp
+include/tide/*.swp
 src/imtodo
 src/ideas
 src/notes

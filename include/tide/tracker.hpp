@@ -19,6 +19,7 @@
 #include <memory>
 #include <vector>
 #include <array>
+#include <deque>
 
 #include <asio/io_service.hpp>
 
@@ -59,7 +60,7 @@ struct tracker_request
     // The number of peers the client wishes to receive from the tracker. If omitted and
     // the tracker is UDP, -1 is sent to signal the tracker to determine the number of
     // peers, and if it's ommitted and the tracker is HTTP, this is typically swapped
-    // for 50.
+    // for a value between 30 and 50.
     int num_want = -1;
 
     // Indicates that client accepts a compact response (each peer takes up only 6 bytes
@@ -96,8 +97,8 @@ class tracker_request_builder
     // Some of the parameters in a request are mandatory, so this counter is incremented
     // with each mandatory field that was added and when build is invoked it is checked
     // whether it matches the number of required parameters .
-    int m_required_param_counter = 0;
-    tracker_request m_request;
+    int required_param_counter_ = 0;
+    tracker_request request_;
 
 public:
 
@@ -212,23 +213,23 @@ protected:
     // The full announce URL of the form "protocol://tracker.host.domain:port/announce".
     // The port number need not be included, in which case the default 80 for HTTP and
     // 443 for HTTPS used.
-    std::string m_url;
+    std::string url_;
 
-    const settings& m_settings;
+    const settings& settings_;
 
-    time_point m_last_announce_time;
-    time_point m_last_scrape_time;
+    time_point last_announce_time_;
+    time_point last_scrape_time_;
 
     // The total number of times we tried to contact tracker in a row, but failed.
     // TODO not actually incremented
-    int m_num_fails = 0;
+    int num_fails_ = 0;
 
     // These fields are used to mark a tracker as "faulty", so that user can query a
     // tracker and move onto the next.
-    bool m_is_reachable = true;
-    bool m_had_protocol_error = false;
+    bool is_reachable_ = true;
+    bool had_protocol_error_ = false;
 
-    bool m_is_aborted = false;
+    bool is_aborted_ = false;
 
 public:
 
@@ -241,7 +242,7 @@ public:
      * reported via the tracker_response.failure_reason field (in which case all other
      * fields in response are empty/invalid.
      */
-    virtual void announce(tracker_request params,
+    virtual void announce(tracker_request parameters,
         std::function<void(const std::error_code&, tracker_response)> handler) = 0;
 
     /**
@@ -260,18 +261,18 @@ public:
      */
     virtual void abort() = 0;
 
-    const std::string& url() const noexcept { return m_url; }
-    time_point last_announce_time() const noexcept { return m_last_announce_time; }
-    time_point last_scrape_time() const noexcept { return m_last_scrape_time; }
+    const std::string& url() const noexcept { return url_; }
+    time_point last_announce_time() const noexcept { return last_announce_time_; }
+    time_point last_scrape_time() const noexcept { return last_scrape_time_; }
 
     /**
      * These are used to query if tracker is currently reachable or if it had exhibited
      * any protocol errors in its response in the past. The former is set to false after
      * we timed out and set to true again if we could reach tracker.
      */
-    bool is_reachable() const noexcept { return m_is_reachable; }
-    bool had_protocol_error() const noexcept { return m_had_protocol_error; }
-    int num_fails() const noexcept { return m_num_fails; }
+    bool is_reachable() const noexcept { return is_reachable_; }
+    bool had_protocol_error() const noexcept { return had_protocol_error_; }
+    int num_fails() const noexcept { return num_fails_; }
 
 protected:
 
@@ -291,22 +292,70 @@ protected:
         const char* format, Args&&... args) const;
 };
 
-/** Currently not implemented. */
+/**
+ * There may only be a single outstanding request (which may be a regular one or a
+ * scrape) to tracker. However, since multiple torrents may be associated with one
+ * tracker, if there is an outstanding request while one or more new requests are
+ * issued, they are enqueued and executed, in the order they were enqueued, once the
+ * outstanding request has been served.
+ */
 class http_tracker final : public tracker
 {
-    tcp::socket m_socket;
-    tcp::resolver m_resolver;
+    tcp::socket socket_;
+    tcp::resolver resolver_;
 
-    http::request<http::string_body> m_request;
-    http::response<http::string_body> m_response;
+    // This is responsible for timing out a request.
+    deadline_timer timeout_timer_;
 
-    // Holds the raw response data. m_resposne is just a view into this.
-    http::flat_buffer m_buffer;
+    // Since there may only be a single outstanding request at any given time, a single
+    // request and response objects are used for all operations.
+    //http::request<http::string_body> request_;
+    http::response<http::string_body> response_;
+
+    // Holds the raw response data, which response_ interprets.
+    http::flat_buffer response_buffer_;
+
+    tcp::endpoint endpoint_;
+
+    struct request
+    {
+        http::request<http::string_body> payload;
+        virtual ~request() = default;
+        virtual void on_error(const std::error_code& error) = 0;
+    };
+
+    struct announce_request final : public request
+    {
+        // This is the callback to be invoked once our request is served.
+        std::function<void(const std::error_code&, tracker_response)> handler;
+        void on_error(const std::error_code& error) override { handler(error, {}); }
+    };
+
+    struct scrape_request final : public request
+    {
+        // This is the callback to be invoked once our request is served.
+        std::function<void(const std::error_code&, scrape_response)> handler;
+        void on_error(const std::error_code& error) override { handler(error, {}); }
+    };
+
+    // All requests are enqueued at the back of this queue, and requests are popped from
+    // the bottom of the queue and executed one at a time. A request is only removed
+    // once it was served by tracker and its completion handler was invoked. This means
+    // that the request currently executed (if any) is always at the front of the queue.
+    std::deque<std::unique_ptr<request>> requests_;
+
+    // This is set to signal that there is an outstanding request operation, to block
+    // other attempts.
+    bool is_requesting_ = false;
+
+    // The first request launches an async host resolution, during which no other
+    // request may be launched, so execution must halt if this is false.
+    bool is_resolved_ = false;
 
 public:
 
     http_tracker(asio::io_service& ios, std::string host, const settings& settings);
-    void announce(tracker_request params,
+    void announce(tracker_request parameters,
         std::function<void(const std::error_code&, tracker_response)> handler) override;
     void scrape(std::vector<sha1_hash> info_hashes,
         std::function<void(const std::error_code&, scrape_response)> handler) override;
@@ -314,7 +363,39 @@ public:
 
 private:
 
-    void on_host_resolved(const std::error_code& error, udp::resolver::iterator it);
+    void on_host_resolved(const std::error_code& error, tcp::resolver::iterator it);
+
+    /**
+     * Sending an announce request or a scrape request entails the same sort of
+     * set up procedure, so it is templatized and both are taken care of by this
+     * function.
+     */
+    template<typename Request, typename Parameters, typename Handler>
+    void execute_request(Parameters parameters, Handler handler);
+
+    /** Creates a HTTP target string from a tracker_request or announce request. */
+    std::string create_target_string(const tracker_request& r) const;
+    std::string create_target_string(const std::vector<sha1_hash>& r) const;
+
+    void on_announce_sent(const std::error_code& error, const size_t num_bytes_sent);
+    void on_scrape_sent(const std::error_code& error, const size_t num_bytes_sent);
+
+    void on_announce_response(const std::error_code& error, const size_t num_bytes_sent);
+    void on_scrape_response(const std::error_code& error, const size_t num_bytes_sent);
+
+    tracker_response parse_announce_response(std::error_code& error);
+    scrape_response parse_scrape_response();
+
+    /**
+     * If there are pending requests in requests_, selects the current one and
+     * executes it.
+     */
+    void execute_one_request();
+
+    /** Returns the current pending request. See requests_ comment. */
+    request& current_request() noexcept;
+
+    void on_request_error(const std::error_code& error);
 };
 
 /**
@@ -368,7 +449,7 @@ class udp_tracker final : public tracker
     struct announce_request final : public request
     {
         // These are the request arguments to be sent to tracker.
-        tracker_request params;
+        tracker_request parameters;
 
         // This is the callback to be invoked once our request is served.
         std::function<void(const std::error_code&, tracker_response)> handler;
@@ -407,30 +488,36 @@ class udp_tracker final : public tracker
     };
 
     // Pending requests are mapped to their transaction ids.
-    std::unordered_map<int32_t, std::unique_ptr<request>> m_requests;
+    std::unordered_map<int32_t, std::unique_ptr<request>> requests_;
 
     // While we may have many requests sent "at the same time", we may only receive and
     // process a single datagram at a time. The buffer is fixed at 1500 bytes which is
     // the limit of Ethernet v2 MTU, so this is about the upper limit to avoid
     // fragmentation. This buffer is lazily allocated on the first use.
-    std::unique_ptr<std::array<uint8_t, 1500>> m_receive_buffer;
+    std::unique_ptr<std::array<char, 1500>> receive_buffer_;
 
     // A single UDP socket is used for all tracker connections. That is, if multiple
     // torrents are assigned the same tracker, they all make their requests/announcements
     // via this socket.
-    udp::socket m_socket;
-    udp::resolver m_resolver;
+    udp::socket socket_;
+    udp::resolver resolver_;
 
     // After establishing a connection with tracker and receiving a connection_id, the
     // connection is alive for one minute. This saves some bandwidth and unnecessary
     // round trip times.
-    time_point m_last_connect_time;
+    time_point last_connect_time_;
 
     // This value we receive from tracker in response to our connect message, which we
     // then have to include in every subsequent message to prove it's still us
     // interacting with tracker. We can use it for one minute after receiving it.
-    int64_t m_connection_id;
+    int64_t connection_id_;
 
+    /**
+     * After establishing a connection with tracker, we remain connected for a minute,
+     * after which the connection is considered disconnected and we must reconnect.
+     * Note that this is purely conceptual as UDP is a stateless protocol--this just
+     * means that we have to renegotiate a new connection id every minute.
+     */
     enum class state : uint8_t
     {
         disconnected,
@@ -438,16 +525,16 @@ class udp_tracker final : public tracker
         connected
     };
 
-    enum state m_state = state::disconnected;
+    enum state state_ = state::disconnected;
 
-    // This is set to signal that we're receiving into m_receive_buffer, which is
+    // This is set to signal that we're receiving into receive_buffer_, which is
     // necessary because we may only receive a single datagram at any given time, i.e.
     // only serve a single request.
-    bool m_is_receiving = false;
+    bool is_receiving_ = false;
 
-    // The constructor launches an async host resolution, during which no request may be
-    // launched, so execution must halt if this is false.
-    bool m_is_resolved = false;
+    // The first request launches an async host resolution, during which no other
+    // request may be launched, so execution must halt if this is false.
+    bool is_resolved_ = false;
 
 public:
 
@@ -458,10 +545,9 @@ public:
     udp_tracker(asio::io_service& ios, const std::string& url, const settings& settings);
     ~udp_tracker();
 
-    // TODO add a stop function that waits for the current request to finish
     void abort() override;
 
-    void announce(tracker_request params,
+    void announce(tracker_request parameters,
         std::function<void(const std::error_code&, tracker_response)> handler) override;
     void scrape(std::vector<sha1_hash> info_hashes,
         std::function<void(const std::error_code&, scrape_response)> handler) override;
@@ -474,11 +560,11 @@ private:
     void on_host_resolved(const std::error_code& error, udp::resolver::iterator it);
 
     /**
-     * Creates an entry in m_requests and return a reference to the request instance.
+     * Creates an entry and places it in requests_, and return a reference to it.
      * Request must be either announce_request or scrape_request.
      */
-    template<typename Request, typename Params, typename Handler>
-    Request& create_request_entry(Params params, Handler handler);
+    template<typename Request, typename Parameters, typename Handler>
+    Request& create_request_entry(Parameters parameters, Handler handler);
 
     /**
      * Sending an announce or a scrape requests entails the same sort of logic up until

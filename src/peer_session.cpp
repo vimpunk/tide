@@ -2767,12 +2767,11 @@ void peer_session::on_keep_alive_timeout(const std::error_code& error)
 void peer_session::generate_allowed_fast_set()
 {
     const torrent_info& info = m_torrent.info();
-    const int n = std::min(info.num_pieces,
-        m_settings.allowed_fast_set_size);
+    const int n = std::min(info.num_pieces, m_settings.allowed_fast_set_size);
     m_outgoing_allowed_set.reserve(n);
     std::string x(24, 0);
     const address& ip = remote_endpoint().address();
-    // TODO ipv4 ipv6 branching
+    // TODO branch on ipv4/ipv6
     endian::write<uint32_t>(0xff'ff'ff'00 & ip.to_v4().to_ulong(), &x[0]);
     std::copy(info.info_hash.begin(), info.info_hash.end(), x.begin() + 4);
     while(m_outgoing_allowed_set.size() < n)
@@ -2825,8 +2824,8 @@ void peer_session::log(const log_event event, const log::priority priority,
     case log_event::info: header << "INFO"; break;
     }
     // we're not attached to any torrent yet
-    const torrent_id_t torrent = m_torrent ? m_torrent.info().id : -1;
-    log::log_peer_session(torrent, remote_endpoint(), header.str(),
+    const torrent_id_t id = m_torrent ? m_torrent.info().id : -1;
+    log::log_peer_session(id, remote_endpoint(), header.str(),
         util::format(format, std::forward<Args>(args)...), priority);
 #endif // TIDE_ENABLE_LOGGING
 }

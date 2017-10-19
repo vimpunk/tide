@@ -4,78 +4,135 @@
 
 namespace tide {
 
+std::string bencode_error_category::message(int env) const
+{
+    switch(static_cast<bencode_errc>(env))
+    {
+    case bencode_errc::blist_missing_header: return "No 'l' header in blist";
+    case bencode_errc::blist_missing_end_token: return "No 'e' end token in blist";
+    case bencode_errc::bmap_missing_header: return "No 'd' header in bmap";
+    case bencode_errc::bmap_missing_end_token: return "No 'e' end token in bmap";
+    case bencode_errc::bmap_key_not_string: return "Key not a String in bmap";
+    case bencode_errc::bmap_keys_unordered: return "Keys in bmap not alphabetically ordered";
+    case bencode_errc::bmap_missing_value: return "No value assigned to key in bmap";
+    case bencode_errc::bstring_invalid_length: return "Invalid length in bstring header";
+    case bencode_errc::bstring_missing_colon: return "Missing colon after bstring header";
+    case bencode_errc::bnumber_trailing_zeros: return "Trailing zeros in bnumber";
+    case bencode_errc::bnumber_missing_end_token: return "No 'e' end token in bnumber";
+    case bencode_errc::out_of_range: return "Out of range: could not find bencode end";
+    case bencode_errc::unknown_type: return "Unknown bencode type";
+    default: return "Unknown";
+    }
+}
+
+std::error_condition
+bencode_error_category::default_error_condition(int ev) const noexcept
+{
+    switch(static_cast<bencode_errc>(ev))
+    {
+    default:
+        return std::error_condition(ev, *this);
+    }
+}
+
+const bencode_error_category& bencode_category()
+{
+    static bencode_error_category instance;
+    return instance;
+}
+
+std::error_code make_error_code(bencode_errc e)
+{
+    return std::error_code(static_cast<int>(e), bencode_category());
+}
+
+std::error_condition make_error_condition(bencode_errc e)
+{
+    return std::error_condition(static_cast<int>(e), bencode_category());
+}
+
 class bdecoder
 {
     // Temporary holds the list of tokens, ownership of which will be passed to the
     // decoded bcontainer. (Unused when the decoded element is a bstring or bnumber.)
-    std::vector<btoken> m_tokens;
+    std::vector<btoken> tokens_;
 
     // This is the raw bencoded string. Ownership of this string will be handed over to
     // the belement instance produced after decoding.
-    std::string m_encoded;
+    std::string encoded_;
 
-    // The index of the current character in m_encoded.
-    int m_pos = 0;
+    // The index of the current character in encoded_.
+    int pos_ = 0;
 
 public:
 
-    explicit bdecoder(std::string s) : m_encoded(std::move(s)) {}
+    explicit bdecoder(std::string s) : encoded_(std::move(s)) {}
 
-    bmap decode_map()
+    bmap decode_map(std::error_code& error)
     {
-        if(m_encoded.empty())
+        error.clear();
+        if(encoded_.empty())
         {
-            throw std::runtime_error("empty source string, cannot decode");
+            return {};
         }
-        else if(m_encoded.front() != 'd')
+        else if(encoded_[0] != 'd')
         {
-            throw std::runtime_error("invalid bmap encoding (invalid header)");
+            error = make_error_code(bencode_errc::bmap_missing_header);
+            return {};
         }
-        m_tokens.reserve(count_tokens());
-        decode_bmap();
-        return bmap(std::move(m_tokens), std::move(m_encoded));
+        const int num_tokens = count_tokens(error);
+        if(error) { return {}; }
+        tokens_.reserve(num_tokens);
+        decode_bmap(error);
+        return bmap(std::move(tokens_), std::move(encoded_));
     }
 
-    blist decode_list()
+    blist decode_list(std::error_code& error)
     {
-        if(m_encoded.empty())
+        error.clear();
+        if(encoded_.empty())
         {
-            throw std::runtime_error("empty source string, cannot decode");
+            return {};
         }
-        else if(m_encoded.front() != 'l')
+        else if(encoded_[0] != 'l')
         {
-            throw std::runtime_error("invalid blist encoding (invalid header)");
+            error = make_error_code(bencode_errc::blist_missing_header);
+            return {};
         }
-        m_tokens.reserve(count_tokens());
-        decode_blist();
-        return blist(std::move(m_tokens), std::move(m_encoded));
+        const int num_tokens = count_tokens(error);
+        if(error) { return {}; }
+        tokens_.reserve(num_tokens);
+        decode_blist(error);
+        return blist(std::move(tokens_), std::move(encoded_));
     }
 
-    std::unique_ptr<belement> decode()
+    std::unique_ptr<belement> decode(std::error_code& error)
     {
-        if(m_encoded.empty())
-        {
-            throw std::runtime_error("empty source string, cannot decode");
-        }
+        error.clear();
+        if(encoded_.empty()) { return {}; }
 
-        const char c = m_encoded.front();
+        const char c = encoded_[0];
         if(c == 'd')
         {
-            return std::make_unique<bmap>(decode_map());
+            bmap map = decode_map(error);
+            if(!error) { return std::make_unique<bmap>(std::move(map)); }
         }
         else if(c == 'l')
         {
-            return std::make_unique<blist>(decode_list());
+            blist list = decode_list(error);
+            if(!error) { return std::make_unique<blist>(std::move(list)); }
         }
         else if(c == 'i')
         {
-            return std::make_unique<bnumber>(
-                detail::make_number_from_token(m_encoded, decode_bnumber()));
+            const auto token = decode_bnumber(error);
+            if(!error) return std::make_unique<bnumber>(
+                detail::make_number_from_token(encoded_, token));
         }
         else if(std::isdigit(c))
         {
-            return std::make_unique<bstring>(
-                detail::make_string_from_token(m_encoded, decode_bstring()));
+            const auto token = decode_bstring(error);
+            if(!error) return std::make_unique<bstring>(
+                detail::make_string_from_token(encoded_, token));
         }
         return nullptr;
     }
@@ -83,32 +140,33 @@ public:
 private:
 
     /**
-     * Goes over m_encoded and counts the number of btokens that would be constructed by
+     * Goes over encoded_ and counts the number of btokens that would be constructed by
      * parsing the entire input string. This is to allocate the tokens buffer in one
      * instead of incrementally.
      */
-    int count_tokens()
+    int count_tokens(std::error_code& error)
     {
         int count = 0;
-        for(auto i = 0; i < m_encoded.length() - 1; ++i)
+        for(auto i = 0; i < encoded_.length() - 1; ++i)
         {
-            const char c = m_encoded[i];
+            const char c = encoded_[i];
             if(std::isdigit(c))
             {
-                const int str_length = std::atoi(&m_encoded[i]);
-                while((i < m_encoded.length()) && (m_encoded[i] != ':'))
+                const int str_length = std::atoi(&encoded_[i]);
+                while((i < encoded_.length()) && (encoded_[i] != ':'))
                 {
                     ++i;
                 }
-                if(i == m_encoded.length())
+                if(i == encoded_.length())
                 {
-                    throw std::runtime_error("invalid bencoding (out of range)");
+                    error = make_error_code(bencode_errc::out_of_range);
+                    return count;
                 }
                 i += str_length;
             }
             else if(c == 'i')
             {
-                while((i < m_encoded.length()) && (m_encoded[i] != 'e'))
+                while((i < encoded_.length()) && (encoded_[i] != 'e'))
                 {
                     ++i;
                 }
@@ -127,59 +185,78 @@ private:
      * Dispatches decoding to specialized functions and returns the number of btokens
      * that were created decoding the current element.
      */
-    int decode_dispatch()
+    int decode_dispatch(std::error_code& error)
     {
-        assert(m_pos < m_encoded.length());
-        const int prev_num_tokens = m_tokens.size();
-        //std::cout << "type: " << m_encoded[m_pos] << '\n';
-        switch(m_encoded[m_pos])
+        assert(pos_ < encoded_.length());
+        const int prev_num_tokens = tokens_.size();
+        //std::cout << "type: " << encoded_[pos_] << '\n';
+        switch(encoded_[pos_])
         {
         case '0': case '1': case '2': case '3': case '4':
         case '5': case '6': case '7': case '8': case '9':
-            m_tokens.emplace_back(decode_bstring());
+        {
+            auto token = decode_bstring(error);
+            if(error) { return 0; }
+            tokens_.emplace_back(std::move(token));
             return 1;
+        }
         case 'i':
-            m_tokens.emplace_back(decode_bnumber());
+        {
+            auto token = decode_bnumber(error);
+            if(error) { return 0; }
+            tokens_.emplace_back(std::move(token));
             return 1;
+        }
         case 'l':
-            decode_blist();
-            return m_tokens.size() - prev_num_tokens;
+        {
+            decode_blist(error);
+            if(error) { return 0; }
+            return tokens_.size() - prev_num_tokens;
+        }
         case 'd':
-            decode_bmap();
-            return m_tokens.size() - prev_num_tokens;
+        {
+            decode_bmap(error);
+            if(error) { return 0; }
+            return tokens_.size() - prev_num_tokens;
+        }
         default:
-            throw std::runtime_error("cannot bdecode, unknown type: " + m_encoded[m_pos]);
+        {
+            error = make_error_code(bencode_errc::unknown_type);
+            return 0;
+        }
         }
     }
 
-    btoken decode_bstring()
+    btoken decode_bstring(std::error_code& error)
     {
         // check for correct string length
-        if((m_encoded[m_pos] == '0') && (m_encoded[m_pos + 1] != ':'))
+        if((encoded_[pos_] == '0') && (encoded_[pos_ + 1] != ':'))
         {
-            throw std::runtime_error("invalid bstring encoding (invalid length)");
+            error = make_error_code(bencode_errc::bstring_invalid_length);
+            return {};
         }
 
-        int colon_index = m_pos + 1;
-        while(std::isdigit(m_encoded[colon_index]))
+        int colon_index = pos_ + 1;
+        while(std::isdigit(encoded_[colon_index]))
         {
             ++colon_index;
         }
         // the first character after the digits in a string must be a colon
-        if(m_encoded[colon_index] != ':')
+        if(encoded_[colon_index] != ':')
         {
-            throw std::runtime_error("invalid bstring encoding (missing colon)");
+            error = make_error_code(bencode_errc::bstring_missing_colon);
+            return {};
         }
 
-        btoken bstring(btype::string, m_pos);
-        bstring.length = colon_index - m_pos + 1;
+        btoken bstring(btype::string, pos_);
+        bstring.length = colon_index - pos_ + 1;
 
         // go to the next element
-        const int str_length = std::atoi(&m_encoded[m_pos]);
-        m_pos = colon_index + 1 + str_length;
+        const int str_length = std::atoi(&encoded_[pos_]);
+        pos_ = colon_index + 1 + str_length;
 
         // if there is still an element after this, the offset is 1 (default is 0)
-        if(m_pos < m_encoded.length())
+        if(pos_ < encoded_.length())
         {
             bstring.next_item_array_offset = 1;
         }
@@ -187,32 +264,34 @@ private:
         return bstring;
     }
 
-    btoken decode_bnumber()
+    btoken decode_bnumber(std::error_code& error)
     {
         // don't allow leading zeros
-        if((m_encoded[m_pos + 1] == '0') && (m_encoded[m_pos + 2] != 'e'))
+        if((encoded_[pos_ + 1] == '0') && (encoded_[pos_ + 2] != 'e'))
         {
-            throw std::runtime_error("invalid bnumber encoding (trailing zeros)");
+            error = make_error_code(bencode_errc::bnumber_trailing_zeros);
+            return {};
         }
 
-        int end = m_pos + 1;
-        while(std::isdigit(m_encoded[end]))
+        int end = pos_ + 1;
+        while(std::isdigit(encoded_[end]))
         {
             ++end;
         }
         // the first character after the digits in number must be the 'e' end token
-        if(m_encoded[end] != 'e')
+        if(encoded_[end] != 'e')
         {
-            throw std::runtime_error("invalid bnumber encoding (missing 'e' end token)");
+            error = make_error_code(bencode_errc::bnumber_missing_end_token);
+            return {};
         }
 
-        btoken bnumber(btype::number, m_pos);
-        bnumber.length = end - m_pos + 1;
+        btoken bnumber(btype::number, pos_);
+        bnumber.length = end - pos_ + 1;
 
         // got to the next element
-        m_pos = end + 1;
+        pos_ = end + 1;
         // if there is still an element after this, the offset is 1 (default is 0)
-        if(m_pos < m_encoded.length())
+        if(pos_ < encoded_.length())
         {
             bnumber.next_item_array_offset = 1;
         }
@@ -220,86 +299,116 @@ private:
         return bnumber;
     }
 
-    void decode_blist()
+    void decode_blist(std::error_code& error)
     {
-        m_tokens.emplace_back(btype::list, m_pos);
+        tokens_.emplace_back(btype::list, pos_);
         // save the position of list header so we can refer to it later (cannot use
-        // reference as m_tokens may reallocate)
-        const int list_pos = m_tokens.size() - 1;
+        // reference as tokens_ may reallocate)
+        const int list_pos = tokens_.size() - 1;
         // go to first element in list
-        ++m_pos;
-        while((m_pos < m_encoded.length()) && (m_encoded[m_pos] != 'e'))
+        ++pos_;
+        while((pos_ < encoded_.length()) && (encoded_[pos_] != 'e'))
         {
             // add the number of tokens that were parsed while decoding value; this is
             // necessary to determine where the list ends
-            m_tokens[list_pos].next_item_array_offset += decode_dispatch();
-            ++m_tokens[list_pos].length;
+            tokens_[list_pos].next_item_array_offset += decode_dispatch(error);
+            ++tokens_[list_pos].length;
+            if(error) { return; }
         }
 
-        if(m_encoded[m_pos] != 'e')
+        if(encoded_[pos_] != 'e')
         {
-            throw std::runtime_error("invalid blist encoding (missing 'e' end token)");
+            error = make_error_code(bencode_errc::blist_missing_end_token);
+            return;
         }
         // got past the 'e' end token to the next element
-        ++m_pos;
+        ++pos_;
     }
 
-    void decode_bmap()
+    void decode_bmap(std::error_code& error)
     {
-        m_tokens.emplace_back(btype::map, m_pos);
+        tokens_.emplace_back(btype::map, pos_);
         // save the position of map header so we can refer to it later (cannot use
-        // reference as m_tokens may reallocate)
-        const int map_pos = m_tokens.size() - 1;
+        // reference as tokens_ may reallocate)
+        const int map_pos = tokens_.size() - 1;
         // go to first element in map
-        ++m_pos;
-        while((m_pos < m_encoded.length()) && (m_encoded[m_pos] != 'e'))
+        ++pos_;
+        while((pos_ < encoded_.length()) && (encoded_[pos_] != 'e'))
         {
-            if(!std::isdigit(m_encoded[m_pos]))
+            if(!std::isdigit(encoded_[pos_]))
             {
                 // keys must be strings
-                throw std::runtime_error("invalid bmap encoding (key not a string)");
+                error = make_error_code(bencode_errc::bmap_key_not_string);
+                return;
             }
             // decode key
-            m_tokens.emplace_back(decode_bstring());
-            ++m_tokens[map_pos].next_item_array_offset;
+            tokens_.emplace_back(decode_bstring(error));
+            ++tokens_[map_pos].next_item_array_offset;
+            if(error) { return; }
             // TODO validate key
 
-            if(m_pos >= m_encoded.length())
+            if(pos_ >= encoded_.length())
             {
-                throw std::runtime_error(
-                    "invalid bmap encoding (no value assigned to key)");
+                error = make_error_code(bencode_errc::bmap_missing_value);
+                return;
             }
 
             // decode value and add the number of tokens that were parsed while decoding
             // value to array offset accumulator
             // this is necessary to determine where the map ends
-            m_tokens[map_pos].next_item_array_offset += decode_dispatch();
+            tokens_[map_pos].next_item_array_offset += decode_dispatch(error);
             // a map's length is its number of key-value pairs
-            ++m_tokens[map_pos].length;
+            ++tokens_[map_pos].length;
+            if(error) { return; }
         }
 
-        if(m_encoded[m_pos] != 'e')
+        if(encoded_[pos_] != 'e')
         {
-            throw std::runtime_error("invalid bmap encoding (missing 'e' end token)");
+            error = make_error_code(bencode_errc::bmap_missing_end_token);
+            return;
         }
         // got past the 'e' end token to the next element
-        ++m_pos;
+        ++pos_;
     }
 };
 
+bmap decode_bmap(std::string s, std::error_code& error)
+{
+    return bdecoder(std::move(s)).decode_map(error);
+}
+
 bmap decode_bmap(std::string s)
 {
-    return bdecoder(std::move(s)).decode_map();
+    std::error_code error;
+    auto bmap = bdecoder(std::move(s)).decode_map(error);
+    if(error) { throw error; }
+    return bmap;
+}
+
+blist decode_blist(std::string s, std::error_code& error)
+{
+    return bdecoder(std::move(s)).decode_list(error);
 }
 
 blist decode_blist(std::string s)
 {
-    return bdecoder(std::move(s)).decode_list();
+    std::error_code error;
+    auto blist = bdecoder(std::move(s)).decode_list(error);
+    if(error) { throw error; }
+    return blist;
+}
+
+std::unique_ptr<belement> decode(std::string s, std::error_code& error)
+{
+    return bdecoder(std::move(s)).decode(error);
 }
 
 std::unique_ptr<belement> decode(std::string s)
 {
-    return bdecoder(std::move(s)).decode();
+    std::error_code error;
+    auto b = bdecoder(std::move(s)).decode(error);
+    if(error) { throw error; }
+    return b;
 }
 
 namespace detail
@@ -311,7 +420,7 @@ namespace detail
         {
             return string_view();
         }
-        if(head() == m_tokens->data())
+        if(head() == tokens_->data())
         {
             // this is the root container, just return the whole encoded string
             return source();
@@ -507,18 +616,12 @@ const btoken* bmap::find_token(const std::string& key,
             // recursively search nested map
             // TODO decide if we want DFS or BFS
             auto result = find_token(key, token);
-            if(result)
-            {
-                return result;
-            }
+            if(result) { return result; }
         }
         else if(token->type == btype::list)
         {
             auto result = find_token_in_list(key, token);
-            if(result)
-            {
-                return result;
-            }
+            if(result) { return result; }
         }
         // advance to next key, which may be map_end
         token += token->next_item_array_offset;
@@ -537,18 +640,12 @@ const btoken* bmap::find_token_in_list(
         if(token->type == btype::map)
         {
             auto result = find_token(key, token);
-            if(result)
-            {
-                return result;
-            }
+            if(result) { return result; }
         }
         if(token->type == btype::list)
         {
             auto result = find_token_in_list(key, token);
-            if(result)
-            {
-                return result;
-            }
+            if(result) { return result; }
         }
         token += token->next_item_array_offset;
     }

@@ -45,31 +45,30 @@ class engine
     endpoint_filter m_endpoint_filter;
     
     // Internal entities within tide::engine communicate with user asynchronously via
-    // an alert channel. This is done by accumulating alerts (stats, alerts, async
-    // op results etc) in this queue and user extracts all thus far accrued alerts
-    // manually.
-    // thread-safe.
+    // an alert channel. This is done by accumulating alerts in this queue until user 
+    // manually extracts them. It's thread-safe.
     alert_queue m_alert_queue;
 
-    // All active and inactive torrents are stored here.
+    // All torrents (active and inactive) are stored here.
     std::vector<std::shared_ptr<torrent>> m_torrents;
 
-    // Torrents may have a priority ordering.
+    // Torrents may have a priority ordering, which is determined by a torrent's id's
+    // position in this queue. Entries at the front have a higher priority.
     std::vector<torrent_id_t> m_torrent_priority;
 
     // Every single tracker used by all torrents is stored here. This is because many
     // torrents share the same tracker, so when a torrent is created, we first check
-    // if its trackers already exist, and if so, we can pass the existing instance to
+    // if its trackers already exists, and if so, we can pass the existing instance to
     // torrent. A tracker is removed from here when all torrents that use it have been
     // removed (checked using shared_ptr's reference count).
     std::vector<std::shared_ptr<tracker>> m_trackers;
 
     // Incoming connections are stored here until the handshake has been concluded after
-    // which we can determine to which torrent this peer belongs.
+    // which we can determine to which torrent the peer belongs.
     std::vector<std::shared_ptr<peer_session>> m_incoming_connections;
 
     // This contains all the user configurable options, a const reference to which is
-    // passed down to pretty much all components of the engine.
+    // passed down to most components of the engine.
     settings m_settings;
 
     // This is the io_service that runs all network related connections. This is also
@@ -85,9 +84,9 @@ class engine
     // on the network thread so that all its operations execute there.
     std::thread m_network_thread;
 
-    // Since the engine uses system time extensively, the time returend by the system
-    // is cached and only updated every 100ms, which should save some costs and most
-    // components don't need a higher resolution than this anyway.
+    // Since the engine uses system time extensively, the time returned by the system
+    // is cached and only updated every 100ms, which should save some costs as most
+    // components don't need a higher resolution anyway.
     deadline_timer m_cached_clock_updater;
 
 public:
@@ -182,7 +181,7 @@ public:
 private:
 
     void verify_torrent_args(torrent_args& args) const;
-    torrent_id_t get_torrent_id() noexcept;
+    torrent_id_t next_torrent_id() noexcept;
 
     /**
      * If any of torrent's trackers are already present in m_trackers, those are

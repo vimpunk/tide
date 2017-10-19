@@ -177,6 +177,11 @@ void disk_io::set_concurrency(const int n)
 void disk_io::read_metainfo(const path& path,
     std::function<void(const std::error_code&, metainfo)> handler)
 {
+    m_thread_pool.post([this, path, handler = std::move(handler)]
+    {
+        //m_network_ios.post([handler = std::move(handler),
+            //metainfo = std::move(metainfo)] { handler(std::move(metainfo)); });
+    });
 }
 
 torrent_storage_handle disk_io::allocate_torrent(const torrent_info& info,
