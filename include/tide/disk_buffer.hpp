@@ -122,7 +122,7 @@ public:
         if(this != &other)
         {
             data_ = std::move(other.data_);
-            size_ = (other.size_);
+            size_ = std::move(other.size_);
             other.size_ = 0;
         }
         return *this;

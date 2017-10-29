@@ -90,7 +90,6 @@ bool piece_picker::am_interested_in(const bitfield& available_pieces) const noex
     return false;
 }
 
-/*
 std::vector<int> piece_picker::piece_availability() const
 {
     std::vector<int> frequency_map;
@@ -104,13 +103,13 @@ void piece_picker::piece_availability(std::vector<int>& frequency_map) const
     if(frequency_map.size() != num_pieces()) { frequency_map.resize(num_pieces()); }
     for(auto i = 0; i < num_pieces(); ++i)
     {
-        if(piece_pos_map_[i] != invalid_pos)
-            frequency_map[i] = pieces_[frequency_map[i]].frequency;
+        const auto pos = piece_pos_map_[i];
+        if(pos != invalid_pos)
+            frequency_map[i] = pieces_[pos].frequency;
         else
             frequency_map[i] = -1;
     }
 }
-*/
 
 int piece_picker::frequency(const piece_index_t piece) const noexcept
 {
@@ -314,6 +313,14 @@ void piece_picker::lost(const piece_index_t piece)
     }
 }
 
+/*
+void set_wanted_pieces(bitfield wanted_pieces);
+void want_piece(const piece_index_t piece);
+void want_pieces(const interval pieces);
+void dont_want_piece(const piece_index_t piece);
+void dont_want_pieces(const interval pieces);
+*/
+
 void piece_picker::make_top_priority(interval pieces)
 {
 }
@@ -345,10 +352,7 @@ std::string piece_picker::to_string() const
         for(const auto& group : priority_groups_)
         {
             ss << "group#1[" << group.begin << ", " << group.end << "]: ";
-            for(; pos != group.end; ++pos)
-            {
-                PRINT_PIECE(pieces_[pos]);
-            }
+            for(; pos != group.end; ++pos) { PRINT_PIECE(pieces_[pos]); }
             ss << '\n';
         }
     }

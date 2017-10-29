@@ -71,6 +71,18 @@ void piece_download::register_peer(const peer_id_type& id,
     peers_.emplace_back(id, std::move(completion_handler), std::move(cancel_handler));
 }
 
+void piece_download::have_block(const block_info& block_info)
+{
+    verify_block(block_info);
+
+    block& block = blocks_[block_index(block_info)];
+    if(block.status != block::status::received)
+    {
+        block.status = block::status::received;
+        --num_blocks_left_;
+    }
+}
+
 void piece_download::got_block(const peer_id_type& id, const block_info& block_info)
 {
     verify_block(block_info);

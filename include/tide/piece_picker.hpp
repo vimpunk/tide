@@ -108,13 +108,12 @@ public:
 
 
     /**
-     * The piece availability is written into the input vector.
-     * TODO we no longer track the availability of all pieces, only the ones that we
-     * need, so a plain vector<int> is insufficient--or, the untracked pieces could be
-     * mapped to a value of -1 in frequency_map
+     * The availability of a piece is mapped to the position in frequency_map
+     * corresponding to the piece's index. The pieces we have already downloaded are
+     * mapped to a value of -1, since we no longer track a piece after downloading it.
      */
-    //void piece_availability(std::vector<int>& frequency_map) const;
-    //std::vector<int> piece_availability() const;
+    void piece_availability(std::vector<int>& frequency_map) const;
+    std::vector<int> piece_availability() const;
 
     /** Returns the piece's frequency. */
     int frequency(const piece_index_t piece) const noexcept;

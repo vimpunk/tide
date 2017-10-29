@@ -58,7 +58,7 @@ inline interval disk_io::partial_piece::hashable_range() const noexcept
 {
     if(buffer.empty()) { return {}; }
 #ifdef TIDE_ENABLE_EXPENSIVE_ASSERTS
-    // buffer most be ordered at all times
+    // Buffer most be ordered at all times.
     for(auto i = 1; i < buffer.size(); ++i)
     {
         assert(buffer[i-1].offset < buffer[i].offset);
@@ -68,10 +68,10 @@ inline interval disk_io::partial_piece::hashable_range() const noexcept
     {
         const auto first_unhashed = std::find_if(buffer.begin(), buffer.end(),
             [this](const auto& b) { return b.offset == unhashed_offset; });
-        // even though there is no gap between last unhashed block and the first block
-        // in buffer, we may not have the block that is aligned with the unhashed offset
+        // Even though there is no gap between last unhashed block and the first block
+        // in buffer, we may not have the block that is aligned with the unhashed offset.
         if(first_unhashed == buffer.end()) { return {}; }
-        // find one past the last hashable block
+        // Find one past the last hashable block.
         auto it = first_unhashed + 1;
         while(it != buffer.end())
         {
@@ -117,8 +117,8 @@ inline void disk_io::partial_piece::restore_buffer()
     }
     else
     {
-        // this is not optimal but we don't expect to need this often so don't bother
-        // for now
+        // This is not optimal but we don't expect to need this often so don't bother
+        // for now.
         for(auto& block : work_buffer)
         {
             buffer.emplace(std::find_if(buffer.begin(), buffer.end(),
@@ -157,7 +157,7 @@ disk_io::disk_io(asio::io_service& network_ios, const disk_io_settings& settings
 
 disk_io::~disk_io()
 {
-    // TODO make sure we don't destruct while there are jobs etc
+    // TODO make sure we don't destruct while there are jobs etc.
 }
 
 void disk_io::set_cache_size(const int n)
@@ -188,13 +188,13 @@ torrent_storage_handle disk_io::allocate_torrent(const torrent_info& info,
     std::string piece_hashes, std::error_code& error)
 {
     // TODO investigate whether this can potentially be so expensive an operation as to
-    // justify sending it to thread pool
+    // justify sending it to thread pool.
     log(log_event::torrent, "creating disk_io entry for torrent#%i"
         " and setting up directory tree", info.id);
     try
     {
-        // insert new torrent before the first torrent that has a larger id than this
-        // one
+        // Insert new torrent before the first torrent that has a larger id than this
+        // one.
         torrent_storage_handle handle;
         if(torrents_.empty() || (torrents_.back()->id < info.id))
         {
@@ -226,8 +226,8 @@ torrent_storage_handle disk_io::allocate_torrent(const torrent_info& info,
     }
 }
 
-// the following are a bit tricky, I think, because we need to ensure that no concurrent
-// ops are run on file, but the kernel may provide some guarantees. TODO check
+// The following are a bit tricky, I think, because we need to ensure that no concurrent
+// ops are run on file, but the kernel may provide some guarantees. TODO check..
 void disk_io::move_torrent(const torrent_id_t id, std::string new_path,
     std::function<void(const std::error_code&)> handler)
 {
@@ -249,13 +249,26 @@ void disk_io::erase_torrent_resume_data(const torrent_id_t id,
 }
 
 void disk_io::save_torrent_resume_data(const torrent_id_t id,
-    const bmap_encoder& resume_data, std::function<void(const std::error_code&)> handler)
+    bmap_encoder resume_data, std::function<void(const std::error_code&)> handler)
 {
+    thread_pool_.post([resume_data = std::move(resume_data),
+        handler = std::move(handler), torrent& = find_torrent_entry(id)]
+        { 
+            std::error_code error;
+            torrent.storage.write_resume_data(resume_data, error);
+            handler(error);
+        });
 }
 
 void disk_io::load_torrent_resume_data(const torrent_id_t id,
     std::function<void(const std::error_code&, bmap)> handler)
 {
+    thread_pool_.post([handler = std::move(handler), torrent& = find_torrent_entry(id)]
+        { 
+            std::error_code error;
+            auto resume_data, torrent.storage.read_resume_data(resume_data, error);
+            handler(std::move(resume_data), error);
+        });
 }
 
 void disk_io::load_all_torrent_resume_data(
@@ -312,10 +325,10 @@ void disk_io::save_block(const torrent_id_t id,
         return;
     }
 
-    // find the partial_piece to which this block belongs
+    // Find the partial_piece to which this block belongs.
     auto it = std::find_if(torrent.write_buffer.begin(), torrent.write_buffer.end(),
         [index = block_info.index](const auto& p) { return p->index == index; });
-    // if none is found, this is the first block in piece, i.e. a new piece download
+    // If none is found, this is the first block in piece, i.e. a new piece download.
     if(it == torrent.write_buffer.end())
     {
         torrent.write_buffer.emplace_back(std::make_unique<partial_piece>(
@@ -337,10 +350,10 @@ void disk_io::save_block(const torrent_id_t id,
     }
     partial_piece& piece = **it;
 
-    // buffer must always be sorted by block::offset
+    // Buffer must always be sorted by block::offset.
     const auto pos = std::find_if(piece.buffer.begin(), piece.buffer.end(),
         [offset = block_info.offset](const auto& b) { return b.offset >= offset; });
-    // before insertion, check if we don't already have this block
+    // Before insertion, check if we don't already have this block.
     if(((pos != piece.buffer.end()) && (pos->offset == block_info.offset))
        || piece.save_progress[block_index(block_info.offset)])
     {
@@ -360,7 +373,7 @@ void disk_io::save_block(const torrent_id_t id,
             { on_write_buffer_expiry(error, torrent, piece); });
     }
 
-    // only a single thread may work (hash/write) on a piece at a time
+    // Only a single thread may work (hash/write) on a piece at a time.
     if(!piece.is_busy) { dispatch_write(torrent, piece); }
 #undef FORMAT_BLOCK_STRING
 #undef FORMAT_BLOCK_ARGS
@@ -371,7 +384,7 @@ inline void disk_io::on_write_buffer_expiry(const std::error_code& error,
 {
     if(error) { return; }
 
-    // if piece is busy, its buffer is being flushed so no further action is necessary
+    // If piece is busy, its buffer is being flushed so no further action is necessary.
     if(!piece.is_busy && !piece.buffer.empty())
     {
         assert(!piece.is_complete());
@@ -385,19 +398,19 @@ inline void disk_io::on_write_buffer_expiry(const std::error_code& error,
     }
 }
 
+// TODO refactor
 inline void disk_io::dispatch_write(torrent_entry& torrent, partial_piece& piece)
 {
-    // TODO refactor
     assert(!piece.is_busy);
     assert(!piece.buffer.empty());
     assert(piece.work_buffer.empty());
 
-    // even if a piece does not have write_cache_line_size blocks, if it's complete
-    // it is written to disk in order to save it asap
+    // Even if a piece does not have write_cache_line_size blocks, if it's complete
+    // it is written to disk in order to save it asap.
     if(piece.is_complete())
     {
 #ifdef TIDE_ENABLE_EXPENSIVE_ASSERTS
-        // assert that we do indeed have all blocks
+        // Assert that we do indeed have all blocks.
         const_view<partial_piece::block> blocks(piece.buffer);
         for(auto offset = 0; offset < piece.length; offset += 0x4000)
         {
@@ -417,13 +430,13 @@ inline void disk_io::dispatch_write(torrent_entry& torrent, partial_piece& piece
         return;
     }
 
-    // otherwise we're only interested in writing blocks to disk if piece's buffer has
-    // at least settings::write_cache_line_size blocks; if it doesn't, don't bother
+    // Otherwise we're only interested in writing blocks to disk if piece's buffer has
+    // at least settings::write_cache_line_size blocks; if it doesn't, don't bother.
     if(piece.buffer.size() < settings_.write_cache_line_size) { return; }
 
-    // if we have a full hash batch, flush those to disk, and if there are any other
+    // If we have a full hash batch, flush those to disk, and if there are any other
     // blocks in the write buffer, leave them there in hopes that the blocks needed to 
-    // make those hashable will arrive soon, likely helping us to avoid a readback
+    // make those hashable will arrive soon, likely helping us to avoid a readback.
     const interval hashable_range = piece.hashable_range();
     const int num_hashable_blocks = hashable_range.length();
     if(num_hashable_blocks >= settings_.write_cache_line_size)
@@ -449,11 +462,11 @@ inline void disk_io::dispatch_write(torrent_entry& torrent, partial_piece& piece
         return;
     }
 
-    // if we couldn't collect enough contiguous blocks to write them in one batch but
+    // If we couldn't collect enough contiguous blocks to write them in one batch but
     // write buffer capacity has been reached, we must flush the whole thing and read
     // back the blocks for hashing later
     // (>= is used because if we couldn't save blocks, they are placed back into piece's
-    // buffer, in which case buffer size will exceed its configured capacity)
+    // buffer, in which case buffer size will exceed its configured capacity).
     if(piece.buffer.size() >= settings_.write_buffer_capacity)
     {
         piece.is_busy = true;
@@ -464,16 +477,16 @@ inline void disk_io::dispatch_write(torrent_entry& torrent, partial_piece& piece
         return;
     }
 
-    // if we have write cache line size contiguous blocks but we don't have enough
+    // If we have write cache line size contiguous blocks but we don't have enough
     // space for the blocks needed to fill the gap between last hashed block and
     // first block in the contiguous sequence, meaning we'll need to read back
-    // anyway, flush the contiguos blocks and leave the rest in piece's buffer
+    // anyway, flush the contiguos blocks and leave the rest in piece's buffer.
     const interval contiguous_range = piece.largest_contiguous_range();
     const int num_contiguous_blocks = contiguous_range.length();
-    // even though we have write_cache_line_size number of contiguous blocks in piece, 
+    // Even though we have write_cache_line_size number of contiguous blocks in piece, 
     // they are not hashable, so as an optimization we try to wait for the blocks that 
     // fill the gap between the last hashed block and the beginning of the contiguous 
-    // sequence, which would help us to avoid reading them back later
+    // sequence, which would help us to avoid reading them back later.
     const int gap_size = contiguous_range.begin - block_index(piece.unhashed_offset);
     if(num_contiguous_blocks >= settings_.write_cache_line_size
        && gap_size < settings_.write_buffer_capacity - piece.buffer.size())
@@ -509,14 +522,14 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
 {
     // TODO ensure torrent_entry thread safety
     ++torrent.num_pending_ops;
-    // we should have all blocks by now
+    // We should have all blocks by now.
     assert(!piece.work_buffer.empty());
 
     std::error_code error;
-    // although rare, the event in which we could hash a piece but not save it may
+    // Although rare, the event in which we could hash a piece but not save it may
     // occur, in which case unhashed_offset is at the end of the piece
     // (note that if such an event occured, the piece is valid, since invalid pieces
-    // are discarded, hence the true default value)
+    // are discarded, hence the true default value).
     bool is_piece_good = true;
     if(piece.unhashed_offset < piece.length)
     {
@@ -529,7 +542,7 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
             network_ios_.post([&torrent, &piece, this]
             {
                 piece.restore_buffer();
-                // try again later
+                // Try again later.
                 if(settings_.write_buffer_expiry_timeout > seconds(0))
                 {
                     start_timer(piece.buffer_expiry_timer,
@@ -542,13 +555,13 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
         }
         const sha1_hash expected_hash = torrent.storage.expected_piece_hash(piece.index);
         is_piece_good = std::equal(hash.begin(), hash.end(), expected_hash.begin());
-        // invoke piece completion handler before saving piece to disk as saving might
-        // take a while
+        // Invoke piece completion handler before saving piece to disk as saving might
+        // take a while.
         if(is_piece_good)
         {
             // NOTE: must not capture reference to piece as it may be removed by
             // the save completion handler below and io_service does not guarantee in
-            // order execution
+            // order execution.
             log(invoked_on::thread_pool, log_event::write,
                 "piece(%i) passed hash test", piece.index);
             network_ios_.post([handler = std::move(piece.completion_handler)]
@@ -563,8 +576,8 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
                 piece.completion_handler(false);
                 const auto error = make_error_code(disk_io_errc::corrupt_data_dropped);
                 for(auto& block : piece.work_buffer) { block.save_handler(error); }
-                // since piece is corrupt, we won't be saving it, so it's safe to remove
-                // it in this callback, as we'll no longer refer to it
+                // Since piece is corrupt, we won't be saving it, so it's safe to remove
+                // it in this callback, as we'll no longer refer to it.
                 const auto it = std::find_if(torrent.write_buffer.begin(),
                     torrent.write_buffer.end(), [&piece](const auto& p)
                     { return p->index == piece.index; });
@@ -574,7 +587,7 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
         }
     }
 
-    // only save piece if it passed the hash test
+    // Only save piece if it passed the hash test.
     if(is_piece_good)
     {
         save_maybe_contiguous_blocks(torrent, piece, error);
@@ -584,11 +597,11 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
             piece.buffer_expiry_timer.cancel(ec);
             piece.is_busy = false;
             for(auto& block : piece.work_buffer) { block.save_handler(error); }
-            // we usually download pieces that are rare, so it's reasonable to expect
+            // We usually download pieces that are rare, so it's reasonable to expect
             // other peers to request this piece as soon as we announce it, so even
             // though there have technically not been any requests for these blocks,
             // we put them in cache so they can be served as fast as possible
-            // TODO consider this
+            // TODO consider this.
             for(const auto& block : piece.work_buffer)
             {
                 block_source block_source(
@@ -599,9 +612,9 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
             }
             if(error)
             {
-                // there was an error saving remaining blocks in piece, so we cannot 
+                // There was an error saving remaining blocks in piece, so we cannot 
                 // remove it from write buffer yet, as data would be lost
-                // we'll retry later
+                // we'll retry later.
                 piece.restore_buffer();
                 const auto reason = error.message();
                 log(log_event::write, log::priority::high,
@@ -614,7 +627,7 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
                     piece.work_buffer.size(), piece.index);
                 stats_.num_buffered_blocks -= piece.work_buffer.size();
                 stats_.num_blocks_written += piece.work_buffer.size();
-                // otherwise piece was saved so we can remove it from write buffer
+                // Otherwise piece was saved so we can remove it from write buffer.
                 torrent.write_buffer.erase(std::find_if(
                     torrent.write_buffer.begin(), torrent.write_buffer.end(),
                     [index = piece.index](const auto& p) { return p->index == index; }));
@@ -626,7 +639,7 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
 }
 
 // TODO consider whether to update unhashed offset here or just return how many bytes
-// were hashed
+// were hashed.
 inline sha1_hash disk_io::finish_hashing(torrent_entry& torrent, partial_piece& piece,
     std::error_code& error)
 {
@@ -660,17 +673,17 @@ inline sha1_hash disk_io::finish_hashing(torrent_entry& torrent, partial_piece& 
         }
         else
         {
-            // next block to be hashed is not in piece's buffer, so we need to read it
-            // back from disk; check how many follow it, so we can pull them back in one
+            // Next block to be hashed is not in piece's buffer, so we need to read it
+            // back from disk; check how many follow it, so we can pull them back in one.
             int length = 0x4000;
             int num_contiguous = 1;
             for(auto i = block_index(piece.unhashed_offset) + 1;
                 i < piece.num_blocks(); ++i, ++num_contiguous)
             {
-                // note that we can't access save_progress from this thread so we loop
-                // through all blocks saved to disk or until we hit block
+                // Note that we can't access save_progress from this thread so we loop
+                // through all blocks saved to disk or until we hit block.
                 if((block != end) && (i * 0x4000 == block->offset)) { break; }
-                // account for the last block's possible shorter length
+                // Account for the last block's possible shorter length.
                 if(i == piece.num_blocks() - 1)
                     length += piece.length - (piece.num_blocks() - 1) * 0x4000;
                 else
@@ -702,7 +715,7 @@ void disk_io::hash_and_save_blocks(torrent_entry& torrent, partial_piece& piece)
     ++torrent.num_pending_ops;
     assert(!piece.work_buffer.empty());
 
-    // the first unhashed block may not be the first block in piece.buffer
+    // The first unhashed block may not be the first block in piece.buffer.
     auto block = std::find_if(piece.work_buffer.begin(), piece.work_buffer.end(),
         [&piece](const auto& b) { return b.offset == piece.unhashed_offset; });
     assert(block != piece.work_buffer.end());
@@ -727,12 +740,12 @@ void disk_io::flush_buffer(torrent_entry& torrent, partial_piece& piece)
     ++torrent.num_pending_ops;
     assert(!piece.work_buffer.empty());
 
-    // first check if one or more blocks in work_buffer is hashable the first unhashed 
-    // block may not be the first block in piece.buffer
+    // First check if one or more blocks in work_buffer is hashable the first unhashed 
+    // block may not be the first block in piece.buffer.
     if(piece.unhashed_offset >= piece.work_buffer[0].offset)
     {
-        // if so, the first hashable block may not be the first block in work_buffer if
-        // blocks were hashed earlier but could not be saved
+        // If so, the first hashable block may not be the first block in work_buffer if
+        // blocks were hashed earlier but could not be saved.
         auto block = std::find_if(piece.work_buffer.begin(), piece.work_buffer.end(),
             [&piece](const auto& b) { return b.offset == piece.unhashed_offset; });
         if(block != piece.work_buffer.end())
@@ -752,11 +765,11 @@ void disk_io::flush_buffer(torrent_entry& torrent, partial_piece& piece)
         }
     }
 
-    // now save buffers
+    // Now save buffers.
     std::error_code error;
     save_maybe_contiguous_blocks(torrent, piece, error);
 
-    // invoke completion handler
+    // Invoke completion handler.
     network_ios_.post([this, &torrent, &piece, error]
         { on_blocks_saved(error, torrent, piece); });
 
@@ -772,8 +785,8 @@ void disk_io::on_blocks_saved(const std::error_code& error,
     for(auto& block : piece.work_buffer) { block.save_handler(error); }
     if(error)
     {
-        // if we couldn't save blocks, we have to put them back into piece::buffer for
-        // future reattempt
+        // If we couldn't save blocks, we have to put them back into piece::buffer for
+        // future reattempt.
         const auto reason = error.message();
         log(log_event::write, log::priority::high,
             "error saving %i blocks in piece(%i), reason: %s",
@@ -784,7 +797,7 @@ void disk_io::on_blocks_saved(const std::error_code& error,
     {
         log(log_event::write, "saved %i blocks in piece(%i)",
             piece.work_buffer.size(), piece.index);
-        // mark blocks as saved
+        // Mark blocks as saved.
         for(const auto& block : piece.work_buffer)
         {
             piece.save_progress[block.offset / 0x4000] = true;
@@ -792,10 +805,10 @@ void disk_io::on_blocks_saved(const std::error_code& error,
         piece.num_saved_blocks += piece.work_buffer.size();
         stats_.num_buffered_blocks -= piece.work_buffer.size();
         stats_.num_blocks_written += piece.work_buffer.size();
-        // blocks were saved, safe to remove them
+        // Blocks were saved, safe to remove them.
         piece.work_buffer.clear();
-        // we may have received new blocks for this piece while this thread was
-        // processing the current batch; if so, launch another op
+        // We may have received new blocks for this piece while this thread was
+        // processing the current batch; if so, launch another op.
         if(!piece.buffer.empty()) { dispatch_write(torrent, piece); }
     }
 }
@@ -803,9 +816,9 @@ void disk_io::on_blocks_saved(const std::error_code& error,
 inline void disk_io::save_maybe_contiguous_blocks(torrent_entry& torrent,
     partial_piece& piece, std::error_code& error)
 {
-    // blocks may not be contiguous, but they are ordered by their offsets, so in order
+    // Blocks may not be contiguous, but they are ordered by their offsets, so in order
     // to save them in as few operations as possible, we try to probe for contiguous 
-    // subsequences within blocks, and save them in one go
+    // subsequences within blocks, and save them in one go.
     error.clear();
     view<partial_piece::block> blocks(piece.work_buffer);
     while(!blocks.empty())
@@ -825,7 +838,7 @@ inline void disk_io::save_contiguous_blocks(torrent_storage& storage,
     assert(!blocks.empty());
     log(invoked_on::thread_pool, log_event::write, log::priority::low,
         "saving %i contiguous blocks", blocks.size());
-    // don't allocate an iovec vector if there is only a single buffer
+    // Don't allocate an iovec vector if there is only a single buffer.
     if(blocks.size() == 1)
     {
         auto& block = blocks[0];
@@ -849,7 +862,7 @@ inline void disk_io::save_contiguous_blocks(torrent_storage& storage,
 // -------------
 // -- reading --
 // -------------
-// TODO add more logging to fetch related functions
+// TODO add more logging to fetch related functions.
 
 void disk_io::fetch_block(const torrent_id_t id, const block_info& block_info,
     std::function<void(const std::error_code&, block_source)> handler)
@@ -878,31 +891,31 @@ void disk_io::fetch_block(const torrent_id_t id, const block_info& block_info,
     auto it = std::find_if(torrent.block_fetches.begin(), torrent.block_fetches.end(),
         [&block_info, num_read_ahead = settings_.read_cache_line_size](const auto& entry)
         {
-            // we only read ahead blocks within the same piece
+            // We only read ahead blocks within the same piece.
             if(entry.first.index != block_info.index) { return false; }
-            // if requested block is within settings::read_cache_line_size blocks after 
-            // entry.first, we know the requested block will be pulled in with this entry
+            // If requested block is within settings::read_cache_line_size blocks after 
+            // entry.first, we know the requested block will be pulled in with this entry.
             const int begin = entry.first.offset;
             const int end = begin + num_read_ahead * 0x4000;
             return (block_info.offset >= begin) && (block_info.offset <= end);
         });
-    // if a fetch for this block has already been initiated, don't issue this request
+    // If a fetch for this block has already been initiated, don't issue this request
     // instead, subscribe to this block and the current fetcher will call this function
-    // with the proper block upon reading it in
+    // with the proper block upon reading it in.
     if(it != torrent.block_fetches.end())
     {
         torrent_entry::fetch_subscriber sub;
         sub.handler = std::move(handler);
         sub.requested_offset = block_info.offset; 
         auto& subscribers = it->second;
-        // subscribers must be ordered by their requested block offset in piece
+        // Subscribers must be ordered by their requested block offset in piece.
         subscribers.emplace(std::find_if(subscribers.begin(), subscribers.end(),
             [offset = block_info.offset](const auto& sub)
             { return sub.requested_offset >= offset; }), std::move(sub));
     }
     else
     {
-        // otherwise we need to pull in the block ourself
+        // Otherwise we need to pull in the block ourself.
         torrent.block_fetches.emplace_back(block_info,
             std::vector<torrent_entry::fetch_subscriber>());
         thread_pool_.post([this, block_info, &torrent, handler = std::move(handler)]
@@ -918,7 +931,7 @@ inline void disk_io::dispatch_read(torrent_entry& torrent, const block_info& inf
     const int num_bytes_left = piece_length - info.offset;
     const int num_blocks_left = (num_bytes_left + (0x4000 - 1)) / 0x4000;
 
-    // only read ahead if it's not disabled and there is more than 1 block left in piece
+    // Only read ahead if it's not disabled and there is more than 1 block left in piece.
     if((settings_.read_cache_line_size > 0) && (num_blocks_left > 1))
         read_ahead(torrent, info, std::move(handler));
     else
@@ -929,7 +942,7 @@ inline void disk_io::read_single_block(torrent_entry& torrent, const block_info&
     std::function<void(const std::error_code&, block_source)> handler)
 {
     std::error_code error;
-    // for single blocks we use a simple disk_buffer rather than mmapping
+    // For single blocks we use a simple disk_buffer rather than mmapping.
     auto buffer = std::make_shared<disk_buffer>(get_disk_buffer(info.length));
     torrent.storage.read(iovec{buffer->data(), size_t(buffer->size())}, info, error);
     block_source block(info, source_buffer(std::move(buffer)));
@@ -948,14 +961,14 @@ inline void disk_io::read_single_block(torrent_entry& torrent, const block_info&
 inline void disk_io::read_ahead(torrent_entry& torrent, const block_info& first_block,
     std::function<void(const std::error_code&, block_source)> handler)
 {
-    // we may not have read_cache_line_size number of blocks left in piece (we only
-    // read ahead within the boundaries of a single piece)
+    // We may not have read_cache_line_size number of blocks left in piece (we only
+    // read ahead within the boundaries of a single piece).
     const int piece_length = torrent.storage.piece_length(first_block.index);
     assert(first_block.offset < piece_length);
     const int num_bytes_left = piece_length - first_block.offset;
     const int num_blocks_left = (num_bytes_left + (0x4000 - 1)) / 0x4000;
     const int num_blocks = std::min(num_blocks_left, settings_.read_cache_line_size);
-    // allocate blocks and prepare iovec buffers
+    // Allocate blocks and prepare iovec buffers.
     std::vector<block_source> blocks;
     std::vector<iovec> iovecs;
     blocks.reserve(num_blocks);
@@ -963,7 +976,7 @@ inline void disk_io::read_ahead(torrent_entry& torrent, const block_info& first_
     auto info = first_block;
     for(auto i = 0, left = num_bytes_left; i < num_blocks; ++i)
     {
-        // account for the last block which may not be 16KiB
+        // Account for the last block which may not be 16KiB.
         const int length = std::min(left, 0x4000);
         auto buffer = std::make_shared<disk_buffer>(get_disk_buffer(length));
         blocks.emplace_back(info, source_buffer(buffer));
@@ -990,21 +1003,21 @@ inline void disk_io::read_ahead(torrent_entry& torrent, const block_info& first_
     }
 }
 
-// currently unused since we're not memory mapping read aheads
+// Currently unused since we're not memory mapping read aheads.
 inline block_info disk_io::make_mmap_read_ahead_info(torrent_entry &torrent,
     const block_info& first_block) const noexcept
 {
-    // we may not have read_cache_line_size number of blocks left in piece (we only
-    // read ahead within the boundaries of a single piece)
+    // We may not have read_cache_line_size number of blocks left in piece (we only
+    // read ahead within the boundaries of a single piece).
     const int piece_length = torrent.storage.piece_length(first_block.index);
     assert(first_block.offset < piece_length);
     int num_bytes_left = std::min(piece_length - first_block.offset,
         settings_.read_cache_line_size * 0x4000) - first_block.length;
-    // allocate blocks and prepare iovec buffers
+    // Allocate blocks and prepare iovec buffers.
     block_info read_ahead_info = first_block;
     while(num_bytes_left > 0)
     {
-        // account for the last block which may not be 16KiB
+        // Account for the last block which may not be 16KiB.
         const int length = std::min(num_bytes_left, 0x4000);
         read_ahead_info.length += length;
         num_bytes_left -= length;
@@ -1016,10 +1029,10 @@ inline void disk_io::on_blocks_read_ahead(torrent_entry& torrent,
     std::vector<block_source> blocks,
     std::function<void(const std::error_code&, block_source)> handler)
 {
-    // a read-ahead always starts with the initiator's block
+    // A read-ahead always starts with the initiator's block.
     handler({}, blocks[0]);
 
-    // invoke handlers subscribed to this read cache stripe
+    // Invoke handlers subscribed to this read cache stripe.
     auto it = std::find_if(
         torrent.block_fetches.begin(), torrent.block_fetches.end(), 
         [info = static_cast<const tide::block_info&>(blocks[0])](const auto& entry)
@@ -1073,10 +1086,10 @@ inline disk_io::torrent_entry& disk_io::find_torrent_entry(const torrent_id_t id
 {
     auto it = std::lower_bound(torrents_.begin(), torrents_.end(), id,
         [](const auto& torrent, const auto& id) { return torrent->id < id; });
-    // even though this is called by public functions, this really shouldn't happen as
-    // we're only expecting valid torrent ids
+    // Even though this is called by public functions, this really shouldn't happen as
+    // we're only expecting valid torrent ids.
     assert(it != torrents_.end());
-    // lower_bound may return an element that is larger than what we asked for
+    // Lower_bound may return an element that is larger than what we asked for.
     assert((*it)->id == id);
     return **it;
 }

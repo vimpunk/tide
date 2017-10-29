@@ -163,6 +163,7 @@ class torrent : public std::enable_shared_from_this<torrent>
     // are preferred.
     unchoke_comparator unchoke_comparator_;
 
+    // TODO we don't use this, do we?
     bool is_stopped_ = false;
     bool is_aborted_ = false;
 
@@ -173,7 +174,7 @@ class torrent : public std::enable_shared_from_this<torrent>
     // * new piece downloaded
     // * recurring 30 second timeout
     // *
-    bool is_state_changed_ = false;
+    bool has_state_changed_ = false;
 
     // TODO don't store this here
     std::string piece_hashes_;
@@ -248,8 +249,9 @@ public:
      * It's unknown to which torrent incoming connections belong, so at first they
      * belong to no torrent until peer's info_hash is received. After this, peer_session
      * calls the torrent attacher handler provided by engine passing it peer's info_hash,
-     * after which engine attempts to match it to existing torrents' info_hash, and if
-     * found, invokes this function of torrent. At this point peer is filtered by engine.
+     * after which engine attempts to match it to an existing torrents' info_hash, and if
+     * found, invokes this function. At this point peer is filtered by engine.
+     * TODO this comment is a mess, rewrite.
      */
     void attach_peer_session(std::shared_ptr<peer_session> session);
 
@@ -307,7 +309,7 @@ public:
      * change to torrent's state occurs, but user may request it manually. It will not
      * issue a disk_io job if torrent's state has not changed since the last save.
      */
-    void save_state();
+    void save_resume_data();
 
     /**
      * Announces to trackers are usually spaced fixed intervals apart (this is set by
@@ -358,7 +360,7 @@ private:
     void update(const std::error_code& error = std::error_code());
 
     /**
-     * Copies the parts of info_ into ts_info_ that change (i.e. not redundant copies
+     * Copies the parts of info_ into ts_info_ that change (i.e. no redundant copies
      * of constants structures such as the info_hash, files etc are done).
      */
     void update_thread_safe_info();
@@ -461,7 +463,9 @@ private:
     void handle_disk_error(const std::error_code& error);
     void check_storage_integrity();
     void on_storage_integrity_checked(const std::error_code& error);
-    void on_state_saved(const std::error_code& error);
+
+    bool should_save_resume_data() const noexcept;
+    void on_resume_data_saved(const std::error_code& error);
 
     bmap_encoder create_resume_data() const;
     void restore_resume_data(const bmap& resume_data);

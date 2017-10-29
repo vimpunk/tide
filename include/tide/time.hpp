@@ -37,8 +37,8 @@ namespace cached_clock
 }
 
 /**
- * This is a thread-safe version of the above cached_clock.* A specialization is
- * provided so that modules that don't execute in parallel don't have to bear the
+ * This is a thread-safe version of the above cached_clock. A specialization is
+ * provided so that modules that don't execute in parallel don't have to incur the
  * overhead of synchronziation.
  */
 namespace ts_cached_clock

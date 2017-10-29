@@ -643,7 +643,12 @@ public:
         throw std::invalid_argument(key + " not in bmap");
     }
 
-    bool try_find_number(const std::string& key, int64_t& result) const
+    template<
+        typename Integer,
+        typename = typename std::enable_if<
+            std::is_integral<typename std::decay<Integer>::type>::value
+        >::type
+    > bool try_find_number(const std::string& key, Integer& result) const
     {
         const auto token = find_token(key);
         if(!token || (token->type != btype::number)) { return false; }

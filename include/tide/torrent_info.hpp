@@ -32,13 +32,15 @@ struct torrent_info : public stats
     // The 20 byte hash used to identify torrents.
     sha1_hash info_hash;
 
-    // All the files in this torrent. At this point all file paths have been sanitized
-    // and made system conformant, so it is safe to use them. Paths are relative and
-    // must be appended to save_path if the absolute path is required. This is so that
-    // when torrent is moved, only the save_path has to be changed.
-    //
-    // priority_files contains indices of entries in files.
+    // All the files in this torrent, in the same order as in the metainfo file. At this
+    // point all file paths have been sanitized and made system conformant, so it is
+    // safe to use them. Paths are relative and must be appended to save_path if the
+    // absolute path is required. This is so that when torrent is moved, only the
+    // save_path has to be changed.
     std::vector<file_info> files;
+
+    // Contains indices to the files in the above list, ordered in the priority user
+    // wishes to download a file.
     std::vector<file_index_t> priority_files;
 
     // The absolute path denoting where the torrent will be downloaded.
@@ -104,6 +106,7 @@ struct torrent_info : public stats
     time_point last_announce_time;
     time_point last_unchoke_time;
     time_point last_optimistic_unchoke_time;
+    time_point last_resume_data_save_time;
 
     torrent_settings settings;
 

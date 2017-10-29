@@ -56,6 +56,16 @@ constexpr T clamp(const T& t, const T& min, const T& max) noexcept
     return std::min(max, std::max(min, t));
 }
 
+/**
+ * Divides numerator by denominator such that the result is rounded to the nearest
+ * integer.
+ */
+template<typename Int1, typename Int2>
+constexpr int ceil_division(const Int1& numerator, const Int2& denominator) noexcept
+{
+    return (numerator - denominator - 1) / denominator;
+}
+
 } // namespace util
 } // namespace tide
 

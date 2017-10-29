@@ -9,6 +9,7 @@
 
 namespace tide {
 
+// TODO consider using std::string_view from std::experimental
 struct string_view : public const_view<std::string::value_type>
 {
     string_view() = default;
@@ -56,6 +57,8 @@ constexpr bool operator>=(const string_view& a, const string_view& b) noexcept
     return !(a < b);
 }
 
+// std::string operators
+
 inline bool operator==(const string_view& v, const std::string& s) noexcept
 {
     return std::equal(v.cbegin(), v.cend(), s.cbegin(), s.cend());
@@ -72,6 +75,32 @@ inline bool operator!=(const string_view& v, const std::string& s) noexcept
 }
 
 inline bool operator!=(const std::string& s, const string_view& v) noexcept
+{
+    return !(v == s);
+}
+
+// const char[] operators
+
+template<size_t N>
+bool operator==(const string_view& v, const char (&s)[N]) noexcept
+{
+    return std::equal(v.cbegin(), v.cend(), s, s + N);
+}
+
+template<size_t N>
+bool operator==(const char (&s)[N], const string_view& v) noexcept
+{
+    return v == s;
+}
+
+template<size_t N>
+bool operator!=(const string_view& v, const char (&s)[N]) noexcept
+{
+    return !(v == s);
+}
+
+template<size_t N>
+bool operator!=(const char (&s)[N], const string_view& v) noexcept
 {
     return !(v == s);
 }

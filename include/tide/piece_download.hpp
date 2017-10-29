@@ -170,7 +170,13 @@ public:
      */
     void deregister_peer(const peer_id_type& id);
 
+    /**
+     * This is used when instantiating a resumed download, i.e. it is not known from
+     * which peer the block was received, but it was saved in a prior session.
+     */
+    void have_block(const block_info& block);
 
+    /** This is called whenever we receive a block from a peer. */
     void got_block(const peer_id_type& id, const block_info& block);
 
     /**

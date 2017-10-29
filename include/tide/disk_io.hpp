@@ -391,7 +391,7 @@ public:
      */
     void erase_torrent_resume_data(const torrent_id_t id,
         std::function<void(const std::error_code&)> handler);
-    void save_torrent_resume_data(const torrent_id_t id, const bmap_encoder& resume_data,
+    void save_torrent_resume_data(const torrent_id_t id, bmap_encoder resume_data,
         std::function<void(const std::error_code&)> handler);
     void load_torrent_resume_data(const torrent_id_t id,
         std::function<void(const std::error_code&, bmap)> handler);
