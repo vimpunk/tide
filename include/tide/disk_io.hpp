@@ -475,9 +475,9 @@ public:
 
 private:
 
-    // -------------
-    // -- writing --
-    // -------------
+    // -------
+    // writing
+    // -------
 
     /**
      * Depending on the state of the piece, invokes handle_complete_piece or
@@ -550,9 +550,9 @@ private:
     void on_write_buffer_expiry(const std::error_code& error,
         torrent_entry& torrent, partial_piece& piece);
 
-    // -------------
-    // -- reading --
-    // -------------
+    // -------
+    // reading
+    // -------
 
     /**
      * Depending on the configuration and the number of blocks left in piece starting at
@@ -573,9 +573,9 @@ private:
     void on_blocks_read_ahead(torrent_entry& torrent, std::vector<block_source> blocks,
         std::function<void(const std::error_code&, block_source)> handler);
 
-    // -----------
-    // -- utils --
-    // -----------
+    // -----
+    // utils
+    // -----
 
     /**
      * Creates a vector of iovecs and counts the total number of bytes in blocks,

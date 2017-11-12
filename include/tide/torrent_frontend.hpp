@@ -18,8 +18,8 @@ class block_info;
 class torrent;
 
 /**
- * This class represents is used by peer_sessions and it represents the torrent to which
- * a peer_session is attached. It exposes only the limited functionality that a 
+ * This class is used by peer_sessions and it represents the torrent to which a
+ * peer_session is attached. It exposes only the limited functionality that a 
  * peer_session needs from torrent, which allows it to avoid directly referring to it.
  *
  * It is also used to mediate the communication of piece download completions and
@@ -41,7 +41,7 @@ class torrent;
  *        V                     | torrent's completion handler
  * [piece_download]<--.         |             |
  *        |           |         |             |
- * (4) invoke handler |         `--[torrent_disk_io_frontend]   
+ * (4) invoke handler |         `-----[torrent_frontend]   
  *        |           |                       A
  *        |    (1.0) register blocks          |
  *        |    & completion handler   (1.1) save blocks
@@ -69,8 +69,10 @@ public:
 
     class piece_picker& piece_picker() noexcept;
     const class piece_picker& piece_picker() const noexcept;
+
     torrent_info& info() noexcept;
     const torrent_info& info() const noexcept;
+
     std::vector<std::shared_ptr<piece_download>>& downloads() noexcept;
     const std::vector<std::shared_ptr<piece_download>>& downloads() const noexcept;
 

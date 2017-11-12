@@ -49,7 +49,7 @@ torrent_frontend::downloads() const noexcept
 }
 
 // NOTE: must not capture `this` as `this` is owned by a peer_session that may die by
-// the time some of the handlers are invoked, so only capture torrent_.
+// the time some of the handlers are invoked, so only capture `torrent_`.
 
 void torrent_frontend::save_block(
     const block_info& block_info, disk_buffer block_data, piece_download& download,
@@ -64,8 +64,7 @@ void torrent_frontend::save_block(
 void torrent_frontend::fetch_block(const block_info& block_info,
     std::function<void(const std::error_code&, block_source)> handler)
 {
-    torrent_->disk_io_.fetch_block(torrent_->info_.id,
-        block_info, std::move(handler));
+    torrent_->disk_io_.fetch_block(torrent_->info_.id, block_info, std::move(handler));
 }
 
 void torrent_frontend::on_peer_session_stopped(peer_session& session)

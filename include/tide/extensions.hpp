@@ -43,7 +43,7 @@ inline std::string to_string(const flags& flags)
     {
         if(flags[i])
         {
-            // some extensions occupy two bits
+            // Some extensions occupy two bits.
             if((i == 64 - 47) && (flags[64 - 48]))
             {
                 s += "extension negotiation protocol";

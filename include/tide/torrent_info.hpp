@@ -12,7 +12,6 @@
 
 namespace tide {
 
-// TODO maybe separate basic info and stats into two classes
 /**
  * This class is a means of bookkeeping for torrent, to hold and update all relevant
  * information. Each torrent has a single instance, and if any party needs some info
@@ -135,6 +134,12 @@ struct torrent_info : public stats
     };
 
     flag_set<state, state::max> state;
+
+    // If a `torrent` is auto managed, it means `engine` will manage its settings (cap
+    // its throughput rates and apply other fields using the global defaults in
+    // `settings::torrent`), whereas if it's not, torrent has its own settings that
+    // override the global defaults.
+    bool is_auto_managed = true;
 };
 
 // TODO perhaps make this a torrent_info member function

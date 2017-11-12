@@ -160,7 +160,7 @@ void piece_picker::decrease_frequency(const bitfield& available_pieces)
 
 piece_index_t piece_picker::pick(const bitfield& available_pieces)
 {
-    if(num_pieces_left() == 0) { return invalid_piece; }
+    if(num_pieces_left() == 0) { return invalid_piece_index; }
 
     if((strategy_ == strategy::rarest_first) && is_dirty_)
     {
@@ -185,7 +185,7 @@ piece_index_t piece_picker::pick(const bitfield& available_pieces)
     // the purposes described in the protocol?
     if(piece == pieces_.end())
     {
-        return invalid_piece;
+        return invalid_piece_index;
     }
     else
     {
@@ -249,7 +249,7 @@ void piece_picker::unreserve(const piece_index_t piece)
 
 void piece_picker::got(const piece_index_t piece)
 {
-    assert(piece != invalid_piece);
+    assert(piece != invalid_piece_index);
     assert(piece < num_pieces());
     if(my_pieces_[piece]) { return; }
 
@@ -292,10 +292,7 @@ void piece_picker::got(const piece_index_t piece)
     // priority groups if the piece overlaps files)
     const auto empty_group = std::find_if(group, priority_groups_.end(),
         [pos](const auto& group) { return group.empty(); });
-    if(empty_group != priority_groups_.end())
-    {
-        priority_groups_.erase(empty_group);
-    }
+    if(empty_group != priority_groups_.end()) { priority_groups_.erase(empty_group); }
 }
 
 void piece_picker::lost(const piece_index_t piece)

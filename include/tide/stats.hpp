@@ -20,8 +20,8 @@ struct stats
     // relied upon if it's needed at a finer granularity. Thus it is only used to
     // inform user of a torrent's and a peer_session's performance, but not for
     // calculations where the exact value is required, possibly more than once a second.
-    throughput_rate upload_rate;
     throughput_rate download_rate;
+    throughput_rate upload_rate;
 
     // The total number of piece bytes exchanged. Does not include protocol overhead
     // (i.e. neither BitTorrent protocol and TCP/IP protocol).

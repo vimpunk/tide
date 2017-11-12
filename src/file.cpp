@@ -115,15 +115,15 @@ void file::erase(std::error_code& error)
     }
 #ifdef _WIN32
     // TODO filepath name might be restricted
-    if(DeleteFile(absolute_path_.c_str()) == 0) { error = sys::latest_error(); }
+    if(DeleteFile(absolute_path_.c_str()) == 0) { error = system::last_error(); }
 #else // _WIN32
-    if(unlink(absolute_path_.c_str()) != 0) { error = sys::latest_error(); }
+    if(unlink(absolute_path_.c_str()) != 0) { error = system::last_error(); }
 #endif // _WIN32
 }
 
 void file::move(const path& new_path, std::error_code& error)
 {
-    sys::move(absolute_path_, new_path, error);
+    system::rename(absolute_path_, new_path, error);
     if(!error)
     {
         absolute_path_ = new_path;
@@ -193,7 +193,7 @@ void file::open(open_mode_flags open_mode, std::error_code& error)
 
     if(file_handle_ == INVALID_HANDLE_VALUE)
     {
-        error = sys::latest_error();
+        error = system::last_error();
         return;
     }
 #endif // _WIN32
@@ -232,7 +232,7 @@ void file::allocate(const size_type length, std::error_code& error)
     LARGE_INTEGER size;
     if(GetFileSizeEx(file_handle_, &size) == FALSE)
     {
-        error = sys::latest_error();
+        error = system::last_error();
         return;
     }
 
@@ -242,12 +242,12 @@ void file::allocate(const size_type length, std::error_code& error)
         distance.QuadPart = length;
         if(SetFilePointerEx(file_handle_, distance, &distance, FILE_BEGIN) == FALSE)
         {
-            error = sys::latest_error();
+            error = system::last_error();
             return;
         }
         if(SetEndOfFile(file_handle_) == FALSE)
         {
-            error = sys::latest_error();
+            error = system::last_error();
             return;
         }
     }
@@ -255,7 +255,7 @@ void file::allocate(const size_type length, std::error_code& error)
     struct stat stat;
     if(fstat(file_handle_, &stat) != 0)
     {
-        error = sys::latest_error();
+        error = system::last_error();
         return;
     }
 
@@ -269,7 +269,7 @@ void file::allocate(const size_type length, std::error_code& error)
 
     if(ftruncate(file_handle_, length) < 0)
     {
-        error = sys::latest_error();
+        error = system::last_error();
         return;
     }
 
@@ -369,14 +369,14 @@ file::size_type file::single_buffer_io(iovec buffer,
             num_to_transfer, file_offset);
         if(num_transferred < 0)
         {
-            const std::error_code ec = sys::latest_error();
+            const std::error_code ec = system::last_error();
             if(ec == std::errc::interrupted) { continue; }
             error = ec;
             break;
         }
         else if(num_transferred == 0)
         {
-            const std::error_code ec = sys::latest_error();
+            const std::error_code ec = system::last_error();
             if(ec)
                 error = ec;
             else
@@ -518,14 +518,14 @@ file::size_type file::repeated_positional_io(view<iovec>& buffers, size_type fil
                 num_to_transfer, file_offset);
             if(num_transferred < 0)
             {
-                const std::error_code ec = sys::latest_error();
+                const std::error_code ec = system::last_error();
                 if(ec == std::errc::interrupted) { continue; }
                 error = ec;
                 return total_transferred;
             }
             else if(num_transferred == 0)
             {
-                const std::error_code ec = sys::latest_error();
+                const std::error_code ec = system::last_error();
                 if(ec)
                     error = ec;
                 else
@@ -568,14 +568,14 @@ file::size_type file::positional_vector_io(view<iovec>& buffers,
         const size_type num_transferred = fn(buffers, file_offset);
         if(num_transferred < 0)
         {
-            const std::error_code ec = sys::latest_error();
+            const std::error_code ec = system::last_error();
             if(ec == std::errc::interrupted) { continue; }
             error = ec;
             break;
         }
         else if(num_transferred == 0)
         {
-            const std::error_code ec = sys::latest_error();
+            const std::error_code ec = system::last_error();
             if(ec)
                 error = ec;
             else
@@ -599,12 +599,12 @@ void file::sync_with_disk(std::error_code& error)
 #ifdef _WIN32
     if(!FlushFileBuffers(file_handle_))
     {
-        error = sys::latest_error();
+        error = system::last_error();
     }
 #else
     if(fdatasync(file_handle_) != 0)
     {
-        error = sys::latest_error();
+        error = system::last_error();
     }
 #endif
 }

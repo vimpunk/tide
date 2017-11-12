@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <memory>
 #include <vector>
+#include <list>
 #include <map>
 
 namespace tide {

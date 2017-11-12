@@ -93,14 +93,15 @@ public:
     /** The number of message bytes in receive buffer. */
     int size() const noexcept;
 
+    /** The number of bytes we can receive without reallocating the buffer, i.e.:
+     * buffer_size() - size(). */
+    int free_space_size() const noexcept;
+
     /**
      * The total number of bytes buffer can currently hold, i.e.:
      * size() + free_space_size().
      */
     int buffer_size() const noexcept;
-
-    /** The number of bytes we can receive without reallocating the buffer. */
-    int free_space_size() const noexcept;
 
     /**
      * Ensures that we have space to receive n bytes. Does nothing if we do, resizes

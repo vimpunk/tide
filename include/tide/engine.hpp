@@ -1,11 +1,12 @@
 #ifndef TIDE_ENGINE_HEADER
 #define TIDE_ENGINE_HEADER
 
-#include "bandwidth_controller.hpp"
 #include "endpoint_filter.hpp"
 #include "torrent_handle.hpp"
 #include "torrent_args.hpp"
+#include "rate_limiter.hpp"
 #include "alert_queue.hpp"
+#include "engine_info.hpp"
 #include "settings.hpp"
 #include "metainfo.hpp"
 #include "disk_io.hpp"
@@ -28,9 +29,10 @@ class peer_session;
 
 /**
  * This class represents a torrent application. It is the highest level wrapper around,
- * and glue for all components in a torrent. It is also the public interface through
- * which the library user interacts with torrents, e.g. starting and removing torrents,
- * customizing settings and most other stateful things are done through this class.
+ * and glue for, all components in a torrent application. It is also the public
+ * interface through which the library user interacts with torrents, e.g. starting and
+ * removing them, customizing settings and most other stateful things are done through
+ * this class.
  */
 class engine
 {
@@ -39,7 +41,7 @@ class engine
     // a reference to this object.
     disk_io disk_io_;
 
-    bandwidth_controller bandwidth_controller_;
+    rate_limiter rate_limiter_;
 
     // Rules may be applied for filtering specific IP addresses and ports.
     endpoint_filter endpoint_filter_;
@@ -49,8 +51,13 @@ class engine
     // manually extracts them. It's thread-safe.
     alert_queue alert_queue_;
 
-    // All torrents (active and inactive) are stored here.
-    std::vector<std::shared_ptr<torrent>> torrents_;
+    // `torrent`s are categorized by whether they're leeches or seeds. Leeches, i.e. our
+    // downloads, are prioritizied over seeds, e.g. when upload slots are distributed,
+    // the connections in `leeches_` are much more likely to receive a slot than those
+    // in `seeds_`. This is to optimize for the primary use case of BitTorrent:
+    // downloading.
+    std::vector<std::shared_ptr<torrent>> leeches_;
+    std::vector<std::shared_ptr<torrent>> seeds_;
 
     // Torrents may have a priority ordering, which is determined by a torrent's id's
     // position in this queue. Entries at the front have a higher priority.
@@ -75,26 +82,33 @@ class engine
     // passed to disk_io for callbacks to be posted on network thread.
     asio::io_service network_ios_;
 
-    // We want to keep network_ios_ running indefinitely until shutdown, so keep it
+    // We want to keep `network_ios_` running indefinitely until shutdown, so keep it
     // busy with this work object.
     asio::io_service::work work_;
 
-    // network_ios_ is not run on user's thread, but on a separate network thread, so
+    // `network_ios_` is not run on user's thread, but on a separate network thread, so
     // user does not have to handle thread synchronization. All torrents must be created
     // on the network thread so that all its operations execute there.
     std::thread network_thread_;
 
-    // Since the engine uses system time extensively, the time returned by the system
-    // is cached and only updated every 100ms, which should save some costs as most
-    // components don't need a higher resolution anyway.
-    deadline_timer cached_clock_updater_;
+    // The main engine loop is hooked up to this timer, which executes the update
+    // procedure every 100ms.
+    deadline_timer update_timer_;
+
+    engine_info info_;
 
 public:
 
-    /** If no settings are specified, engine will use the default settings. */
+    /**
+     * The constructor immediately starts `engine`'s internal update cycle on a new
+     * thread, even if there are no torrents as yet.
+     *
+     * If no settings are specified, engine will use the default settings.
+     */
     engine();
     explicit engine(const settings& s);
 
+    /** Pauses and resumes all torrents in `engine`. */
     void pause();
     void resume();
 
@@ -111,19 +125,11 @@ public:
     //disk_io::stats get_disk_io_stats() const;
     //engine_info get_engine_stats() const;
     //settings get_settings() const;
-    //void apply_settings(const settings& s);
 
-    //std::vector<alert> get_recent_alerts();
-
-    /**
-     * Returns a torrent_handle to every torrent managed by engine (and variations).
-     * This is useful if user doesn't keep track of torrents, but this is not
-     * recommended to avoid the allocation overhead of the returned vector.
-     */
-    //std::vector<torrent_handle> torrents();
-    //std::vector<torrent_handle> downloading_torrents();
-    //std::vector<torrent_handle> uploading_torrents();
-    //std::vector<torrent_handle> paused_torrents();
+    void apply_settings(settings s);
+    void apply_disk_io_settings(disk_io_settings s);
+    void apply_torrent_settings(torrent_settings s);
+    void apply_peer_session_settings(peer_session_settings s);
 
     /**
      * This is an asynchronous function that reads in the .torrent file located at path
@@ -148,7 +154,7 @@ public:
      * An exception is thrown if args is invalid, which is verified before launching any
      * asynchronous setup operations.
      *
-     * NOTE: the obtained torrent_handle must be saved somewhere as this is the means
+     * NOTE: the obtained `torrent_handle` must be saved somewhere as this is the means
      * through which the user may interact with a torrent.
      */
     void add_torrent(torrent_args args);
@@ -156,10 +162,10 @@ public:
     enum class remove_options
     {
         // Deletes the downloaded files and the metadata (torrent state) of this torrent
-        files_and_state,
+        delete_files_and_state,
         // Only remove the metadata/torrent state file that is used to continue torrents
-        // after the engine has shut down.
-        state
+        // after `engine` shuts down.
+        delete_state
     };
 
     /**
@@ -180,12 +186,15 @@ public:
 
 private:
 
+    template<typename Function>
+    void for_each_torrent(Function fn);
+
     void verify_torrent_args(torrent_args& args) const;
     torrent_id_t next_torrent_id() noexcept;
 
     /**
-     * If any of torrent's trackers are already present in trackers_, those are
-     * returned, and any that is not is created, added to trackers_ and returned.
+     * If any of torrent's trackers are already present in `trackers_`, those are
+     * returned, and any that is not is created, added to `trackers_`, and returned.
      * The trackers in announce-list come first, in the order they were specified, then,
      * if the traditional tracker is not in the announce-list (which is an uncommon
      * scenario), it is added last, as these are rarely used if an announce-list is
@@ -194,12 +203,41 @@ private:
     std::vector<tracker_entry> get_trackers(const metainfo& metainfo);
     bool has_tracker(string_view url) const noexcept;
 
-    // -----------
-    // -- utils --
-    // -----------
+    void update(const std::error_code& error = std::error_code());
 
-    void update_cached_clock();
+    /** Moves all torrents that became seeds in `leeches_` to `seeds_`. */
+    void relocate_new_seeds();
+
+    /**
+     * Enforces the number of active torrents to be at most `` in
+     * ``, unless they're below the ``.
+     */
+    void update_leeches();
+    void update_seeds();
+
+    bool is_torrent_slow(const torrent& t) const noexcept;
+    bool is_leech_slow(const torrent& t) const noexcept;
+    bool is_seed_slow(const torrent& t) const noexcept;
+
+    void verify_settings(const settings& s) const;
+    void verify_disk_io_settings(const disk_io_settings& s) const;
+    void verify_torrent_settings(const torrent_settings& s) const;
+    void verify_peer_session_settings(const peer_session_settings& s) const;
+
+    void apply_disk_io_settings_impl(disk_io_settings s);
+    void apply_torrent_settings_impl(torrent_settings s);
+    void apply_peer_session_settings_impl(peer_session_settings s);
+
+    void apply_max_connections_setting(const int max_connections);
+    void apply_max_active_leeches_setting(const int max_active_leeches);
+    void apply_max_active_seeds_setting(const int max_active_seeds);
+    static void apply_max_active_torrents_setting(
+        std::vector<std::shared_ptr<torrent>>& torrents,
+        int& num_active, const int max_active);
+    void apply_max_upload_slots_setting(const int max_upload_slots);
 };
+
+inline bool engine::is_listening() const noexcept { return false; } // for now
 
 } // namespace tide
 

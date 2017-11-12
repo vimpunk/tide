@@ -45,6 +45,7 @@ namespace ts_cached_clock
 {
     time_point now() noexcept;
     void update();
+    void set(time_point time);
 }
 
 template<typename Unit, typename Duration>

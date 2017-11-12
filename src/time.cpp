@@ -32,6 +32,11 @@ namespace ts_cached_clock
     {
         g_cached_time.store(clock_type::now(), std::memory_order_relaxed);
     }
+
+    void set(time_point time)
+    {
+        g_cached_time.store(std::move(time), std::memory_order_relaxed);
+    }
 }
 
 } // namespace tide

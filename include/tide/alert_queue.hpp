@@ -32,7 +32,10 @@ public:
     /** Constructs a new alert in place. */
     template<typename Event, typename... Args> void emplace(Args&&... args);
 
-    /** Removes and returns all alerts that have been placed in the deque under a mutex. */
+    /**
+     * Removes and returns all alerts that have been placed in the queue in a
+     * thread-safe manner (under a mutex).
+     */
     std::deque<std::unique_ptr<alert>> extract_alerts();
 };
 

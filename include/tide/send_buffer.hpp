@@ -113,7 +113,7 @@ public:
      */
     // TODO find a way to not have to build a vector every time we send something
     // maybe somehow return a view to a vector stored in the class?
-    std::vector<asio::const_buffer> get_send_buffers(int num_bytes) const;
+    std::vector<asio::const_buffer> get_buffers(int num_bytes) const;
 
     /**
      * Must be called after send_buffer has been drained (sent to socket), so that

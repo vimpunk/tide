@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.9.2)
 project(tide)
 
-add_definitions(-std=c++14)
+add_definitions(-DTIDE_USE_EXPERIMENTAL_FILESYSTEM)
 
 # Only name the source files, and create the full paths separately.
 set(source_names 
@@ -20,6 +20,7 @@ set(source_names
     piece_download.cpp
     piece_picker.cpp
     random.cpp
+    rate_limiter.cpp
     send_buffer.cpp
     sha1_hasher.cpp
     system.cpp

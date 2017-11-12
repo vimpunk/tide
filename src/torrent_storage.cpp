@@ -182,7 +182,7 @@ void torrent_storage::move(path path, std::error_code& error)
         // TODO check if we have to close file before moving on Windows
         /*
         path new_file_path = path / file.relative_path();
-        sys::move(file.absolute_path(), new_file_path, error);
+        system::move(file.absolute_path(), new_file_path, error);
         if(!error)
         {
             file.on_parent_moved(new_file_path);
@@ -194,7 +194,7 @@ void torrent_storage::move(path path, std::error_code& error)
     {
         /** TODO
         path name = root_path_.
-        sys::move(root_path_, path, error);
+        system::move(root_path_, path, error);
         */
     }
 }
@@ -543,7 +543,7 @@ void torrent_storage::create_directory_tree()
     // first, establish the root directory
     std::error_code error;
     // create directory will not fail if root directory already exists
-    sys::create_directory(root_path_, error);
+    system::create_directory(root_path_, error);
     // this is called from the constructor, so we must throw here
     if(error) { throw error; }
     // then the subdirectories
@@ -552,7 +552,7 @@ void torrent_storage::create_directory_tree()
         path dir_path = file.storage.absolute_path().parent_path();
         if(!dir_path.empty())
         {
-            sys::create_directories(dir_path, error);
+            system::create_directories(dir_path, error);
             if(error) { throw error; }
         }
     }

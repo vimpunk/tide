@@ -23,7 +23,7 @@ void send_buffer::append(const block_source& block)
     }
 }
 
-std::vector<asio::const_buffer> send_buffer::get_send_buffers(int num_bytes) const
+std::vector<asio::const_buffer> send_buffer::get_buffers(int num_bytes) const
 {
     assert(num_bytes <= size_ && "requested more from send_buffer than available");
 

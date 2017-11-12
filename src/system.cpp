@@ -1,47 +1,20 @@
 #include "system.hpp"
 
+#ifndef _WIN32
+# include <sys/sysinfo.h>
+#endif
+
 namespace tide {
-namespace sys {
+namespace system {
 
-// these are mostly 1-1 mappings to their C++17 equivalents, so upgrade should be effortless
+#ifdef TIDE_USE_BOOST_FILESYSTEM
 
-file_status status(const path& path, std::error_code& error)
+bool exists(const path& path, std::error_code& error)
 {
-    error.clear();
-    file_status status;
-#ifdef _WIN32
-    // TODO
-#else // _WIN32
-    struct stat s;
-    if(stat(path.c_str(), &s) != 0)
-    {
-        error = latest_error();
-        return {};
-    }
-
-    /*
-    status.devide_id = s.st_dev;
-    status.inode_number = s.st_ino;
-    status.mode = s.st_mode;
-    status.num_hardlinks = s.st_nlink;
-    status.uid = s.st_uid;
-    status.gid = s.st_gid;
-    status.block_length = s.st_blksize;
-    status.num_blocks = s.st_blocks;
-    */
-    status.length = s.st_size;
-    status.last_access_time = time_point(duration(s.st_atime));
-    status.last_modification_time = time_point(duration(s.st_mtime));
-    status.last_status_change_time = time_point(duration(s.st_ctime));
-    status.mode = (S_ISSOCK(s.st_mode) ? file_status::socket : 0)
-                | (S_ISLNK(s.st_mode) ? file_status::symbolic_link : 0)
-                | (S_ISREG(s.st_mode) ? file_status::regular_file : 0)
-                | (S_ISBLK(s.st_mode) ? file_status::block_device : 0)
-                | (S_ISDIR(s.st_mode) ? file_status::directory : 0)
-                | (S_ISCHR(s.st_mode) ? file_status::character_device : 0)
-                | (S_ISFIFO(s.st_mode) ? file_status::fifo : 0);
-#endif // _WIN32
-    return status;
+    boost::filesystem::error_code ec;
+    const auto result = boost::filesystem::exists(path, ec);
+    if(ec) error = std::make_error_code(ec.value(), std::system_category());
+    return result;
 }
 
 bool exists(const path& path)
@@ -50,118 +23,51 @@ bool exists(const path& path)
     return exists(path, ec);
 }
 
-bool exists(const path& path, std::error_code& error)
-{
-    error.clear();
-    status(path, error);
-    if(error)
-    {
-        // this is not an error as this is exactly what the function tests against
-        if(error == std::errc::no_such_file_or_directory) { error.clear(); }
-        return false;
-    }
-    return true;
-}
-
 int64_t file_size(const path& path, std::error_code& error)
 {
-    file_status s = status(path, error);
-    if(error) { return 0; }
-    return s.length;
+    boost::filesystem::error_code ec;
+    const auto result = boost::filesystem::file_size(path, ec);
+    if(ec) error = std::make_error_code(ec.value(), std::system_category());
+    return result;
 }
 
 bool is_directory(const path& path, std::error_code& error)
 {
-    error.clear();
-    file_status s = status(path, error);
-    return !error && (s.mode & file_status::directory);
+    boost::filesystem::error_code ec;
+    const auto result = boost::filesystem::is_directory(path, ec);
+    if(ec) error = std::make_error_code(ec.value(), std::system_category());
+    return result;
 }
 
 void create_directory(const path& path, std::error_code& error)
 {
-    error.clear();
-#ifdef _WIN32
-    // TODO probably use CreateDirectoryA instead for unicode support
-    if(CreateDirectory(path.c_str(), 0) == 0
-       && GetLastError() != ERROR_ALREADY_EXISTS)
-    {
-        error = latest_error();
-    }
-#else
-    int mode = S_IRWXU | S_IRWXG | S_IRWXO;
-    if((mkdir(path.c_str(), mode) != 0) && (errno != EEXIST))
-    {
-        error = latest_error();
-    }
-#endif
+    boost::filesystem::error_code ec;
+    boost::filesystem::create_directory(path, ec);
+    if(ec) error = std::make_error_code(ec.value(), std::system_category());
 }
 
-// this is mostly a port of the function of the same name in boost::filesystem
-// because boost::system::error_code does not interop with its std:: equivalent
-void create_directories(const path& p, std::error_code& error)
+void create_directories(const path& path, std::error_code& error)
 {
-    error.clear();
-    if(p.filename_is_dot() || p.filename_is_dot_dot())
-    {
-        create_directories(p.parent_path(), error);
-        return;
-    }
-
-    path parent = p.parent_path();
-    if(!parent.empty()) { create_directories(parent, error); }
-
-    if(!exists(p)) { create_directory(p, error); }
-}
-
-void move(const path& old_path, const path& new_path, std::error_code& error)
-{
-    error.clear();
-    if(old_path == new_path) { return; }
-
-    // TODO decide whether to create directory hierarchy or exit with error here
-    path parent = new_path.parent_path();
-    if(!parent.empty())
-    {
-        create_directories(parent, error);
-        if(error) { return; }
-    }
-
-#ifdef _WIN32
-    if(MoveFile(old_path.c_str(), new_path.c_str()) == 0)
-    {
-        error = latest_error();
-        return;
-    }
-#else // _WIN32
-    if(::rename(old_path.c_str(), new_path.c_str()) != 0)
-    {
-        error = latest_error();
-        return;
-    }
-#endif // _WIN32
+    boost::filesystem::error_code ec;
+    boost::filesystem::create_directories(path, ec);
+    if(ec) error = std::make_error_code(ec.value(), std::system_category());
 }
 
 void rename(const path& old_path, const path& new_path, std::error_code& error)
 {
-    move(old_path, new_path, error);
+    boost::filesystem::error_code ec;
+    boost::filesystem::move(old_path, new_path, ec);
+    if(ec) error = std::make_error_code(ec.value(), std::system_category());
 }
 
-size_t page_size()
+void rename(const path& old_path, const path& new_path, std::error_code& error)
 {
-    static const size_t page_size = []
-    {
-#ifdef _WIN32
-        SYSTEM_INFO SystemInfo;
-        GetSystemInfo(&SystemInfo);
-        return SystemInfo.dwAllocationGranularity;
-#else
-        return sysconf(_SC_PAGE_SIZE);
-#endif
-    }();
-    return page_size;
+    rename(old_path, new_path, error);
 }
 
-std::error_code latest_error() noexcept
+#endif // defined(TIDE_USE_BOOST_FILESYSTEM)
+
+std::error_code last_error() noexcept
 {
     std::error_code error;
 #ifdef _WIN32
@@ -172,5 +78,36 @@ std::error_code latest_error() noexcept
     return error;
 }
 
-} // namespace sys
+ram ram_status(std::error_code& error)
+{
+    ram ram;
+#ifdef _WIN32
+    MEMORYSTATUSEX ms;
+    ms.dwLength = sizeof ms;
+    if(GlobalMemoryStatusEx(&ms) == 0)
+    {
+        error = last_error();
+        return {};
+    }
+    ram.physical_size = ms.ullTotalPhys;
+    ram.physical_free_space = ms.ullAvailPhys;
+    ram.virtual_size = ms.ullTotalVirtual;
+    ram.virtual_free_space = ms.ullAvailVirtual;
+#else
+    struct sysinfo si;
+    if(sysinfo(&si) != 0)
+    {
+        error = last_error();
+        return {};
+    }
+    ram.physical_size = si.totalram;
+    ram.physical_free_space = si.freeram;
+    //ram.shared = si.sharedram;
+    ram.virtual_size = si.totalswap;
+    ram.virtual_free_space = si.totalswap;
+#endif
+    return ram;
+}
+
+} // namespace system
 } // namespace tide

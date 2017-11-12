@@ -81,8 +81,6 @@ private:
 
 public:
 
-    static constexpr int invalid_piece = -1;
-
     explicit piece_picker(int num_pieces);
     explicit piece_picker(bitfield downloaded_pieces);
 
@@ -135,7 +133,7 @@ public:
 
     /**
      * Picks and reserves the most suitable piece from available_pieces, or returns
-     * invalid_piece if none could be picked.
+     * invalid_piece_index if none could be picked.
      */
     piece_index_t pick(const bitfield& available_pieces);
 

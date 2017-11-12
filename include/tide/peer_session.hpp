@@ -29,7 +29,7 @@ namespace asio { class io_service; }
 namespace tide {
 
 class peer_session_settings;
-class bandwidth_controller;
+class torrent_rate_limiter;
 class disk_read_buffer;
 class piece_download;
 class torrent_info;
@@ -119,7 +119,7 @@ private:
 
     // We may be rate limited so we must always request upload and download bandwidth
     // quota before proceeding to do either of those functions.
-    bandwidth_controller& bandwidth_controller_;
+    torrent_rate_limiter& rate_limiter_;
 
     // These are the tunable parameters that the user provides.
     const peer_session_settings& settings_;
@@ -371,7 +371,7 @@ public:
      */
     peer_session(asio::io_service& ios,
         tcp::endpoint peer_endpoint,
-        bandwidth_controller& bandwidth_controller,
+        torrent_rate_limiter& rate_limiter,
         const peer_session_settings& settings,
         torrent_frontend torrent);
 
@@ -393,7 +393,7 @@ public:
      */
     peer_session(asio::io_service& ios,
         tcp::endpoint peer_endpoint,
-        bandwidth_controller& bandwidth_controller,
+        torrent_rate_limiter& rate_limiter,
         const peer_session_settings& settings,
         std::function<torrent_frontend(const sha1_hash&)> torrent_attacher);
 
@@ -486,7 +486,8 @@ public:
      * When peer_session is stopped gracefully, it transitions from connected to
      * disconnecting, then finally to disconnected. If it's aborted, it transitions
      * from connected to disconnected. If one only wishes to know whether peer_session
-     * is effectively finished (disconnecting or disconnected), use is_stopped.
+     * is effectively finished (disconnecting or disconnected), use is_stopped,
+     * otherwise use one of the more granular methods above.
      */
     bool is_stopped() const noexcept;
 
@@ -546,8 +547,7 @@ private:
 
     /** Initializes fields common to both constructors. */
     peer_session(asio::io_service& ios, tcp::endpoint peer_endpoint,
-        bandwidth_controller& bandwidth_controller,
-        const peer_session_settings& settings);
+        torrent_rate_limiter& rate_limiter, const peer_session_settings& settings);
 
     /** If our interest changes, sends the corresponding send_{un,}interested message. */
     void update_interest();
@@ -586,7 +586,7 @@ private:
      * to socket to drain from send_buffer_ as much as our current quota allows.
      */
     void send();
-    void request_upload_bandwidth();
+    void request_upload_quota();
     bool can_send() const noexcept;
 
     /**
@@ -605,17 +605,18 @@ private:
      * limited by our receive quota, into message_parser_.
      */
     void receive();
-    void request_download_bandwidth();
-    
+
     /**
-     * If we don't expect piece payloads (in which case receive operations are
-     * constrained by how fast we can write to disk, and resumed once disk writes
-     * finished, in on_block_saved), we should always have enough space for protocol
-     * chatter (non payload messages), otherwise the async receive cycle would stop,
-     * i.e. there'd be no one reregistering the async receive calls.
+     * Receives quota if we don't have enough and extends receive buffer if it's too
+     * small to accommodate the expected number of bytes to-be-received.
      */
-    void ensure_protocol_exchange();
-    int get_num_to_receive() const noexcept;
+    void prepare_to_receive();
+
+    /**
+     * Returns the number of bytes we can receive. The receive buffer may have to be
+     * resized to accomodate this amount.
+     */
+    int receive_buffer_capacity() const;
 
     /**
      * Accounts for the bytes read, subtracts num_bytes_received from the send quota,
@@ -625,7 +626,11 @@ private:
     void on_received(const std::error_code& error, size_t num_bytes_received);
     void update_receive_stats(const int num_bytes_received) noexcept;
 
-    void adjust_receive_buffer(const bool was_choked);
+    /**
+     * If we got choked or received vastly fewer bytes than the current buffer capacity
+     * and don't expect too many more bytes, receive buffer is shrunk.
+     */
+    void adjust_receive_buffer(const bool was_choked, const size_t num_bytes_received);
     bool am_expecting_block() const noexcept;
 
     /**

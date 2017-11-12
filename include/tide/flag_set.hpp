@@ -50,14 +50,15 @@ template<
  * This is a very lightweight wrapper around the conventional integer manipulation with
  * power-of-two enums used to record various flags. First, this abstraction does not
  * necessitate power-of-two enum values, which is error prone and not very resilient 
- * to change -- this conversion is done internally. Second, type safety is provided in
- * that only the initial enum type is accepted and the underlying type used to store the
+ * to change--this conversion is done internally. Second, type safety is provided in
+ * that only the enum type specified in the class' template is accepted, which makes it
+ * possible to use C++11's `enum class` types, and the underlying type used to store the
  * values is large enough to hold all flags. This, however, is limited to 64 bits,
  * because it uses an integer as its underlying type (thus max int64_t).
  *
  * This class should be used over a std::bitset whenever the maximum number of states
- * is relatively small, in which case this class should be faster (std::bitset's minimum
- * size is 8 bytes in most implementations).
+ * is relatively small, in which case this class should save a litte space (std::bitset's
+ * minimum size is 8 bytes in most implementations, while this may be a single byte).
  *
  * Example
  * -------
@@ -83,10 +84,10 @@ template<
     using size_type = size_t;
     using const_reference = value_type;
     using flag_type = Flag;
-    // note: we can't just use std::underlying_type<Flag> because an int representation
+    // Note: we can't just use std::underlying_type<Flag> because an int representation
     // of an enum value does not map to the number of bits needed to express that many
     // flags (e.g. the value 64 can be represented by a single 8-bit int, but we'd need
-    // an uint64_t to represent 64 flags)
+    // an uint64_t to represent 64 flags).
     using underlying_type = typename util::integral_type_for<
         util::int_cast<size_type>(NumFlags)
     >::type;
