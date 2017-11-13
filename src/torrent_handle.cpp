@@ -47,13 +47,33 @@ void torrent_handle::apply_settings(const torrent_settings& settings)
     thread_safe_execution([this, settings](torrent& t) { t.apply_settings(settings); });
 }
 
-void torrent_handle::force_tracker_reannounce(string_view url)
+void torrent_handle::force_tracker_announce(string_view url)
 {
-
+    thread_safe_execution([this, url](torrent& t) { t.force_tracker_announce(url); });
 }
 
-template<typename F>
-void torrent_handle::thread_safe_execution(F&& function)
+void torrent_handle::set_max_upload_slots(const int n)
+{
+    thread_safe_execution([this, n](torrent& t) { t.set_max_upload_slots(n); });
+}
+
+void torrent_handle::set_max_upload_rate(const int n)
+{
+    thread_safe_execution([this, n](torrent& t) { t.set_max_upload_rate(n); });
+}
+
+void torrent_handle::set_max_download_rate(const int n)
+{
+    thread_safe_execution([this, n](torrent& t) { t.set_max_download_rate(n); });
+}
+
+void torrent_handle::set_max_connections(const int n)
+{
+    thread_safe_execution([this, n](torrent& t) { t.set_max_connections(n); });
+}
+
+template<typename Function>
+void torrent_handle::thread_safe_execution(Function function)
 {
     std::shared_ptr<torrent> t = torrent_.lock();
     if(t)
@@ -201,6 +221,26 @@ bool torrent_handle::is_leech() const noexcept
 bool torrent_handle::is_seed() const noexcept
 {
     TRY_RETURN_INFO_FIELD(state[torrent_info::seeding]);
+}
+
+bool operator==(const torrent_handle& a, const torrent& b)
+{
+    return a.torrent_.lock().get() == &b;
+}
+
+bool operator==(const torrent& a, const torrent_handle& b)
+{
+    return b == a;
+}
+
+bool operator!=(const torrent_handle& a, const torrent& b)
+{
+    return !(a == b);
+}
+
+bool operator!=(const torrent& a, const torrent_handle& b)
+{
+    return !(a == b);
 }
 
 /*

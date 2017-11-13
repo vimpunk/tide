@@ -43,6 +43,11 @@ public:
     bool is_valid() const noexcept { return !torrent_.expired(); }
     operator bool() const noexcept { return is_valid(); }
 
+    friend bool operator==(const torrent_handle& a, const torrent& b);
+    friend bool operator==(const torrent& a, const torrent_handle& b);
+    friend bool operator!=(const torrent_handle& a, const torrent& b);
+    friend bool operator!=(const torrent& a, const torrent_handle& b);
+
     void pause();
     void resume();
 
@@ -54,7 +59,7 @@ public:
 
     void apply_settings(const torrent_settings& settings);
 
-    void force_tracker_reannounce(string_view url);
+    void force_tracker_announce(string_view url);
 
     // TODO {
     /**
@@ -78,11 +83,8 @@ public:
 
     /** This will erase all downloaded data and metadata (resume state) as well. * /
     void erase_torrent_files();
-
-    void set_max_upload_slots(const int n);
-    void set_max_upload_rate(const int n);
-    void set_max_download_rate(const int n);
-    void set_max_connections(const int n);
+    void erase_file(const file_index_t file);
+    */
     // } TODO
 
     /**
@@ -91,7 +93,11 @@ public:
      */
 
     torrent_info info() const;
-    //void piece_availability(std::vector<int>& piece_map);
+
+    void set_max_upload_slots(const int n);
+    void set_max_upload_rate(const int n);
+    void set_max_download_rate(const int n);
+    void set_max_connections(const int n);
 
     int max_upload_slots() const noexcept;
     int max_upload_rate() const noexcept;
@@ -125,8 +131,8 @@ private:
      * Executes function in a thread-safe manner, if torrent_ is still valid.
      * F must be a callable that takes a reference to torrent.
      */
-    template<typename F>
-    void thread_safe_execution(F&& function);
+    template<typename Function>
+    void thread_safe_execution(Function function);
 };
 
 } // namespace tide

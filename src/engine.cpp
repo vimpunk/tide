@@ -15,6 +15,7 @@ namespace tide {
 engine::engine()
     : disk_io_(network_ios_, settings_.disk_io)
     , work_(network_ios_)
+    , acceptor_(network_ios_)
     , update_timer_(network_ios_)
 {
     // We can start the update loop here as `engine` is not derived from
@@ -27,32 +28,159 @@ engine::engine(const settings& s) : engine()
     settings_ = s;
 }
 
-void engine::verify_settings(const settings& s) const
+TIDE_NETWORK_THREAD
+inline void engine::move_torrent_to_position(
+    std::vector<std::shared_ptr<torrent>>& torrents,
+    int curr_pos, const int pos)
 {
-    verify_disk_io_settings(s.disk_io);
-    verify_torrent_settings(s.torrent);
-    verify_peer_session_settings(s.peer_session);
+    if((curr_pos == pos) || (pos < 0) || (pos >= torrents.size())) { return; }
+    using std::swap;
+    if(curr_pos < pos)
+    {
+        // Bubble up torrent to pos.
+        while(curr_pos < pos)
+        {
+            swap(torrents[curr_pos], torrents[curr_pos+1]);
+            ++curr_pos;
+        }
+    }
+    else if(curr_pos > pos)
+    {
+        // Bubble down torrent to pos.
+        while(curr_pos > pos)
+        {
+            swap(torrents[curr_pos], torrents[curr_pos-1]);
+            --curr_pos;
+        }
+    }
+}
+
+TIDE_NETWORK_THREAD
+template<typename Function>
+void engine::find_torrent_and_execute(const torrent_handle& torrent, Function fn)
+{
+    auto it = std::find_if(leeches_.begin(), leeches_.end(),
+        [&torrent](const auto& t) { return *t == torrent; });
+    if(it != leeches_.end())
+    {
+        fn(leeches_, it);
+    }
+    else
+    {
+        it = std::find_if(seeds_.begin(), seeds_.end(),
+            [&torrent](const auto& t) { return *t == torrent; });
+        if(it != seeds_.end()) { fn(seeds_, it); }
+    }
+}
+
+void engine::set_torrent_queue_position(const torrent_handle& torrent, const int pos)
+{
+    if(pos < 0) { throw std::invalid_argument("pos must be larger than 0"); }
+    network_ios_.post([this, torrent, pos]
+    {
+        find_torrent_and_execute(torrent, [this, pos](auto& torrents, auto it)
+            { move_torrent_to_position(torrents, it - torrents.begin(), pos); });
+    });
+}
+
+void engine::increment_torrent_queue_position(const torrent_handle& torrent)
+{
+    network_ios_.post([this, torrent]
+    {
+        find_torrent_and_execute(torrent,
+            [this](auto& torrents, auto it)
+            {
+                const int curr_pos = it - torrents.begin();
+                move_torrent_to_position(torrents, curr_pos, curr_pos + 1);
+            });
+    });
+}
+
+void engine::decrement_torrent_queue_position(const torrent_handle& torrent)
+{
+    network_ios_.post([this, torrent]
+    {
+        find_torrent_and_execute(torrent,
+            [this](auto& torrents, auto it)
+            {
+                const int curr_pos = it - torrents.begin();
+                move_torrent_to_position(torrents, curr_pos, curr_pos - 1);
+            });
+    });
+}
+
+void engine::move_torrent_to_queue_top(const torrent_handle& torrent)
+{
+    network_ios_.post([this, torrent]
+    {
+        find_torrent_and_execute(torrent, [this](auto& torrents, auto it)
+            { move_torrent_to_position(torrents, it - torrents.begin(), 0); });
+    });
+}
+
+void engine::move_torrent_to_queue_bottom(const torrent_handle& torrent)
+{
+    network_ios_.post([this, torrent]
+    {
+        find_torrent_and_execute(torrent,
+            [this](auto& torrents, auto it)
+            {
+                move_torrent_to_position(torrents,
+                    it - torrents.begin(), torrents.size() - 1);
+            });
+    });
+}
+
+void engine::verify(const settings& s) const
+{
+    verify(s.disk_io);
+    verify(s.torrent);
+    verify(s.peer_session);
     // TODO verify other settings
 }
 
-void engine::verify_disk_io_settings(const disk_io_settings& s) const
+void engine::verify(const disk_io_settings& s) const
 {
     if(s.resume_data_path.empty()) throw std::invalid_argument(
         "disk_io_settings::resume_data_path must not be empty");
 }
 
-void engine::verify_torrent_settings(const torrent_settings& s) const
+void engine::verify(const torrent_settings& s) const
 {
 }
 
-void engine::verify_peer_session_settings(const peer_session_settings& s) const
+void engine::verify(const peer_session_settings& s) const
+{
+}
+
+void engine::fill_in_defaults(settings& s)
+{
+    fill_in_defaults(s.disk_io);
+    fill_in_defaults(s.torrent);
+    fill_in_defaults(s.peer_session);
+    // TODO
+}
+
+void engine::fill_in_defaults(disk_io_settings& s)
+{
+}
+
+void engine::fill_in_defaults(torrent_settings& s)
+{
+}
+
+void engine::fill_in_defaults(peer_session_settings& s)
+{
+}
+
+void engine::fill_in_defaults(torrent_args& args)
 {
 }
 
 void engine::apply_settings(settings s)
 {
-    verify_settings(s);
-    // TODO fill in default settings if user didn't provide optional settings
+    verify(s);
+    fill_in_defaults(s);
     network_ios_.post([this, s = std::move(s)]() mutable
     {
         apply_disk_io_settings_impl(std::move(s.disk_io));
@@ -222,21 +350,24 @@ void engine::apply_max_upload_slots_setting(const int max_upload_slots)
 
 void engine::apply_disk_io_settings(disk_io_settings s)
 {
-    verify_disk_io_settings(s);
+    verify(s);
+    fill_in_defaults(s);
     network_ios_.post([this, s = std::move(s)]
         { apply_disk_io_settings_impl(std::move(s)); });
 }
 
 void engine::apply_torrent_settings(torrent_settings s)
 {
-    verify_torrent_settings(s);
+    verify(s);
+    fill_in_defaults(s);
     network_ios_.post([this, s = std::move(s)]
         { apply_torrent_settings_impl(std::move(s)); });
 }
 
 void engine::apply_peer_session_settings(peer_session_settings s)
 {
-    verify_peer_session_settings(s);
+    verify(s);
+    fill_in_defaults(s);
     network_ios_.post([this, s = std::move(s)]
         { apply_peer_session_settings_impl(std::move(s)); });
 }
@@ -340,6 +471,8 @@ void engine::update(const std::error_code& error)
         relocate_new_seeds();
         update_leeches();
         update_seeds();
+
+        // TODO post engine_info stats if required.
     }
 
     cached_clock::update();
@@ -473,12 +606,12 @@ void engine::for_each_torrent(Function fn)
 
 void engine::pause()
 {
-    network_ios_.post([this] { for_each_torrent([](auto& t) { t.stop(); }); });
+    network_ios_.post([this] { for_each_torrent([](torrent& t) { t.stop(); }); });
 }
 
 void engine::resume()
 {
-    network_ios_.post([this] { for_each_torrent([](auto& t) { t.start(); }); });
+    network_ios_.post([this] { for_each_torrent([](torrent& t) { t.start(); }); });
 }
 
 std::deque<std::unique_ptr<alert>> engine::alerts()
@@ -493,19 +626,18 @@ void engine::parse_metainfo(const path& path)
         disk_io_.read_metainfo(path,
             [this](const std::error_code& error, metainfo m)
             {
-            /*
                 if(error)
-                    alert_queue_.emplace<async_completion_error>(error);
+                    alert_queue_.emplace<error_alert>(error);
                 else
-                    alert_queue_.emplace<metainfo_parse_completion>(std::move(m));
-            */
+                    alert_queue_.emplace<metainfo_parsed_alert>(std::move(m));
             });
     });
 }
 
 void engine::add_torrent(torrent_args args)
 {
-    verify_torrent_args(args);
+    verify(args);
+    fill_in_defaults(args);
     // TODO fill in default args if user didn't provide optional settings
     network_ios_.post([this, args = std::move(args)]
     {
@@ -531,7 +663,7 @@ void engine::add_torrent(torrent_args args)
     });
 }
 
-void engine::verify_torrent_args(torrent_args& args) const
+void engine::verify(torrent_args& args) const
 {
     // TODO this is mostly a rough outline just to have something for the time being
     if(args.metainfo.source.empty())

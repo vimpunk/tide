@@ -61,13 +61,13 @@ class engine
 
     // Torrents may have a priority ordering, which is determined by a torrent's id's
     // position in this queue. Entries at the front have a higher priority.
-    std::vector<torrent_id_t> torrent_priority_;
+    //std::vector<torrent_id_t> torrent_priority_;
 
-    // Every single tracker used by all torrents is stored here. This is because many
+    // Every single tracker used by all torrents is stored here. This is because several
     // torrents share the same tracker, so when a torrent is created, we first check
-    // if its trackers already exists, and if so, we can pass the existing instance to
-    // torrent. A tracker is removed from here when all torrents that use it have been
-    // removed (checked using shared_ptr's reference count).
+    // if its tracker(s) already exist(s), and if so, we can pass the existing instance
+    // to torrent. A tracker is removed from here when all torrents that use it have
+    // been removed (checked using `std::shared_ptr`'s reference count).
     std::vector<std::shared_ptr<tracker>> trackers_;
 
     // Incoming connections are stored here until the handshake has been concluded after
@@ -85,6 +85,9 @@ class engine
     // We want to keep `network_ios_` running indefinitely until shutdown, so keep it
     // busy with this work object.
     asio::io_service::work work_;
+
+    // This is the acceptor on which we're listening for inbound TCP connections.
+    tcp::acceptor acceptor_;
 
     // `network_ios_` is not run on user's thread, but on a separate network thread, so
     // user does not have to handle thread synchronization. All torrents must be created
@@ -120,7 +123,7 @@ public:
 
     /** Returns whether engine has managed to set up a listening port. */
     bool is_listening() const noexcept;
-    uint16_t listen_port() const noexcept;
+    uint16_t listener_port() const noexcept;
 
     //disk_io::stats get_disk_io_stats() const;
     //engine_info get_engine_stats() const;
@@ -177,19 +180,17 @@ public:
     //torrent_handle find_torrent(const sha1_hash& info_hash);
     //torrent_handle find_torrent(const torrent_id_t id);
 
-    // TODO perhaps rename these {set,{in,de}crement,etc}_torrent_queue_position
-    void set_torrent_priority(const torrent_handle& torrent, const int queue_pos);
-    void increment_torrent_priority(const torrent_handle& torrent);
-    void decrement_torrent_priority(const torrent_handle& torrent);
-    void make_torrent_top_priority(const torrent_handle& torrent);
-    void make_torrent_least_priority(const torrent_handle& torrent);
+    void set_torrent_queue_position(const torrent_handle& torrent, const int pos);
+    void increment_torrent_queue_position(const torrent_handle& torrent);
+    void decrement_torrent_queue_position(const torrent_handle& torrent);
+    void move_torrent_to_queue_top(const torrent_handle& torrent);
+    void move_torrent_to_queue_bottom(const torrent_handle& torrent);
 
 private:
 
     template<typename Function>
     void for_each_torrent(Function fn);
 
-    void verify_torrent_args(torrent_args& args) const;
     torrent_id_t next_torrent_id() noexcept;
 
     /**
@@ -209,8 +210,7 @@ private:
     void relocate_new_seeds();
 
     /**
-     * Enforces the number of active torrents to be at most `` in
-     * ``, unless they're below the ``.
+      TODO
      */
     void update_leeches();
     void update_seeds();
@@ -219,10 +219,17 @@ private:
     bool is_leech_slow(const torrent& t) const noexcept;
     bool is_seed_slow(const torrent& t) const noexcept;
 
-    void verify_settings(const settings& s) const;
-    void verify_disk_io_settings(const disk_io_settings& s) const;
-    void verify_torrent_settings(const torrent_settings& s) const;
-    void verify_peer_session_settings(const peer_session_settings& s) const;
+    void verify(torrent_args& args) const;
+    void verify(const settings& s) const;
+    void verify(const disk_io_settings& s) const;
+    void verify(const torrent_settings& s) const;
+    void verify(const peer_session_settings& s) const;
+
+    void fill_in_defaults(torrent_args& args);
+    void fill_in_defaults(settings& s);
+    void fill_in_defaults(disk_io_settings& s);
+    void fill_in_defaults(torrent_settings& s);
+    void fill_in_defaults(peer_session_settings& s);
 
     void apply_disk_io_settings_impl(disk_io_settings s);
     void apply_torrent_settings_impl(torrent_settings s);
@@ -235,9 +242,23 @@ private:
         std::vector<std::shared_ptr<torrent>>& torrents,
         int& num_active, const int max_active);
     void apply_max_upload_slots_setting(const int max_upload_slots);
+
+    /**
+     * Finds `torrent` and the queue within which it resides, which may `leeches_` or
+     * `seeds_`, and executes `fn` such that it passes a reference to the queue of
+     * torrents within which `torrent` was found and an iterator to the torrent if and
+     * only if `torrent` was found. Otherwise `fn` is not executed.
+     */
+    template<typename Function>
+    void find_torrent_and_execute(const torrent_handle& torrent, Function fn);
+
+    static void move_torrent_to_position(
+        std::vector<std::shared_ptr<torrent>>& torrents,
+        int curr_pos, const int pos);
 };
 
 inline bool engine::is_listening() const noexcept { return false; } // for now
+inline uint16_t engine::listener_port() const noexcept { return settings_.listener_port; }
 
 } // namespace tide
 

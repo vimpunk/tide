@@ -305,6 +305,7 @@ public:
     void set_max_upload_rate(const int n);
     void set_max_download_rate(const int n);
     void set_max_connections(const int n);
+
     int max_upload_slots() const noexcept;
     int max_download_rate() const noexcept;
     int max_upload_rate() const noexcept;

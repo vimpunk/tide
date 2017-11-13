@@ -41,6 +41,14 @@ struct alert
     virtual int category() const noexcept = 0;
 };
 
+/** Generic alert to report errors of asynchronous operations. */
+struct error_alert : public alert
+{
+    std::error_code error;
+    explicit error_alert(std::error_code ec) : error(ec) {}
+    int category() const noexcept override { return category::error; }
+};
+
 // -- individual torrent related alerts --
 
 /** Base class for all torrent related alerts. */
@@ -48,7 +56,7 @@ struct torrent_alert : public alert
 {
     torrent_handle handle;
     explicit torrent_alert(torrent_handle h) : handle(h) {}
-    int category() const noexcept { return torrent; }
+    int category() const noexcept override { return torrent; }
 };
 
 struct torrent_added_alert final : public torrent_alert
@@ -74,7 +82,7 @@ struct torrent_started_alert final : public torrent_alert
 struct torrent_stats_alert final : public torrent_alert
 {
     explicit torrent_stats_alert(torrent_handle h) : torrent_alert(h) {}
-    int category() const noexcept { return torrent_alert::category() | stats; }
+    int category() const noexcept override { return torrent_alert::category() | stats; }
 };
 
 struct download_complete_alert final : public torrent_alert
@@ -111,7 +119,7 @@ struct peer_alert : public alert
     tcp::endpoint endpoint;
     peer_id_t peer_id;
     peer_alert(tcp::endpoint ep, peer_id_t pid) : endpoint(std::move(ep)), peer_id(pid) {}
-    int category() const noexcept { return peer; }
+    int category() const noexcept override { return peer; }
 };
 
 struct peer_stats_alert final : public peer_alert
@@ -121,7 +129,7 @@ struct peer_stats_alert final : public peer_alert
         : peer_alert(std::move(ep), pid)
         //, stats(std::move(s))
     {}
-    int category() const noexcept { return peer_alert::category() | stats; }
+    int category() const noexcept override { return peer_alert::category() | stats; }
 };
 
 // -- storage related alerts --
@@ -129,7 +137,7 @@ struct peer_stats_alert final : public peer_alert
 /** Base class for storage related alerts. */
 struct storage_alert final : public alert
 {
-    int category() const noexcept { return storage; }
+    int category() const noexcept override { return storage; }
 };
 
 /*
