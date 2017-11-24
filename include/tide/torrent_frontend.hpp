@@ -73,6 +73,9 @@ public:
     torrent_info& info() noexcept;
     const torrent_info& info() const noexcept;
 
+    const sha1_hash& info_hash() const noexcept;
+    torrent_id_t id() const noexcept;
+
     std::vector<std::shared_ptr<piece_download>>& downloads() noexcept;
     const std::vector<std::shared_ptr<piece_download>>& downloads() const noexcept;
 

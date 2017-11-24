@@ -48,7 +48,7 @@ struct pending_block : public block_info
 };
 
 /**
- * NOTE: even though peer_session is only handled by its corresponding torrent (i.e.
+ * NOTE: even though `peer_session` is only handled by its corresponding torrent (i.e.
  * unique_ptr semantics), it must be stored in a shared_ptr as it uses shared_from_this
  * in the handlers passed to async operations in order to prolong its lifetime until
  * all such operations complete (otherwise the handlers could end up referring to
@@ -56,10 +56,10 @@ struct pending_block : public block_info
  */
 struct peer_session : public std::enable_shared_from_this<peer_session>
 {
-    /** At any given time, peer_session is in one of the below states. */
+    /** At any given time, `peer_session` is in one of the below states. */
     enum class state
     {
-        // This state indicates that peer_session is or has been disconnected, or never
+        // This state indicates that `peer_session` is or has been disconnected, or never
         // started, so it's save to destruct it.
         disconnected,
         connecting,
@@ -75,7 +75,7 @@ struct peer_session : public std::enable_shared_from_this<peer_session>
         // This is the state in which the session is when it is ready to send and
         // receive regular messages, i.e. when the up/download actually begins.
         connected,
-        // If peer_session is gracefully stopped, we wait for all pending async
+        // If `peer_session` is gracefully stopped, we wait for all pending async
         // operations (listed in op) to complete before closing the connection.
         // This means that each async operation's callback will check whether it's the
         // last outstanding operation, and if so, it will finally disconnect peer. Note
@@ -96,7 +96,7 @@ private:
         disk_read,
         disk_write,
         // To keep up with the transport layer's slow start algorithm (which unlike
-        // its name increases window size quite quickly), a peer_session starts out
+        // its name increases window size quite quickly), a `peer_session` starts out
         // in slow start as well, wherein info_.best_request_queue_size is increased
         // by every time one of our requests got served.
         slow_start,
@@ -124,7 +124,7 @@ private:
     // These are the tunable parameters that the user provides.
     const peer_session_settings& settings_;
 
-    // This is a mediator between this peer_session and its associated torrent. Vital
+    // This is a mediator between this `peer_session` and its associated torrent. Vital
     // elements such as the piece_picker, torrent_info, disk_io, and piece downloads
     // shared across all peers in torrent may be accessed via this object.
     // It holds a shared_ptr to torrent.
@@ -134,7 +134,7 @@ private:
     // It must never be invalid, if it is, disconnect immediately.
     torrent_frontend torrent_;
 
-    // These are the active piece downloads in which this peer_session is participating.
+    // These are the active piece downloads in which this `peer_session` is participating.
     std::vector<std::shared_ptr<piece_download>> downloads_;
 
     // Our pending requests that we sent to peer. It represents the blocks that we are
@@ -241,8 +241,8 @@ private:
         // torrent_info).
         bool is_peer_seed;
 
-        // peer_session may be restarted (reconnected to peer) an arbitrary number of
-        // times, but apart from the first time, in which case peer_session may be
+        // `peer_session` may be restarted (reconnected to peer) an arbitrary number of
+        // times, but apart from the first time, in which case `peer_session` may be
         // outbound or inbound, whenever we reconnect, the connection is always
         // outbound. This field is used to make sure that we don't accidentally start
         // the session as inbound when reconnecting.
@@ -279,14 +279,13 @@ private:
         // The block currently being received is put here. This is used to determine
         // whether we can cancel a request, because if we're already receiving a block,
         // we can't cancel it.
-        // TODO this feels hacky
         block_info in_transit_block = invalid_block;
 
         // We need an accurate figure on the current upload rate every time a block
-        // arrives so that the ideal request queue size may be updated. throughput_rate
+        // arrives so that the ideal request queue size may be updated. `throughput_rate`
         // is insufficient for it operates with a 1 second granularity, but multiple 
         // blocks may arrive every second, in which case it would not give accurate 
-        // values. It resets its value every second.
+        // values. This resets its value every second.
         per_round_counter<1> per_second_downloaded_bytes;
     };
 
@@ -315,9 +314,11 @@ private:
     // Measured in milliseconds.
     sliding_average<20> avg_disk_write_time_;
 
-    // This is only used when connecting to the peer. If we couldn't connect by the time
-    // this timer expires, the connection is aborted.
-    deadline_timer connect_timeout_timer_;
+    // This timer is used when connecting, in which case it's regarded as a connect
+    // timeout timer and uses `settings_.peer_connect_timeout` for the timeout value,
+    // and after that it's used as an inactivity timeout timer and uses `settings_.
+    // peer_timeout` as its timeout value.
+    deadline_timer timeout_timer_;
 
     // After expiring every few minutes (2 by default) this timer tests whether we've
     // sent any messages (last_send_time_), and if not, sends a keep alive message
@@ -337,25 +338,19 @@ private:
     // on_request_timeout
     deadline_timer request_timeout_timer_;
 
-    // If neither endpoint has become interested in the other in 10 minutes, the peer
-    // is disconnected. This means that every time we are no longer interested and peer
-    // is not interested, or the other way around, this timer has to be started, and
-    // stopped if either side becomes interested.
-    deadline_timer inactivity_timeout_timer_;
-
     // If peer is on parole, it may only download a single piece in which no other peer
     // may participate. This is because normally multiple blocks are downloaded from
     // multiple peers and if one turns out to be bad (and more peers helped to complete
     // it), we have no way of determining which peer misbehaved. So as a result all are
     // suspected and each is assigned a "parole piece" which only this peer downloads.
     // The result of this download determines the guilt of this peer.
-    // If peer_session is destructed without having the chance to finish this piece,
+    // If `peer_session` is destructed without having the chance to finish this piece,
     // the download is placed into downloads_, letting others finish it. This has
     // the risk of putting another peer on parole if this one sent us corrupt pieces,
     // so we may want to discard the piece as is (TODO).
     std::unique_ptr<piece_download> parole_download_;
 
-    // When this is an incoming connection, this peer_session must attach to a torrent
+    // When this is an incoming connection, this `peer_session` must attach to a torrent
     // using this callback after peer's handshake has been received and a torrent info
     // hash could be extracted. It is not used otherwise.
     std::function<torrent_frontend(const sha1_hash&)> torrent_attacher_;
@@ -380,7 +375,8 @@ public:
      * peer belongs until the handshake is completed. The socket is already connected
      * to peer, but the session isn't formally started (because it needs to use
      * shared_from_this but that is not available in the ctor), so start has to be
-     * called once the peer_session is constructed, after which the session is continued.
+     * called once the `peer_session` is constructed, after which the session is
+     * continued.
      *
      * The socket must be initialized, but not opened.
      *
@@ -389,7 +385,8 @@ public:
      * the torrent's info hash so we can send our handshake as well. If this succeeds,
      * the peer is fully connected, but if torrent_attacher doesn't return a valid
      * torrent_specific_args instance (its fields are nullptr), we know peer didn't send
-     * the correct hash so the connection is closed and this peer_session may be removed.
+     * the correct hash so the connection is closed and this `peer_session` may be
+     * removed.
      */
     peer_session(asio::io_service& ios,
         tcp::endpoint peer_endpoint,
@@ -398,7 +395,7 @@ public:
         std::function<torrent_frontend(const sha1_hash&)> torrent_attacher);
 
     /**
-     * NOTE: peer_session is not destructed until all outstanding asynchronous
+     * NOTE: `peer_session` is not destructed until all outstanding asynchronous
      * operations have been cancelled or completed (depending on the stop mode), for
      * each async operation's handler owns a shared_ptr to `this`.
      */
@@ -406,7 +403,7 @@ public:
 
     /**
      * The constructor only sets up the session but does not start it, this has to be
-     * done explicitly, or if the torrent has been paused (and thus all peer_sessions
+     * done explicitly, or if the torrent has been paused (and thus all `peer_session`s
      * were disconnected), this is used to attempt reconnecting to peer.
      */
     void start();
@@ -427,7 +424,7 @@ public:
 
     /**
      * This is a light-weight representation of the most essential information about
-     * a peer_session. This should be used where update of a peer's status is required
+     * a `peer_session`. This should be used where update of a peer's status is required
      * at constant, short intervals.
      */
     struct stats
@@ -483,9 +480,9 @@ public:
     bool is_disconnected() const noexcept;
 
     /**
-     * When peer_session is stopped gracefully, it transitions from connected to
+     * When `peer_session` is stopped gracefully, it transitions from connected to
      * disconnecting, then finally to disconnected. If it's aborted, it transitions
-     * from connected to disconnected. If one only wishes to know whether peer_session
+     * from connected to disconnected. If one only wishes to know whether `peer_session`
      * is effectively finished (disconnecting or disconnected), use is_stopped,
      * otherwise use one of the more granular methods above.
      */
@@ -552,9 +549,9 @@ private:
     /** If our interest changes, sends the corresponding send_{un,}interested message. */
     void update_interest();
 
-    // ----------------------
-    // -- {dis,}connecting --
-    // ----------------------
+    // ----------------
+    // {dis,}connecting
+    // ----------------
 
     void connect();
     void on_connected(const std::error_code& error = std::error_code());
@@ -577,9 +574,9 @@ private:
      */
     bool should_abort(const std::error_code& error = std::error_code()) const noexcept;
 
-    // -------------
-    // -- sending --
-    // -------------
+    // -------
+    // sending
+    // -------
 
     /**
      * This is the main async "cycle" for sending messages. Registers an async write
@@ -596,9 +593,9 @@ private:
     void on_sent(const std::error_code& error, size_t num_bytes_sent);
     void update_send_stats(const int num_bytes_sent) noexcept;
 
-    // ---------------
-    // -- receiving --
-    // ---------------
+    // ---------
+    // receiving
+    // ---------
 
     /**
      * Registers an asynchronous read operation on socket to read in as much as possible,
@@ -641,9 +638,9 @@ private:
      */
     int flush_socket();
 
-    // ----------------------
-    // -- message handling --
-    // ----------------------
+    // ----------------
+    // message handling
+    // ----------------
     // Each message handler extracts the current message from the receive buffer,thus
     // advancing to the next message.
 
@@ -653,6 +650,8 @@ private:
      * is flushed to socket in one.
      */
     void handle_messages();
+    void handshake_stage();
+    void piece_availability_exchange_stage();
 
     // -- standard BitTorrent messages --
     void handle_handshake();
@@ -734,9 +733,9 @@ private:
      */
     void probe_in_transit_block() noexcept;
 
-    // ----------
-    // -- disk --
-    // ----------
+    // ----
+    // disk
+    // ----
 
     void save_block(const block_info& block_info,
         disk_buffer block_data, piece_download& piece_download);
@@ -754,15 +753,15 @@ private:
 
     /**
      * Once a piece has been downloaded and hashed, torrent processes it and calls the
-     * handler corresponding to the hash result of each peer_session that participated
+     * handler corresponding to the hash result of each `peer_session` that participated
      * in the download.
      */
     void handle_valid_piece(const piece_download& download);
     void handle_corrupt_piece(const piece_download& download);
 
-    // ---------------------
-    // -- message sending --
-    // ---------------------
+    // ---------------
+    // message sending
+    // ---------------
 
     /**
      * Each of the below methods appends its message to send_buffer_ and calls send
@@ -798,9 +797,9 @@ private:
     /** Sends either a bitfield, have_all or have_none. */
     void send_piece_availability();
 
-    // -------------------
-    // -- request logic --
-    // -------------------
+    // -------------
+    // request logic
+    // -------------
 
     /**
      * We can make requests if we're below the max number of outstanding requests
@@ -848,7 +847,7 @@ private:
      */
     int start_download();
 
-    int num_to_request() const noexcept;
+    int num_blocks_to_request() const noexcept;
 
     /**
      * This must be called when we know that we're not going to receive previously
@@ -856,9 +855,16 @@ private:
      */
     void abort_outgoing_requests();
 
-    // -------------------
-    // -- timeout logic --
-    // -------------------
+    // -------------
+    // timeout logic
+    // -------------
+
+    /**
+     * If neither endpoint has become interested in the other, we enter a state of
+     * inactivity. We guard against being inactive too long, but allow for a little more
+     * time than the standard `settings_.peer_timeout` setting.
+     */
+    duration inactivity_timeout_value() const noexcept;
 
     /**
      * Finds the most suitable block to time out. This is usually the last block we
@@ -879,11 +885,11 @@ private:
      * The number of seconds after which we consider the request to have timed out.
      * This is always a number derived from the latest download metrics.
      */
-    seconds calculate_request_timeout() const;
+    seconds request_timeout_value() const;
 
-    // -----------
-    // -- utils --
-    // -----------
+    // -----
+    // utils
+    // -----
 
     void generate_allowed_fast_set();
 

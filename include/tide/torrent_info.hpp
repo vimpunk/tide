@@ -85,14 +85,6 @@ struct torrent_info : public stats
     // only for outbound connections.
     int num_connecting_sessions = 0;
 
-    // The number of peer sessions that disconnected, and are waiting for torrent to
-    // erase them from torrent's internal list. This is incremented by each peer that 
-    // disconnects. (It's used as an optimization, as otherwise torrent would have to
-    // loop through all its peer sessions, and this way it only needs to if there are 
-    // actually stopped sessions, and it can exit early if all sessions have been
-    // cleaned up.)
-    int num_lingering_disconnected_sessions = 0;
-
     // Counting the number of times the choking algorithm has been invoked. This is done
     // so that every 3rd time we can run optimistic_unchoke.
     int num_choke_cycles = 0;

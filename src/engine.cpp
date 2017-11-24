@@ -6,26 +6,31 @@
 #include <stdexcept>
 #include <cassert>
 
+#include <iostream>
+
 // Functions that have this in their signature are executed on the network thread, which
 // means functions called by user must call them via `network_ios_`.
 #define TIDE_NETWORK_THREAD
 
 namespace tide {
 
-engine::engine()
+engine::engine(settings s)
     : disk_io_(network_ios_, settings_.disk_io)
     , work_(network_ios_)
     , acceptor_(network_ios_)
     , update_timer_(network_ios_)
 {
-    // We can start the update loop here as `engine` is not derived from
-    // `std::enable_shared_from_this`.
-    update();
+    network_thread_ = std::thread([this]
+    {
+        update();
+        network_ios_.run();
+    });
+    apply_settings(std::move(s));
 }
 
-engine::engine(const settings& s) : engine()
+engine::~engine()
 {
-    settings_ = s;
+    if(network_thread_.joinable()) { network_thread_.join(); }
 }
 
 TIDE_NETWORK_THREAD
@@ -131,46 +136,202 @@ void engine::move_torrent_to_queue_bottom(const torrent_handle& torrent)
     });
 }
 
+template<typename T, typename String>
+void throw_if_below(const T& v, const T& min, const String& msg)
+{
+    if((v != values::none) && (v < min)) throw std::invalid_argument(msg);
+}
+
+template<typename T, typename String>
+void throw_if_below_allow_unlimited(const T& v, const T& min, const String& msg)
+{
+    if((v != values::unlimited) && (v != values::none) && (v < min))
+        throw std::invalid_argument(msg);
+}
+
 void engine::verify(const settings& s) const
 {
     verify(s.disk_io);
     verify(s.torrent);
     verify(s.peer_session);
-    // TODO verify other settings
+
+    throw_if_below(s.listener_port, uint16_t(1024),
+        "settings::listener_port must be between 1024 and 65535 or none");
+    throw_if_below(s.max_udp_tracker_timeout_retries, 0,
+        "settings::max_udp_tracker_timeout_retries must be none, 0 or more");
+    throw_if_below(s.slow_torrent_download_rate_threshold, 0,
+        "settings::max_http_tracker_timeout_retries must be none, 0 or more");
+    throw_if_below(s.slow_torrent_upload_rate_threshold, 0,
+        "settings::slow_torrent_upload_rate_threshold must be none, 0 or more");
+    throw_if_below(s.min_num_peers, 0,
+        "settings::min_num_peers must be none, 0 or more");
+    throw_if_below(s.max_active_leeches, 1,
+        "settings::max_active_leeches must be none or above 0");
+    throw_if_below(s.max_active_seeds, 1,
+        "settings::max_active_seeds must be none or above 0");
+    throw_if_below(s.max_upload_slots, 1,
+        "settings::max_upload_slots must be none or above 0");
+    throw_if_below(s.max_connections, 1,
+        "settings::max_connections must be none or above 0");
+    throw_if_below_allow_unlimited(s.max_download_rate, 1,
+        "settings::max_download_rate must be unlimited, none or above 0");
+    throw_if_below_allow_unlimited(s.max_upload_rate, 1,
+        "settings::max_upload_rate must be unlimited, none or above 0");
+    throw_if_below_allow_unlimited(s.share_ratio_limit, 1,
+        "settings::share_ratio_limit must be unlimited, none or above 0");
+    throw_if_below_allow_unlimited(s.share_time_ratio_limit, 1,
+        "settings::share_time_ratio_limit must be unlimited, none or above 0");
 }
 
 void engine::verify(const disk_io_settings& s) const
 {
+    throw_if_below(s.concurrency, 1, "disk_io_settings::concurrency must be at least 1");
+    throw_if_below(s.max_buffered_blocks, 0,
+        "disk_io_settings::max_buffered_blocks must be at least 0");
+    throw_if_below(s.read_cache_capacity, 0,
+        "disk_io_settings::read_cache_capacity must be at least 0");
+    throw_if_below(s.read_cache_line_size, 0,
+        "disk_io_settings::read_cache_line_size must be at least 0");
+    throw_if_below(s.write_cache_line_size, 0,
+        "disk_io_settings::write_cache_line_size must be at least 0");
     if(s.resume_data_path.empty()) throw std::invalid_argument(
         "disk_io_settings::resume_data_path must not be empty");
 }
 
 void engine::verify(const torrent_settings& s) const
 {
+    throw_if_below(s.max_upload_slots, 1,
+        "torrent_settings::max_upload_slots must be none or above 0");
+    throw_if_below(s.max_connections, 1,
+        "torrent_settings::max_connections must be none or above 0");
+    throw_if_below_allow_unlimited(s.max_download_rate, 1,
+        "torrent_settings::max_download_rate must be unlimited, none or above 0");
+    throw_if_below_allow_unlimited(s.max_upload_rate, 1,
+        "torrent_settings::max_upload_rate must be unlimited, none or above 0");
 }
 
-void engine::verify(const peer_session_settings& s) const
+void engine::verify(const peer_session_settings& s, const int write_cache_line_size) const
 {
+    throw_if_below_allow_unlimited(s.max_incoming_request_queue_size, 10,
+        "peer_session_settings::max_incoming_request_queue_size must be unlimited,"
+        " none or above 10");
+    throw_if_below(s.min_outgoing_request_queue_size, 0,
+        "peer_session_settings::min_outgoing_request_queue_size must be 0 or above");
+    // FIXME for some reason the values of max_outgoing_request_queue_size and
+    // min_outgoing_request_queue_size get switched up
+    throw_if_below(s.max_outgoing_request_queue_size, s.min_outgoing_request_queue_size,
+        "peer_session_settings::max_outgoing_request_queue_size must be above"
+        " peer_session_settings::min_outgoing_request_queue_size");
+    throw_if_below(s.max_connection_attempts, 1,
+        "peer_session_settings::max_connection_attempts must be above 0");
+    throw_if_below(s.max_receive_buffer_size, 0x4000 * std::max(1, write_cache_line_size),
+        "peer_session_settings::max_connection_attempts must be above"
+        " disk_io_settings::write_cache_line_size * 16KiB (0x4000 bytes)");
+    throw_if_below(s.max_send_buffer_size, 0x4000,
+        "peer_session_settings::max_send_buffer_size must be at least 16KiB"
+        " (0x4000 bytes)");
+    throw_if_below(s.allowed_fast_set_size, 1,
+        "peer_session_settings::allowed_fast_set_size must be at least 1");
 }
 
 void engine::fill_in_defaults(settings& s)
 {
     fill_in_defaults(s.disk_io);
-    fill_in_defaults(s.torrent);
-    fill_in_defaults(s.peer_session);
-    // TODO
+
+    using values::none;
+    using values::unlimited;
+
+    auto set_if_none = [](auto& setting, auto val) { if(setting == none) setting = val; };
+
+    set_if_none(s.listener_port, 6666); // TODO
+
+    set_if_none(s.max_udp_tracker_timeout_retries, 3);
+    set_if_none(s.max_http_tracker_timeout_retries, 3);
+    set_if_none(s.min_num_peers, 10);
+
+    static const int default_slow_threshold = 0x4000;
+    set_if_none(s.slow_torrent_download_rate_threshold, default_slow_threshold);
+    set_if_none(s.slow_torrent_upload_rate_threshold, default_slow_threshold);
+
+    set_if_none(s.max_active_leeches, 4);
+    set_if_none(s.max_active_seeds, 4);
+    set_if_none(s.max_upload_slots, 4);
+    set_if_none(s.max_connections, 200);
+
+    set_if_none(s.max_download_rate, unlimited);
+    set_if_none(s.max_upload_rate, unlimited);
+
+    set_if_none(s.share_ratio_limit, unlimited);
+    set_if_none(s.share_time_ratio_limit, unlimited);
+}
+
+/** Attempts to query the system for RAM info and if it fails it returns an estimate. */
+inline system::ram ram_status()
+{
+    std::error_code error;
+    auto ram = system::ram_status(error);
+    if(error)
+    {
+        // Since we weren't successful in determining the RAM size, we'll proceed
+        // with sensible default values here (on the lower end, to err on the side
+        // of caution).
+        ram.physical_size = 1 * 1024 * 1024; // 1GiB.
+        ram.physical_free_space = 0.3 * 1024 * 1024; // 0.3GiB.
+    }
+    return ram;
 }
 
 void engine::fill_in_defaults(disk_io_settings& s)
 {
-}
+    if(s.concurrency <= 0)
+        s.concurrency = 2 * std::thread::hardware_concurrency();
 
-void engine::fill_in_defaults(torrent_settings& s)
-{
-}
+    system::ram ram = ram_status();
+    // Make sure the value set by user does not exceed available physical RAM.
+    if(s.max_buffered_blocks <= 0
+       || s.max_buffered_blocks * 0x4000 >= ram.physical_size)
+    {
+        // Use up 10% of the available memory, or less.
+        s.max_buffered_blocks = std::min(
+            ram.physical_size / 10 / 0x4000,
+            ram.physical_free_space / 2);
+    }
+    if(s.read_cache_capacity <= 0)
+    {
+        // Also use up 10% of the available memory for the read cache.
+        s.read_cache_capacity = std::min(
+            ram.physical_size / 10 / 0x4000,
+            ram.physical_free_space / 2);
+    }
+    assert(s.read_cache_capacity > 0);
 
-void engine::fill_in_defaults(peer_session_settings& s)
-{
+    // TODO choose better values, these are placeholders.
+    if(s.read_cache_line_size < 0)
+        s.read_cache_line_size = 8;
+    if(s.write_cache_line_size < 0)
+        s.write_cache_line_size = 8;
+
+    // Only do this step if receive buffer has already been set.
+    if(settings_.peer_session.max_receive_buffer_size > 0)
+    {
+        // Find a suitable value for `write_buffer_capacity`, which acts as an upper bound
+        // for a piece's write cache (i.e the number of blocks buffered before flushed to
+        // disk).
+        const auto receive_buffer_size_in_blocks =
+            settings_.peer_session.max_receive_buffer_size / 0x4000;
+        s.write_buffer_capacity = util::clamp(10, s.write_cache_line_size,
+            receive_buffer_size_in_blocks);
+        // Try to leave as much space between the minimum value (`write_cache_line_size`)
+        // and the upper bound (`write_buffer_capacity`), but don't approach the maximum
+        // value (`receive_buffer_size`) too closely, lest it impair download throughput.
+        // i.e.:
+        // write_cache_line_size <= write_buffer_capacity < receive_buffer_size_in_blocks
+        while(receive_buffer_size_in_blocks - s.write_buffer_capacity > 2)
+            ++s.write_buffer_capacity;
+    }
+
+    if((s.write_buffer_expiry_timeout == seconds(0)) && (s.write_cache_line_size > 0))
+        s.write_buffer_expiry_timeout = minutes(5);
 }
 
 void engine::fill_in_defaults(torrent_args& args)
@@ -192,11 +353,10 @@ void engine::apply_settings(settings s)
 #define COPY_FIELD(f) do { settings_.f = s.f; } while(0)
         // TODO find a less error-prone way to copy the rest of the settings
         COPY_FIELD(enqueue_new_torrents_at_top);
-        if(!settings_.count_slow_torrents && s.count_slow_torrents)
-        {
-            // We now need to start counting slow torrents.
-        }
-        COPY_FIELD(count_slow_torrents);
+        if(settings_.slow_torrent_download_rate_threshold
+           != s.slow_torrent_download_rate_threshold) { update_leeches(); }
+        if(settings_.slow_torrent_upload_rate_threshold
+           != s.slow_torrent_upload_rate_threshold) { update_seeds(); }
         COPY_FIELD(discard_piece_picker_on_completion);
         COPY_FIELD(prefer_udp_trackers);
         COPY_FIELD(max_udp_tracker_timeout_retries);
@@ -311,41 +471,8 @@ void engine::apply_max_active_torrents_setting(
 TIDE_NETWORK_THREAD
 void engine::apply_max_upload_slots_setting(const int max_upload_slots)
 {
-    /*
-    if(max_upload_slots < num_uploads_)
-    {
-        // We need to cap the number of uploads.
-        for(auto i = max_upload_slots, n = num_uploads_ - 1; i < n; ++i)
-        {
-            auto& torrent = torrents_[i];
-            // We've reached the end of the active torrents subset in `torrents_`.
-            if(torrent->is_stopped()) { break; }
-            if(torrent->is_auto_managed())
-            {
-                //torrent->set_max_upload_slots(0);
-                --num_uploads_;
-            }
-        }
-    }
-    else if(torrents_.size() > num_uploads_)
-    {
-        // We can let more torrents upload. Redistribute the number of available
-        // upload slots.
-        int per_torrent_upload_slots = std::min(
-            settings_.max_upload_slots, torrents_.size());
-        for(auto i = num_uploads_; i < torrents_.size(); ++i)
-        {
-            auto& torrent = torrents_[i];
-            if(torrent->is_stopped()) { break; }
-            if(!torrent->is_auto_managed())
-            {
-                //torrent->set_max_upload_slots(0);
-                ++num_uploads_;
-            }
-        }
-    }
-    settings_.max_upload_slots = max_upload_slots;
-    */
+    // TODO how to distribute upload slots? prefer priority torrents (those at the front
+    // of leeches_), or distribute equally?
 }
 
 void engine::apply_disk_io_settings(disk_io_settings s)
@@ -356,100 +483,59 @@ void engine::apply_disk_io_settings(disk_io_settings s)
         { apply_disk_io_settings_impl(std::move(s)); });
 }
 
+TIDE_NETWORK_THREAD
+inline void engine::apply_disk_io_settings_impl(disk_io_settings s)
+{
+    assert(!s.resume_data_path.empty());
+    disk_io_.set_concurrency(s.concurrency);
+    settings_.disk_io = std::move(s);
+}
+
 void engine::apply_torrent_settings(torrent_settings s)
 {
     verify(s);
-    fill_in_defaults(s);
     network_ios_.post([this, s = std::move(s)]
         { apply_torrent_settings_impl(std::move(s)); });
 }
 
-void engine::apply_peer_session_settings(peer_session_settings s)
-{
-    verify(s);
-    fill_in_defaults(s);
-    network_ios_.post([this, s = std::move(s)]
-        { apply_peer_session_settings_impl(std::move(s)); });
-}
-
 TIDE_NETWORK_THREAD
-void engine::apply_disk_io_settings_impl(disk_io_settings s)
-{
-    assert(!s.resume_data_path.empty());
-
-    // In most cases values smaller than or equal to 0 will be automatically set.
-    if(s.concurrency <= 0)
-        s.concurrency = 2 * std::thread::hardware_concurrency();
-    disk_io_.set_concurrency(s.concurrency);
-
-    std::error_code error;
-    system::ram ram = system::ram_status(error);
-    if(error)
-    {
-        // Since we weren't successful in determining the RAM size, we'll proceed with
-        // sensible default values here (on the lower end, to err on the side of caution).
-        ram.physical_size = 1 * 1024 * 1024; // 1GiB.
-        ram.physical_free_space = 0.3 * 1024 * 1024; // 0.3GiB.
-    }
-
-    // Make sure the value set by user does not exceed available physical RAM.
-    if(s.max_buffered_blocks <= 0
-       || s.max_buffered_blocks * 0x4000 >= ram.physical_size)
-    {
-        // Use up 10% of the available memory, or less.
-        s.max_buffered_blocks = std::min(
-            ram.physical_size / 10 / 0x4000,
-            ram.physical_free_space / 2);
-    }
-    if(s.read_cache_capacity <= 0)
-    {
-        // Also use up 10% of the available memory for the read cache.
-        s.read_cache_capacity = std::min(
-            ram.physical_size / 10 / 0x4000,
-            ram.physical_free_space / 2);
-    }
-
-    // TODO choose better values
-    if(s.read_cache_line_size < 0)
-    {
-        s.read_cache_line_size = 8;
-    }
-    if(s.write_cache_line_size < 0)
-    {
-        s.write_cache_line_size = 8;
-    }
-
-    // Find a suitable value for `write_buffer_capacity`, which acts as an upper bound
-    // for a piece's write cache (i.e the number of blocks buffered before flushed to
-    // disk).
-    const auto receive_buffer_size_in_blocks =
-        settings_.peer_session.max_receive_buffer_size / 0x4000;
-    s.write_buffer_capacity = util::clamp(10, s.write_cache_line_size,
-        receive_buffer_size_in_blocks);
-    // Try to leave as much space between the minimum value (`write_cache_line_size`)
-    // and the upper bound (`write_buffer_capacity`), but don't approach the maximum
-    // value (`receive_buffer_size`) too closely, lest it impair download throughput.
-    // i.e.:
-    // write_cache_line_size <= write_buffer_capacity < receive_buffer_size_in_blocks
-    while(receive_buffer_size_in_blocks - s.write_buffer_capacity > 2)
-        ++s.write_buffer_capacity;
-
-    settings_.disk_io = std::move(s);
-}
-
-TIDE_NETWORK_THREAD
-void engine::apply_torrent_settings_impl(torrent_settings s)
+inline void engine::apply_torrent_settings_impl(torrent_settings s)
 {
     for_each_torrent([&s](auto& t) { t.apply_settings(s); });
     settings_.torrent = s;
 }
 
-TIDE_NETWORK_THREAD
-void engine::apply_peer_session_settings_impl(peer_session_settings s)
+void engine::apply_peer_session_settings(peer_session_settings s)
 {
-    // We don't manually set `peer_session_settings`--`peer_session`s always consult
-    // their reference to these settings before any action.
+    verify(s);
+    network_ios_.post([this, s = std::move(s)]
+        { apply_peer_session_settings_impl(std::move(s)); });
+}
+
+TIDE_NETWORK_THREAD
+inline void engine::apply_peer_session_settings_impl(peer_session_settings s)
+{
     settings_.peer_session = std::move(s);
+    int receive_buffer_size_in_blocks =
+        settings_.peer_session.max_receive_buffer_size / 0x4000;
+    if(receive_buffer_size_in_blocks == 0)
+    {
+        // We must be able to receive at least one full block.
+        receive_buffer_size_in_blocks = 1;
+        settings_.peer_session.max_receive_buffer_size = 0x4000;
+    }
+    if(settings_.disk_io.write_cache_line_size > receive_buffer_size_in_blocks)
+    {
+        // `disk_io_settings::write_cache_line_size` must not be larger than
+        // `peer_session::max_receive_buffer_size`, as otherwise downloads would stall
+        // (see comment in settings.hpp.). So we must shrink the write cache line.
+        settings_.disk_io.write_cache_line_size = receive_buffer_size_in_blocks - 1;
+    }
+    if(settings_.disk_io.write_buffer_capacity - 2 <= receive_buffer_size_in_blocks)
+    {
+        // We need to adjust `write_buffer_capacity` to exceed `max_receive_buffer_size`.
+        settings_.disk_io.write_buffer_capacity = receive_buffer_size_in_blocks + 2;
+    }
 }
 
 TIDE_NETWORK_THREAD
@@ -464,7 +550,8 @@ void engine::update(const std::error_code& error)
     // tenth second.
     if(++info_.update_counter % 10)
     {
-        // Refill our bandwidth quota (even if it's unlimited, bwc handles this).
+        // Refill our bandwidth quota (even if it's unlimited, `rate_limiter_`
+        // handles this).
         rate_limiter_.add_download_quota(settings_.max_download_rate);
         rate_limiter_.add_upload_quota(settings_.max_upload_rate);
 
@@ -671,23 +758,29 @@ void engine::verify(torrent_args& args) const
     if(args.save_path.empty())
         throw std::invalid_argument("torrent_args::path must not be empty");
 
+    // FIXME this doesn't work for some reason
+    const auto is_tracker_url_valid = [](const auto& url)
+    {
+        return util::starts_with(url, "udp://")
+            || util::starts_with(url, "http://")
+            || util::starts_with(url, "https://");
+        // TODO the full url needs to be tested
+    };
+
     for(const auto& tracker : args.metainfo.announce_list)
     {
-        // TODO the full url needs to be tested
-        if(!util::starts_with(tracker.url, "udp://")
-           && !util::starts_with(tracker.url, "http://"))
-        {
-            throw std::invalid_argument(
-                "metainfo::announce url must contain a protocol identifier");
-        }
+        if(!is_tracker_url_valid(tracker.url)) throw std::invalid_argument(
+            "metainfo::announce_list[i] url must be valid");
     }
 
-    if(!args.metainfo.announce.empty()
-       && !util::starts_with(args.metainfo.announce, "udp://")
-       && !util::starts_with(args.metainfo.announce, "http://"))
+    if((args.metainfo.announce_list.empty() && args.metainfo.announce.empty())
+       || !is_tracker_url_valid(args.metainfo.announce))
     {
-        throw std::invalid_argument(
-            "metainfo::announce url must contain a protocol identifier");
+        assert(util::starts_with("http://a.com", "http://"));
+        std::cout << "invalid metainfo: "
+            << std::string(args.metainfo.announce.begin(), args.metainfo.announce.end())
+            << '\n';
+        throw std::invalid_argument("no valid announce url in metainfo");
     }
 
     if(args.save_path.empty() || !system::exists(args.save_path)) // `exists` throws

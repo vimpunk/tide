@@ -156,7 +156,7 @@ inline bool disk_io::torrent_entry::is_block_valid(const block_info& block)
 disk_io::disk_io(asio::io_service& network_ios, const disk_io_settings& settings)
     : network_ios_(network_ios)
     , settings_(settings)
-    , read_cache_(settings.read_cache_capacity)
+    , read_cache_(std::max(settings.read_cache_capacity, 0))
     , disk_buffer_pool_(0x4000)
     , retry_timer_(network_ios)
     , retry_delay_(5) // start with a 5 second wait between the first retry
@@ -260,22 +260,22 @@ void disk_io::save_torrent_resume_data(const torrent_id_t id,
 {
     thread_pool_.post([resume_data = std::move(resume_data),
         handler = std::move(handler), &torrent = find_torrent_entry(id)]
-        { 
-            std::error_code error;
-            torrent.storage.write_resume_data(resume_data, error);
-            handler(error);
-        });
+    { 
+        std::error_code error;
+        torrent.storage.write_resume_data(resume_data, error);
+        handler(error);
+    });
 }
 
 void disk_io::load_torrent_resume_data(const torrent_id_t id,
     std::function<void(const std::error_code&, bmap)> handler)
 {
     thread_pool_.post([handler = std::move(handler), &torrent = find_torrent_entry(id)]
-        { 
-            std::error_code error;
-            auto resume_data = torrent.storage.read_resume_data(error);
-            handler(error, std::move(resume_data));
-        });
+    { 
+        std::error_code error;
+        auto resume_data = torrent.storage.read_resume_data(error);
+        handler(error, std::move(resume_data));
+    });
 }
 
 void disk_io::load_all_torrent_resume_data(

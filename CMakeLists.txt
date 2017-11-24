@@ -1,9 +1,31 @@
 cmake_minimum_required(VERSION 3.9.2)
 project(tide)
 
+#option(USE_EXPERIMENTAL_FILESYSTEM "use std::experimental::filesystem" ON)
+#option(DEBUG "debug build" OFF)
+
 add_definitions(-DTIDE_USE_EXPERIMENTAL_FILESYSTEM)
 
-# Only name the source files, and create the full paths separately.
+if(CMAKE_BUILD_TYPE STREQUAL Debug)
+    message("Configuring Debug build...")
+    add_definitions(-DTIDE_ENABLE_LOGGING)
+    add_definitions(-DTIDE_LOG_PATH=${LOG_PATH})
+    add_definitions(-DTIDE_LOG_PRIORITY=${LOG_PRIORITY})
+    option(STREAM_DEBUGGING "log in real time to stdout" OFF)
+    if(STREAM_DEBUGGING)
+        add_definitions(-DTIDE_ENABLE_STREAM_DEBUGGING)
+    endif()
+    option(LOG_PEERS_SEPARATELY "give each peer its own log file" OFF)
+    if(LOG_PEERS_SEPARATELY)
+        add_definitions(-DTIDE_LOG_PEERS_SEPARATELY)
+    endif()
+    option(MERGE_TORRENT_LOGS "merge all torrent logs into engine's log file" OFF)
+    if(MERGE_TORRENT_LOGS)
+        add_definitions(-DTIDE_MERGE_TORRENT_LOGS)
+    endif()
+endif()
+
+# Only name the source files' names, and create the full paths separately.
 set(source_names 
     bdecode.cpp
     bencode.cpp
@@ -68,6 +90,7 @@ else()
     return()
 endif()
 
+# TODO make this conditional as we only need it when were not using std::filesystem.
 # Find required Boost components.
 find_package(Boost REQUIRED COMPONENTS filesystem system)
 if(Boost_FOUND)
@@ -83,8 +106,10 @@ target_link_libraries(tide crypto)
 # Install library source.
 install(TARGETS tide LIBRARY DESTINATION lib)
 
-# Install header files.
+# Install tide header files.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/tide DESTINATION include)
+# Install mio header files.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib/mio/include/mio DESTINATION include)
 
-# Install the convenience header as well.
+# Install the tide convenience header as well.
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/tide.hpp DESTINATION include)

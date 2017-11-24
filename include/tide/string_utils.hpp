@@ -16,49 +16,71 @@
 
 namespace tide {
 namespace util {
+namespace c_str {
 
-inline void ltrim(std::string& s)
+template<typename C>
+constexpr auto size(const C& c) noexcept(noexcept(c.size())) -> decltype(c.size())
+{ return c.size(); }
+
+/**
+ * Since C-strings are 0 terminated, the actual returned length is one less than the
+ * array's size.
+ */
+template<typename C, size_t N>
+constexpr size_t size(const C (&array)[N]) noexcept { return N - 1; }
+
+} // namespace c_str
+
+template<typename String>
+inline void ltrim(String& s)
 {
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(),
+    s.erase(std::begin(s), std::find_if(std::begin(s), std::end(s),
         [](const auto& c) { return !std::isspace(c); }));
 }
 
-inline void rtrim(std::string& s)
+template<typename String>
+inline void rtrim(String& s)
 {
-    s.erase(std::find_if(s.rbegin(), s.rend(),
-        [](const auto& c) { return !std::isspace(c); }).base(), s.end());
+    s.erase(std::find_if(std::rbegin(s), std::rend(s),
+        [](const auto& c) { return !std::isspace(c); }).base(), std::end(s));
 }
 
-inline void trim(std::string& s)
+template<typename String>
+inline void trim(String& s)
 {
     ltrim(s);
     rtrim(s);
 }
 
-inline void to_lower(std::string& s)
+template<typename String>
+inline void to_lower(String& s)
 {
-    std::transform(s.begin(), s.end(), s.begin(),
+    std::transform(std::begin(s), std::end(s), std::begin(s),
         [](const auto& c) { return std::tolower(c); });
 }
 
-inline void to_upper(std::string& s)
+template<typename String>
+inline void to_upper(String& s)
 {
-    std::transform(s.begin(), s.end(), s.begin(),
+    std::transform(std::begin(s), std::end(s), std::begin(s),
         [](const auto& c) { return std::toupper(c); });
 }
 
-// TODO templatize these to accept any string type
-inline bool starts_with(string_view s, string_view prefix) noexcept
+template<typename String1, typename String2>
+bool starts_with(const String1& s, const String2& prefix) noexcept
 {
-    return s.length() >= prefix.length()
-        && std::equal(s.begin(), s.begin() + prefix.length(), prefix.begin());
+    using std::begin;
+    return c_str::size(s) >= c_str::size(prefix)
+        && std::equal(begin(s), begin(s) + c_str::size(prefix), begin(prefix));
 }
 
-inline bool ends_with(string_view s, string_view suffix) noexcept
+template<typename String1, typename String2>
+bool ends_with(const String1& s, const String2& suffix) noexcept
 {
-    return s.length() >= suffix.length()
+    using std::rbegin;
+    return c_str::size(s) >= c_str::size(suffix)
         // TODO verify this
-        && std::equal(s.rbegin(), s.rbegin() + suffix.length(), suffix.rbegin());
+        && std::equal(rbegin(s), rbegin(s) + c_str::size(suffix), rbegin(suffix));
 }
 
 template<typename Bytes>

@@ -91,7 +91,6 @@ std::string make_log_path(const String& name)
 # define TIDE_LOG(priority, stream, header, log) \
     stream << '[' << TIDE_PRIORITY_CHAR(priority) << '|' << header << "] " << log << '\n';
 
-
 # ifdef TIDE_ENABLE_STREAM_DEBUGGING
 #  define TIDE_STREAM std::clog
 #  define TIDE_CLOG(priority, file, header, log) do { \
@@ -182,11 +181,11 @@ void peer_session_logger::log(const torrent_id_t torrent, const tcp::endpoint& e
 
     if(torrent == -1)
     {
-        // an incoming and as yet unattached peer requested logging, so can't put this
-        // in any specific torrent log file, so put it in the incomming connections file
+        // An incoming and as yet unattached peer requested logging, so can't put this
+        // in any specific torrent log file, so put it in the incomming connections file.
         if(!incoming_connections_.is_open())
             incoming_connections_.open(make_log_path("incoming_peers"), g_open_mode);
-        TIDE_CLOG(priority, it->second, new_header, log);
+        TIDE_CLOG(priority, incoming_connections_, new_header, log);
     }
     else
     {

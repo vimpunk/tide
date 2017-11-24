@@ -320,6 +320,11 @@ class http_tracker final : public tracker
     struct request
     {
         http::request<http::string_body> payload;
+
+        // Even though HTTPS over TCP is reliable, we still allow more than a single
+        // attempt to contact tracker. This limit is set by user.
+        int num_retries = 0;
+
         virtual ~request() = default;
         virtual void on_error(const std::error_code& error) = 0;
     };
@@ -377,8 +382,7 @@ private:
     std::string create_target_string(const tracker_request& r) const;
     std::string create_target_string(const std::vector<sha1_hash>& r) const;
 
-    void on_announce_sent(const std::error_code& error, const size_t num_bytes_sent);
-    void on_scrape_sent(const std::error_code& error, const size_t num_bytes_sent);
+    void on_message_sent(const std::error_code& error, const size_t num_bytes_sent);
 
     void on_announce_response(const std::error_code& error, const size_t num_bytes_sent);
     void on_scrape_response(const std::error_code& error, const size_t num_bytes_sent);
@@ -396,6 +400,9 @@ private:
     request& current_request() noexcept;
 
     void on_request_error(const std::error_code& error);
+
+    void start_timeout();
+    void on_timeout(const std::error_code& error);
 };
 
 /**
@@ -630,7 +637,7 @@ private:
     void resume_stalled_requests();
 
     void start_timeout(request& request);
-    void handle_timeout(const std::error_code& error, request& request);
+    void on_timeout(const std::error_code& error, request& request);
     void retry(request& request);
     void retry(announce_request& request);
     void retry(scrape_request& request);

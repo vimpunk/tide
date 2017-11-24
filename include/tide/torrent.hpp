@@ -78,8 +78,9 @@ class torrent : public std::enable_shared_from_this<torrent>
     // Engine related stats and info may be accessed via this reference. It contains a
     // few important bits, such as the global maximum number of connections, which may
     // never be exceeded even if a `torrent` has space for more connections.
-    // TODO consider putting `settings` inside `engine_info` to save sizeof Ptr bytes.
-    engine_info& engine_info_;
+    // TODO since we're only using engine_info::num_connections, just take a reference
+    // to that value, and not the entire info as we don't need it.
+    engine_info& global_info_;
 
     // User may decide to block certain IPs or ports, and may decide have various
     // policies regarding local networks (TODO), so before registering the availability
@@ -199,7 +200,7 @@ public:
         disk_io& disk_io,
         rate_limiter& global_rate_limiter,
         const settings& global_settings,
-        engine_info& engine_info,
+        engine_info& global_info,
         std::vector<tracker_entry> trackers,
         endpoint_filter& endpoint_filter,
         alert_queue& alert_queue,
@@ -215,7 +216,7 @@ public:
         disk_io& disk_io,
         rate_limiter& global_rate_limiter,
         const settings& global_settings,
-        engine_info& engine_info,
+        engine_info& global_info,
         std::vector<tracker_entry> trackers,
         endpoint_filter& endpoint_filter,
         alert_queue& alert_queue,
@@ -419,7 +420,12 @@ private:
      */
     void update_thread_safe_info();
 
-    /** Checks whether the current number of connected peers is below some threshold. */
+    int num_connectable_peers() const noexcept;
+
+    /**
+     * Checks whether the current number of connected peers is such that we need to
+     * connect more peers.
+     */
     bool should_connect_peers() const noexcept;
 
     /** Checks whether we need to request peers from tracker. */
@@ -450,19 +456,22 @@ private:
 
     /**
      * `peer_session`s that are finished (connection is closed with no intentions of
-     * restarting) mark themselves as such, and when we want to work with peer_sessions
-     * we first have to remove the dead entries.
-     TODO running an O(n) algorithm and potential reallocation may be expensive if tun
-     too frequently -- profile how often it's run
+     * restarting) mark themselves as such, and when we want to work with
+     * `peer_sessions_` we first have to remove the dead entries.
+     *
+     * TODO updated
      */
     void remove_finished_peer_sessions();
-    void on_peer_session_finished(peer_session& session);
+
+    /**
+     * This is invoked by each disconnected `peer_session` through its
+     * `torrent_frontend` instance.
+     */
+    void on_peer_session_stopped(peer_session& session);
 
     void connect_peers();
     void connect_peer(tcp::endpoint& peer);
     void close_peer_session(peer_session& session);
-
-    void on_peer_session_gracefully_stopped(peer_session& session);
 
     // -------
     // tracker

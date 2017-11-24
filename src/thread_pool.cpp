@@ -1,9 +1,6 @@
 #include "thread_pool.hpp"
 #include "scope_guard.hpp"
 
-#include <iostream>
-#define LOG(m) do { std::cerr << m << '\n'; } while(0)
-
 namespace tide {
 
 /**
@@ -13,7 +10,7 @@ namespace tide {
  */
 inline int auto_concurrency()
 {
-    // TODO devise or adapt a formula, such as this, just more fitting for our use
+    // todo: devise or adapt a formula, such as this, but more fit for our use case:
     // 2 * num_cores * cpu_utilization_percentage * (1 + wait_time / compute_time)
     return 2 * std::thread::hardware_concurrency();
 }
@@ -31,6 +28,7 @@ thread_pool::~thread_pool()
 
 void thread_pool::set_concurrency(const int n)
 {
+    if(n <= 0) { return; }
     if(n < concurrency_)
     {
         const int num_to_join = threads_.size() - n;
@@ -94,7 +92,6 @@ inline void thread_pool::run(std::thread& thread)
         { assert(0 && "TODO"); });
     while(!is_joining_.load(std::memory_order_acquire))
     {
-        //LOG("\t" << std::this_thread::get_id() << " looping");
         time_point idle_start = ts_cached_clock::now();
         std::unique_lock<std::mutex> job_queue_lock(job_queue_mutex_);
         // wake up if thread pool is beign joined or a new job is available

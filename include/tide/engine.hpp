@@ -36,6 +36,10 @@ class peer_session;
  */
 class engine
 {
+    // This is the io_service that runs all network related connections. This is also
+    // passed to disk_io for callbacks to be posted on network thread.
+    asio::io_service network_ios_;
+
     // All disk related tasks are done through this class, so only a single object
     // exists at any given time. Each torrent instance, and their peer_sessions receive
     // a reference to this object.
@@ -78,10 +82,6 @@ class engine
     // passed down to most components of the engine.
     settings settings_;
 
-    // This is the io_service that runs all network related connections. This is also
-    // passed to disk_io for callbacks to be posted on network thread.
-    asio::io_service network_ios_;
-
     // We want to keep `network_ios_` running indefinitely until shutdown, so keep it
     // busy with this work object.
     asio::io_service::work work_;
@@ -104,12 +104,12 @@ public:
 
     /**
      * The constructor immediately starts `engine`'s internal update cycle on a new
-     * thread, even if there are no torrents as yet.
-     *
-     * If no settings are specified, engine will use the default settings.
+     * thread.
      */
-    engine();
-    explicit engine(const settings& s);
+    explicit engine(settings s);
+
+    /** The destructor waits for the internal network thread to join. */
+    ~engine();
 
     /** Pauses and resumes all torrents in `engine`. */
     void pause();
@@ -223,13 +223,11 @@ private:
     void verify(const settings& s) const;
     void verify(const disk_io_settings& s) const;
     void verify(const torrent_settings& s) const;
-    void verify(const peer_session_settings& s) const;
+    void verify(const peer_session_settings& s, const int write_cache_line_size = 1) const;
 
     void fill_in_defaults(torrent_args& args);
     void fill_in_defaults(settings& s);
     void fill_in_defaults(disk_io_settings& s);
-    void fill_in_defaults(torrent_settings& s);
-    void fill_in_defaults(peer_session_settings& s);
 
     void apply_disk_io_settings_impl(disk_io_settings s);
     void apply_torrent_settings_impl(torrent_settings s);
@@ -238,10 +236,16 @@ private:
     void apply_max_connections_setting(const int max_connections);
     void apply_max_active_leeches_setting(const int max_active_leeches);
     void apply_max_active_seeds_setting(const int max_active_seeds);
+    void apply_max_upload_slots_setting(const int max_upload_slots);
+
+    /**
+     * Updates `torrents`, which has `num_active` torrents, so that it may only have
+     * `max_active` active torrents, and updates `num_active` to the number of active
+     * torrents remaining by the time this function finishes.
+     */
     static void apply_max_active_torrents_setting(
         std::vector<std::shared_ptr<torrent>>& torrents,
         int& num_active, const int max_active);
-    void apply_max_upload_slots_setting(const int max_upload_slots);
 
     /**
      * Finds `torrent` and the queue within which it resides, which may `leeches_` or

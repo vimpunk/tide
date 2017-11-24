@@ -7,9 +7,11 @@ namespace tide { using boost::filesystem::path; }
 #elif __cplusplus >= 201406L
 # include <filesystem>
 namespace tide { using std::filesystem::path; }
-#else
+#elif defined(TIDE_USE_EXPERIMENTAL_FILESYSTEM)
 # include <experimental/filesystem>
 namespace tide { using std::experimental::filesystem::path; }
+#else
+# error "Need boost or std filesystem support."
 #endif
 
 #endif // TIDE_PATH_HEADER

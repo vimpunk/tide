@@ -66,6 +66,8 @@ using namespace std::experimental::filesystem;
 } // namespace system
 } // namespace tide
 
+#else // defined(TIDE_USE_EXPERIMENTAL_FILESYSTEM)
+# error "Need boost or std filesystem support."
 #endif // defined(TIDE_USE_EXPERIMENTAL_FILESYSTEM)
 
 namespace tide {
@@ -86,7 +88,7 @@ using file_handle_type =
  */
 using mio::page_size;
 
-/** Returns errno on UNIX and GetLastError() on Windows. */
+/** Returns `errno` on UNIX and the result of calling `GetLastError` on Windows. */
 std::error_code last_error() noexcept;
 
 struct ram
@@ -99,8 +101,8 @@ struct ram
 };
 
 /**
- * Returns a `ram` instance describing info about this system's RAM. Note that if
- * `error` is set, the values in the returned `ram` are undefined.
+ * Returns a `ram` instance describing info about this system's RAM. If `error` is set,
+ * the values in the returned `ram` are undefined.
  */
 ram ram_status(std::error_code& error);
 

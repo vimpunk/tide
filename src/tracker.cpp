@@ -121,7 +121,6 @@ void http_tracker::execute_request(Parameters parameters, Handler handler)
     if(is_aborted_) { return; }
 
     auto r = std::make_unique<Request>();
-    r->payload;
     // TODO cache host
     r->payload.method(http::verb::get);
     r->payload.target(create_target_string(parameters));
@@ -167,6 +166,9 @@ void http_tracker::on_host_resolved(
 
 void http_tracker::execute_one_request()
 {
+    if(is_requesting_ || requests_.empty()) { return; }
+
+    // We may need to reopen socket if the previous HTTP connection closed it.
     if(!socket_.is_open())
     {
         std::error_code error;
@@ -179,42 +181,70 @@ void http_tracker::execute_one_request()
         }
     }
 
-    if(!is_requesting_ && !requests_.empty())
+    is_requesting_ = true;
+    auto& request = current_request();
+    if(dynamic_cast<announce_request*>(&request))
     {
-        is_requesting_ = true;
-        auto& request = current_request();
-        if(dynamic_cast<announce_request*>(&request))
-        {
-            http::async_write(socket_, request.payload,
-                [this](const auto& error, const size_t num_bytes_sent)
-                { on_announce_sent(error, num_bytes_sent); });
-            http::async_read(socket_, response_buffer_, response_,
-                [this](const auto& error, const size_t num_bytes_received)
-                { on_announce_response(error, num_bytes_received); });
-        }
-        else
-        {
-            http::async_write(socket_, request.payload,
-                [this](const auto& error, const size_t num_bytes_sent)
-                { on_scrape_sent(error, num_bytes_sent); });
-            http::async_read(socket_, response_buffer_, response_,
-                [this](const auto& error, const size_t num_bytes_received)
-                { on_scrape_response(error, num_bytes_received); });
-        }
+        http::async_write(socket_, request.payload,
+            [this](const auto& error, const size_t num_bytes_sent)
+            { on_message_sent(error, num_bytes_sent); });
+        http::async_read(socket_, response_buffer_, response_,
+            [this](const auto& error, const size_t num_bytes_received)
+            { on_announce_response(error, num_bytes_received); });
     }
+    else
+    {
+        http::async_write(socket_, request.payload,
+            [this](const auto& error, const size_t num_bytes_sent)
+            { on_message_sent(error, num_bytes_sent); });
+        http::async_read(socket_, response_buffer_, response_,
+            [this](const auto& error, const size_t num_bytes_received)
+            { on_scrape_response(error, num_bytes_received); });
+    }
+    start_timeout();
 }
 
-inline void http_tracker::on_announce_sent(
-    const std::error_code& error, const size_t num_bytes_sent)
+inline void http_tracker::start_timeout()
 {
-    if((error != http::error::end_of_stream) && error)
+    start_timer(timeout_timer_,
+        current_request().num_retries == 0 ? seconds(15) : settings_.tracker_timeout,
+        [this](const auto& error) { on_timeout(error); });
+}
+
+inline void http_tracker::on_timeout(const std::error_code& error)
+{
+    // If the timed out request was removed this is a false alarm.
+    if(requests_.empty()) { return; }
+
+    request& request = current_request();
+    if(is_aborted_ || (error == asio::error::operation_aborted))
     {
-        on_request_error(error);
         return;
     }
+    else if(error)
+    {
+        request.on_error(error);
+        return;
+    }
+
+    if(++request.num_retries < settings_.max_http_tracker_timeout_retries)
+    {
+        log(log_event::timeout, "retrying %s request",
+            dynamic_cast<const announce_request*>(&request) ? "announce" : "scrape");
+    }
+    else
+    {
+        request.on_error(make_error_code(tracker_errc::timed_out));
+        log(log_event::timeout, "%s request timed out after %i seconds of retrying",
+            dynamic_cast<const announce_request*>(&request) ? "announce" : "scrape",
+            15 + request.num_retries * settings_.max_http_tracker_timeout_retries);
+        requests_.pop_front();
+    }
+    // Try to execute either this request again or another one.
+    execute_one_request();
 }
 
-inline void http_tracker::on_scrape_sent(
+inline void http_tracker::on_message_sent(
     const std::error_code& error, const size_t num_bytes_sent)
 {
     if((error != http::error::end_of_stream) && error)
@@ -228,6 +258,8 @@ inline void http_tracker::on_announce_response(
     const std::error_code& error, const size_t num_bytes_received)
 {
     std::error_code ec;
+    timeout_timer_.cancel(ec);
+    ec.clear();
     // We reached EoS, i.e. the connection died, so we must close the socket.
     if(error == http::error::end_of_stream)
     {
@@ -237,7 +269,9 @@ inline void http_tracker::on_announce_response(
         ec.clear();
         if(response_.body().empty())
         {
-            // TODO this means that there was an error with our request.
+            // Response is empty which means that there was an error with our request.
+            on_request_error(make_error_code(tracker_errc::invalid_response));
+            return;
         }
     }
     else if(error)
@@ -246,6 +280,7 @@ inline void http_tracker::on_announce_response(
         return;
     }
 
+    assert(!requests_.empty());
     assert(dynamic_cast<announce_request*>(&current_request()));
     auto& request = static_cast<announce_request&>(current_request());
 
@@ -342,12 +377,16 @@ tracker_response http_tracker::parse_announce_response(std::error_code& error)
 inline void http_tracker::on_scrape_response(
     const std::error_code& error, const size_t num_bytes_received)
 {
+    std::error_code ec;
+    timeout_timer_.cancel(ec);
+    ec.clear();
     if(error)
     {
         on_request_error(error);
         return;
     }
 
+    assert(!requests_.empty());
     assert(dynamic_cast<scrape_request*>(&current_request()));
     auto& request = static_cast<scrape_request&>(current_request());
 
@@ -391,6 +430,7 @@ std::string http_tracker::create_target_string(const std::vector<sha1_hash>& r) 
 
 inline http_tracker::request& http_tracker::current_request() noexcept
 {
+    // FIXME this fired
     assert(!requests_.empty());
     return *requests_.front();
 }
@@ -975,13 +1015,12 @@ inline void udp_tracker::on_global_error(const std::error_code& error)
 
 inline void udp_tracker::start_timeout(request& request)
 {
-    request.timeout_timer.expires_from_now(
-        seconds(15 * static_cast<size_t>(std::pow(2, request.num_retries))));
-    request.timeout_timer.async_wait([this, &request](const std::error_code& error)
-        { handle_timeout(error, request); });
+    start_timer(request.timeout_timer,
+        seconds(15 * static_cast<size_t>(std::pow(2, request.num_retries))),
+        [this, &request](const auto& error) { on_timeout(error, request); });
 }
 
-inline void udp_tracker::handle_timeout(const std::error_code& error, request& request)
+inline void udp_tracker::on_timeout(const std::error_code& error, request& request)
 {
     if(is_aborted_ || (error == asio::error::operation_aborted))
     {

@@ -54,7 +54,7 @@ private:
 
     void update_impl(const int n) const noexcept
     {
-        const TimeUnit elapsed = duration_cast<TimeUnit>(
+        const auto elapsed = duration_cast<TimeUnit>(
             cached_clock::now() - last_update_time_);
         if((elapsed >= TimeUnit(Interval)) && (elapsed < TimeUnit(2 * Interval)))
         {
@@ -64,8 +64,8 @@ private:
         }
         else if(elapsed >= TimeUnit(2 * Interval))
         {
-            // since more than 2 rounds have passed, meaning there was nothing added to
-            // counter, the previous value is 0
+            // Since more than 2 rounds have passed, meaning there was nothing added to
+            // counter, the previous value is 0.
             prev_round_value_ = 0;
             value_ = n;
             last_update_time_ += elapsed;

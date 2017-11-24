@@ -182,7 +182,7 @@ private:
 
         explicit slru(int capacity) : slru(0.8f * capacity, capacity - 0.8f * capacity)
         {
-            // correct truncation error
+            // Correct truncation error.
             if(this->capacity() < capacity)
             {
                 eden_.set_capacity(eden_.capacity() + 1);

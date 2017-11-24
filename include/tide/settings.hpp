@@ -1,5 +1,5 @@
-#ifndef TIDE_GLOBAL_SETTINGS_HEADER
-#define TIDE_GLOBAL_SETTINGS_HEADER
+#ifndef TIDE_SETTINGS_HEADER
+#define TIDE_SETTINGS_HEADER
 
 #include "extensions.hpp"
 #include "types.hpp"
@@ -22,16 +22,17 @@ struct disk_io_settings
     // is the number of cores or some number derived from it.
     int concurrency = values::none;
 
-    // This is the upper bound on the number of blocks (16KiB each) that disk_io will
+    // This is the upper bound on the number of blocks (16KiB each) that `disk_io` will
     // keep in memory until it can be saved. This is for the contingency in which blocks
     // cannot be saved to disk due to some error, in which case they'll remain in memory.
     // But to not let this spiral out of control, this upper bound is enforced, after
     // which blocks are dropped (necessitating a re-download). The default is 156MiB.
+    // If it's 0, no blocks are buffered, however, this is really NOT recommended.
     int max_buffered_blocks = values::none;
 
-    // The upper bound of the piece cache in number of 16KiB blocks. A value of -1 means
-    // that this is automatically set by tide based on the available memory in client's
-    // system.
+    // The upper bound of the piece cache in number of 16KiB blocks. Setting it to
+    // `value::none` means that this is automatically determined by tide based on the 
+    // available memory in client's system. Setting it to 0 effectively disables caching.
     int read_cache_capacity = values::none;
 
     // This determines how many blocks should be read ahead, including the originally
@@ -47,6 +48,7 @@ struct disk_io_settings
     // exceed this value. To avoid memory inflation and other performance penalties,
     // the implementation will choose a suitable upper bound (usually betweeen this
     // value and `receive_buffer_size`) after which blocks are flushed to disk.
+    // If this or `max_buffered_blocks` are set to 0, buffering is disabled.
     //
     // NOTE: this value times 16KiB must never exceed `peer_session_settings::
     // receive_buffer_size`, as the blocks being written to disk are counted as part of
@@ -113,13 +115,16 @@ struct torrent_settings
     int max_upload_rate = values::none;
 };
 
+#define TIDE_EARLY_ALPHA_CLIENT_ID \
+    {'t','i','d','e','-','e','a','r','l','y','-','a','l','p','h','a'}
+
 /** These are settings for every peer connection. */
 struct peer_session_settings
 {
     // The client's name and version should come here. This will be used when contacting
     // trackers and when interacting with peers that support the extension.
     // It is 20 bytes long.
-    peer_id_t client_id/* = {'t','i','d','e','-','e','a','r','l','y','-','a','l','p','h','a'}*/;
+    peer_id_t client_id = TIDE_EARLY_ALPHA_CLIENT_ID;
 
     // The extensions this client wishes to support. See tide/flag_set.hpp to see how
     // to set flags.
@@ -127,12 +132,12 @@ struct peer_session_settings
 
     // The number of seconds we should wait for a peer (regardless of the last sent
     // message type) before concluding it to have timed out and closing the connection.
-    seconds peer_timeout{60};
+    seconds peer_timeout{minutes{2}};
 
     // This is the number of seconds we wait for establishing a connection with a peer.
     // This should be lower than peer_timeout_sec, because until this peer is not
     // connected it takes up space from other potential candidates.
-    seconds peer_connect_timeout{60};
+    seconds peer_connect_timeout{20};
 
     // The number of outstanding block requests peer is allowed to have at any given
     // time. If peer exceeds this number, all subsequent requests are rejected until the
@@ -140,8 +145,8 @@ struct peer_session_settings
     int max_incoming_request_queue_size = 200;
 
     // This is the number of outstanding block requests to peer we are allowed to have.
-    int max_outgoing_request_queue_size = 50;
     int min_outgoing_request_queue_size = 4;
+    int max_outgoing_request_queue_size = 50;
 
     // The number of attempts we are allowed to make when connecting to a peer.
     int max_connection_attempts = 5;
@@ -149,11 +154,12 @@ struct peer_session_settings
     // Upper bounds for the send and receive buffers, specified in bytes. It should be
     // set to a large value if memory can be spared for better performance (at least 3
     // blocks (3 * 16KiB)), though note that the receive buffer cannot be less than the
-    // block size (16KiB) as we wouldn't be able to receive blocks then. A value of -1
-    // means that these are auto managed.
+    // block size (16KiB) as we wouldn't be able to receive blocks then. A value of
+    // `none` means that these are determined by the implementation.
     //
-    // NOTE: `max_receive_buffer_size`  must always be larger than `write_cache_line_size`
-    // * 16KiB, see `write_cache_line_size` comment.
+    // NOTE: `max_receive_buffer_size`  must always be larger than `disk_io_settings::
+    // write_cache_line_size` * 16KiB, see `disk_io_settings::write_cache_line_size`
+    // comment.
     int max_receive_buffer_size = values::none;
     int max_send_buffer_size = values::none;
 
@@ -190,12 +196,6 @@ struct settings
     // put them first in the torrent priority queue.
     bool enqueue_new_torrents_at_top = true;
 
-    // Torrents that are below a certain threshold in their total transfer rate (upload
-    // and download rates combined) are not counted as "active" and thus are not
-    // considered when enforcing the maximum number of active torrents. This allows
-    // faster torrents to be active.
-    bool count_slow_torrents = false;
-
     // If this option is enabled, the piece picker that tracks piece availability in a
     // torrent swarm and decides which pieces to download next is released once a torrent
     // beocmes a seeder. It has a drawback, though it may be considered an edge case: 
@@ -221,9 +221,23 @@ struct settings
     // If a response is not received after 15 * 2 ^ n seconds, we retransmit the request,
     // where n starts at 0 and is increased up to this value, after every retransmission. 
     int max_udp_tracker_timeout_retries = 4;
+    int max_http_tracker_timeout_retries = 4;
 
-    // These are the values (in bytes/s) that are used to determine slow torrents if the
-    // `count_slow_torrents` setting is turned off.
+    // The minimum number of peers we should always have (connected and unconnected).
+    // It may be 0 or `values::none`, in which case tide will choose a suitable default
+    // value.
+    // TODO is this needed?
+    int min_num_peers = values::none;
+
+    // Torrents that are below a certain threshold in their total transfer rate are not
+    // counted as "active" and thus are not considered when enforcing the maximum number
+    // of active torrents. This allows faster torrents to be active, even when they're
+    // not at the front of the queue.
+    //
+    // If a torrent is below these values (in bytes/s) it is considered a slow torrent
+    // (upload or download) and is not counted when enforcing the max active limit. If
+    // a field is set to 0 slow torrents are also counted. If it's `values::none`, this
+    // value is determined by tide.
     int slow_torrent_download_rate_threshold = values::none;
     int slow_torrent_upload_rate_threshold = values::none;
 
@@ -249,7 +263,7 @@ struct settings
     // time spent seeding / time spent downloading;
     int share_time_ratio_limit = values::unlimited;
     // number of seconds spent seeding.
-    seconds seed_time_limit;
+    seconds seed_time_limit{0};
 
     // The number of seconds following the second attempt (the first attempt is always
     // given 15 seconds to complete) of a tracker announce or scrape after which the
@@ -259,7 +273,6 @@ struct settings
     // This is the granularity at which statistics of a torrent are sent to the user.
     // Note that user may manually request statistics of a certain torrent or even
     // peer_session at arbitrary intervals.
-    // TODO should we support millisecond granularity?
     seconds stats_aggregation_interval{1};
 
     disk_io_settings disk_io;
@@ -276,4 +289,4 @@ struct settings
 
 } // namespace tide
 
-#endif // TIDE_GLOBAL_SETTINGS_HEADER
+#endif // TIDE_SETTINGS_HEADER
