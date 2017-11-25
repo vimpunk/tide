@@ -14,6 +14,47 @@
 
 namespace tide {
 
+std::vector<tcp::endpoint> parse_peers(string_view peers_string)
+{
+    assert(peers_string.length() % 6 == 0);
+    const int num_peers = peers_string.length() / 6;
+    std::vector<tcp::endpoint> peers;
+    peers.reserve(num_peers);
+    for(auto i = 0, offset = 0; i < num_peers; ++i, offset += 6)
+    {
+        // Endpoints are encoded as a 32 bit integer for the IP address and a
+        // 16 bit integer for the port.
+        address_v4 ip(endian::parse<uint32_t>(&peers_string[offset]));
+        const uint16_t port = endian::parse<uint16_t>(&peers_string[offset] + 4);
+        peers.emplace_back(std::move(ip), port);
+    }
+    return peers;
+}
+
+std::vector<peer_entry> parse_peers(const blist& peers_list)
+{
+    std::vector<peer_entry> peers;
+    peers.reserve(peers_list.size());
+    for(bmap peer : peers_list.all_bmaps())
+    {
+        string_view peer_id;
+        string_view ip;
+        int64_t port;
+        peer.try_find_string_view("peer_id", peer_id);
+        if(!peer.try_find_string_view("ip", ip)) continue;
+        if(!peer.try_find_number("port", port)) continue;
+        std::error_code ec;
+        // TODO check for correctness, ip.data is not 0 terminated
+        peer_entry entry;
+        entry.endpoint = tcp::endpoint(
+            address_v4::from_string(ip.data(), ec), port);
+        if(ec) continue;
+        std::copy(peer_id.begin(), peer_id.end(), entry.id.begin());
+        peers.emplace_back(std::move(entry));
+    }
+    return peers;
+}
+
 // -------------
 // tracker error
 // -------------
@@ -288,46 +329,6 @@ inline void http_tracker::on_announce_response(
     requests_.pop_front();
 
     if(!requests_.empty()) { execute_one_request(); }
-}
-
-inline std::vector<tcp::endpoint> parse_peers(string_view peers_string)
-{
-    const int num_peers = peers_string.length() / 6;
-    std::vector<tcp::endpoint> peers;
-    peers.reserve(num_peers);
-    for(auto i = 0, offset = 0; i < num_peers; ++i, offset += 6)
-    {
-        // Endpoints are encoded as a 32 bit integer for the IP address and a
-        // 16 bit integer for the port.
-        address_v4 ip(endian::parse<uint32_t>(&peers_string[offset]));
-        const uint16_t port = endian::parse<uint16_t>(&peers_string[offset] + 4);
-        peers.emplace_back(std::move(ip), port);
-    }
-    return peers;
-}
-
-inline std::vector<peer_entry> parse_peers(const blist& peers_list)
-{
-    std::vector<peer_entry> peers;
-    peers.reserve(peers_list.size());
-    for(bmap peer : peers_list.all_bmaps())
-    {
-        string_view peer_id;
-        string_view ip;
-        int64_t port;
-        peer.try_find_string_view("peer_id", peer_id);
-        if(!peer.try_find_string_view("ip", ip)) continue;
-        if(!peer.try_find_number("port", port)) continue;
-        std::error_code ec;
-        // TODO check for correctness, ip.data is not 0 terminated
-        peer_entry entry;
-        entry.endpoint = tcp::endpoint(
-            address_v4::from_string(ip.data(), ec), port);
-        if(ec) continue;
-        std::copy(peer_id.begin(), peer_id.end(), entry.id.begin());
-        peers.emplace_back(std::move(entry));
-    }
-    return peers;
 }
 
 tracker_response http_tracker::parse_announce_response(std::error_code& error)

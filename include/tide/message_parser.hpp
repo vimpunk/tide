@@ -11,7 +11,7 @@ namespace tide {
 struct message
 {
     // A keep alive message has no identifier (it's just 4 zero bytes), this is used
-    // only by message_parser::type to tell caller that a message's type is keep_alive.
+    // only by `message_parser::type` to tell caller that a message is a `keep_alive`.
     static constexpr int keep_alive = -1;
 
     /**
@@ -104,10 +104,18 @@ public:
     int buffer_size() const noexcept;
 
     /**
-     * Ensures that we have space to receive n bytes. Does nothing if we do, resizes
-     * the receive buffer if we don't.
+     * Resizes `message_parser`'s internal receive buffer to accomodate `n` bytes. Note
+     * this function merely reserves the physical space, but does not concern itself
+     * whether there is actually `n` free bytes in the receive buffer after the
+     * allocation. For this functionality, use `reserve_free_space`.
      */
     void reserve(const int n);
+
+    /**
+     * Ensures that there is free space to receive `n` bytes. Does nothing if the free
+     * space is already large enough to accomodate `n` bytes.
+     */
+    void reserve_free_space(const int n);
 
     /**
      * If n is below unused_begin_, it will only shrink to unused_begin_, to preserve

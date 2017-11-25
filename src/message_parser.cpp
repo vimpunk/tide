@@ -17,10 +17,15 @@ void message_parser::reserve(const int n)
     buffer_.resize(n);
 }
 
+void message_parser::reserve_free_space(const int n)
+{
+    reserve(buffer_size() + n - free_space_size());
+}
+
 void message_parser::shrink_to_fit(const int n)
 {
     if(n >= buffer_size()) { return; }
-    // make sure not to delete unparsed messages
+    // Make sure not to delete unparsed messages.
     buffer_.resize(std::max(n, size()));
 }
 
@@ -98,16 +103,11 @@ message message_parser::extract_message()
 
 message message_parser::view_message() const
 {
-    if(!has(4))
-    {
-        throw std::logic_error("peek (4): message_parser has no messages");
-    }
-    // don't use has_message() because the message length would be calculated twice then
+    if(!has(4)) { throw std::logic_error("message_parser has no messages"); }
+
+    // Don't use `has_message` because the message length would be calculated twice then.
     const int msg_length = view_message_length();
-    if(!has(4 + msg_length))
-    {
-        throw std::logic_error("peek (4 + msg_len): message_parser has no messages");
-    }
+    if(!has(4 + msg_length)) { throw std::logic_error("message_parser has no messages"); }
 
     message msg;
     if(msg_length == 0)
@@ -119,44 +119,32 @@ message message_parser::view_message() const
         const int msg_id_pos = message_begin_ + 4;
         msg.type = buffer_[msg_id_pos];
         msg.data = const_view<uint8_t>(&buffer_[msg_id_pos + 1], msg_length - 1);
-        // subtract message type
+        // Subtract message type.
     }
     return msg;
 }
 
 int message_parser::type() const
 {
-    if(!has(4))
-    {
-        throw std::logic_error("type (4): message_parser has no messages");
-    }
+    if(!has(4)) { throw std::logic_error("message_parser has no messages"); }
     if(view_message_length() == 0)
     {
-        // it's a keep alive message
+        // It's a keep alive message.
         return message::keep_alive;
     }
-    if(!has(5))
-    {
-        throw std::logic_error("type (5): message_parser has no messages");
-    }
+    if(!has(5)) { throw std::logic_error("message_parser has no messages"); }
     return buffer_[message_begin_ + 4];
 }
 
 const_view<uint8_t> message_parser::view_raw_bytes() const noexcept
 {
     assert(unused_begin_ >= message_begin_);
-    return {
-        buffer_.data() + message_begin_,
-        size_t(unused_begin_ - message_begin_)
-    };
+    return {buffer_.data() + message_begin_, size_t(unused_begin_ - message_begin_)};
 }
 
 int message_parser::num_bytes_left_till_completion() const noexcept
 {
-    if(!has(4))
-    {
-        return -1;
-    }
+    if(!has(4)) { return -1; }
     const int num_available = unused_begin_ - message_begin_;
     const int total_msg_length = 4 + view_message_length();
     const int left = total_msg_length - num_available;
@@ -165,15 +153,9 @@ int message_parser::num_bytes_left_till_completion() const noexcept
 
 void message_parser::skip_message()
 {
-    if(!has(4))
-    {
-        throw std::logic_error("skip (4): message_parser has no messages");
-    }
+    if(!has(4)) { throw std::logic_error("no message to skip"); }
     const int msg_length = view_message_length();
-    if(!has(4 + msg_length))
-    {
-        throw std::logic_error("skip (4 + msg_length): message_parser has no messages");
-    }
+    if(!has(4 + msg_length)) { throw std::logic_error("no message to skip"); }
     message_begin_ += 4 + msg_length;
 }
 
@@ -192,7 +174,7 @@ void message_parser::optimize_receive_space()
 {
     if(message_begin_ >= unused_begin_)
     {
-        // message pointer wrapped around, reset it to the beginning of the buffer
+        // Message pointer wrapped around, reset it to the beginning of the buffer.
         message_begin_ = 0;
         unused_begin_ = 0;
         return;
@@ -200,20 +182,20 @@ void message_parser::optimize_receive_space()
 
     if(has(4))
     {
-        // check if this is the last message
+        // Check if this is the last message.
         const int total_length = 4 + view_message_length();
         if(has(total_length) && (total_length < unused_begin_ - message_begin_))
         {
-            // we only want to shift the message to the front if it's the last one
+            // We only want to shift the message to the front if it's the last one
             // (message is not the last if all its bytes are available and there's a
-            // gap between its end and the first unused byte)
+            // gap between its end and the first unused byte).
             return;
         }
         if(total_length > buffer_size())
         {
-            // it could very well be that the current (incomplete) message may not even
+            // It could very well be that the current (incomplete) message may not even
             // fit in the buffer, so in anticipation of completing this message, ensure
-            // that it completely fits in the buffer
+            // that it completely fits in the buffer.
             // TODO decide if we want to do this here or whether this should be done
             // by user manually
             buffer_.resize(total_length);
@@ -224,8 +206,8 @@ void message_parser::optimize_receive_space()
 
 inline void message_parser::shift_last_message_to_front()
 {
-    // the number of bytes we have of the message (not necessarily the length of the
-    // complete message)
+    // The number of bytes we have of the message (not necessarily the length of the
+    // complete message).
     const auto begin = buffer_.begin();
     assert(begin + message_begin_ != begin + unused_begin_);
     std::copy(begin + message_begin_, begin + unused_begin_, begin);

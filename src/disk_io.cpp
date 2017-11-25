@@ -16,6 +16,7 @@ namespace tide {
 
 constexpr int block_index(const int offset) noexcept
 {
+    // FIXME this fired...
     assert(offset % 0x4000 == 0);
     return offset / 0x4000;
 }

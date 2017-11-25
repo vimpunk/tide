@@ -95,10 +95,10 @@ private:
         receive,
         disk_read,
         disk_write,
-        // To keep up with the transport layer's slow start algorithm (which unlike
-        // its name increases window size quite quickly), a `peer_session` starts out
-        // in slow start as well, wherein info_.best_request_queue_size is increased
-        // by every time one of our requests got served.
+        // To keep up with the transport layer's slow start algorithm (which unlike its
+        // name, rapidly increases window size), a `peer_session` starts out in slow
+        // start as well, wherein `info_.best_request_queue_size` is increased by every
+        // time one of our requests got served.
         slow_start,
         max
     };
@@ -605,15 +605,21 @@ private:
 
     /**
      * Receives quota if we don't have enough and extends receive buffer if it's too
-     * small to accommodate the expected number of bytes to-be-received.
+     * small to accommodate the expected number of bytes to be received.
      */
     void prepare_to_receive();
+
+    /** Returns the number of bytes we're expecting to receive. */
+    int num_expected_bytes_to_receive() const noexcept;
 
     /**
      * Returns the number of bytes we can receive. The receive buffer may have to be
      * resized to accomodate this amount.
      */
-    int receive_buffer_capacity() const;
+    int effective_receive_buffer_capacity() const;
+
+    /** Attempts to reserve download quota but if it fails, subscribes for more. */
+    void request_receive_quota(const int num_bytes);
 
     /**
      * Accounts for the bytes read, subtracts num_bytes_received from the send quota,
@@ -650,7 +656,11 @@ private:
      * is flushed to socket in one.
      */
     void handle_messages();
+
+    /** Combines logic to handle the handshake stage. */
     void handshake_stage();
+
+    /** Combines logic to handle the piece availability exchange stage. */
     void piece_availability_exchange_stage();
 
     // -- standard BitTorrent messages --

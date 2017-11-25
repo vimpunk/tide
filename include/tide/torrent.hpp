@@ -62,10 +62,9 @@ class torrent : public std::enable_shared_from_this<torrent>
     // passed to each `peer_session` through a `torrent_frontend` instance.
     disk_io& disk_io_;
 
-    // `global_rate_limiter_` is `engine` wide and only one exists. Nor `torrent` and
-    // neither its `peer_session`s refer to it directly. Instead, `local_rate_limiter_`
-    // acts as a frontend to `global_rate_limiter_` and applies torrent specific rate
-    // limit settings.
+    // `global_rate_limiter_` is `engine` wide and neither `torrent` nor its
+    // `peer_session`s refer to it directly. Instead, `local_rate_limiter_` acts as a
+    // frontend to `global_rate_limiter_` and applies torrent specific rate limits.
     rate_limiter& global_rate_limiter_;
     torrent_rate_limiter local_rate_limiter_;
 

@@ -86,7 +86,7 @@ peer_session::peer_session(
     assert(settings_.max_receive_buffer_size >= 0x4000);
     assert(settings_.max_send_buffer_size >= 0x4000);
     assert(settings_.peer_connect_timeout > seconds(0));
-    assert(settings_.peer_timeout > seconds(0));
+    assert(settings_.peer_timeout > minutes(2));
 
     info_.remote_endpoint = std::move(peer_endpoint);
     info_.max_outgoing_request_queue_size = settings.max_outgoing_request_queue_size;
@@ -313,14 +313,20 @@ void peer_session::disconnect(const std::error_code& error)
         //torrent_.info().num_outstanding_bytes -= info_.num_outstanding_bytes;
         // Finally, we need to tell our associated torrent that we're done, so it can
         // clean up after this session.
+        info_.state = state::disconnected;
+        // TODO maybe pass a shared_ptr in case torrent decides to remove peer and thus
+        // invalidate this reference?
         torrent_.on_peer_session_stopped(*this);
+    }
+    else
+    {
+        info_.state = state::disconnected;
     }
 
     ////TODO
     //send_buffer_.clear();
     //message_parser_.clear();
 
-    info_.state = state::disconnected;
     log(log_event::disconnecting, "disconnected peer, stopped session");
     // TODO tell disk_io to stop serving peer's outstanding requests.
 }
@@ -618,7 +624,13 @@ void peer_session::receive()
     prepare_to_receive();
     const int num_to_receive = std::min(info_.receive_quota,
         message_parser_.free_space_size());
-    if(num_to_receive == 0) { return; }
+    if(num_to_receive == 0)// { return; }
+    {
+        log(log_event::incoming, log::priority::high,
+            "num_to_receive is 0! receive_quota: %i, message_parser_.free_space_size: %i",
+            info_.receive_quota, message_parser_.free_space_size());
+        return;
+    }
 
     view<uint8_t> buffer = message_parser_.get_receive_buffer(num_to_receive);
     socket_->async_read_some(asio::mutable_buffers_1(buffer.data(), buffer.size()),
@@ -638,58 +650,41 @@ void peer_session::receive()
 
 void peer_session::prepare_to_receive()
 {
-    const int buffer_capacity = receive_buffer_capacity();
+    // Don't exceed buffer cap.
+    const int num_to_receive = std::min(num_expected_bytes_to_receive(),
+        effective_receive_buffer_capacity());
+    // If we don't have enough quota to receive all expected message bytes, try to
+    // request more.
+    const int quota_needed = num_to_receive - info_.receive_quota;
+    if(quota_needed > 0) { request_receive_quota(quota_needed); }
+    if(info_.receive_quota == 0) { return; }
+    // Only reserve as much as we have quota for.
+    message_parser_.reserve_free_space(std::min(num_to_receive, info_.receive_quota));
+}
+
+inline int peer_session::num_expected_bytes_to_receive() const noexcept
+{
     if(am_expecting_block())
     {
-        // We're expecting block data, make sure we can accomodate it.
-        assert(info_.receive_quota >= 0);
-        const int quota_needed =
-            std::min(info_.num_outstanding_bytes, buffer_capacity)
-            - info_.receive_quota;
-        // If we don't have enough quota to receive all expected message bytes, try to
-        // request more.
-        if(quota_needed > 0)
-        {
-            const int quota = rate_limiter_.request_download_quota(quota_needed);
-            info_.receive_quota += quota;
-            log(log_event::incoming, log::priority::low,
-                "receive quota:: requested: %i, received: %i, total: %i",
-                quota_needed, quota, info_.receive_quota);
-        }
-        // If we haven't been able to reserve quota, subscribe for more.
-        if(info_.receive_quota == 0)
-        {
-            log(log_event::incoming, log::priority::low,
-                "CAN'T RECEIVE, no receive quota, subscribing for more");
-            rate_limiter_.subscribe_for_download_quota(
-                this, quota_needed, [this](const int quota)
-                {
-                    assert(quota > 0);
-                    info_.receive_quota += quota;
-                    if(!is_stopped()) { receive(); }
-                });
-            return;
-        }
-        // If we don't have enough space in our buffer to receive all expected message
-        // bytes, reserve more buffer space.
-        const int space_needed = info_.receive_quota - message_parser_.free_space_size();
-        if(space_needed > 0)
-        {
-            message_parser_.reserve(message_parser_.size() + space_needed);
-        }
+        // We're expecting block data, so we'll need space for at least the number of
+        // expected bytes.
+        return info_.num_outstanding_bytes;
     }
     else if(message_parser_.is_full())
     {
-        // If we don't expect piece payloads (in which case receive operations are
-        // constrained by how fast we can write to disk, and resumed once disk writes
-        // finished, in on_block_saved), we should always have enough space for protocol
-        // chatter (non payload messages), otherwise the async receive cycle would stop,
-        // i.e. there'd be no one reregistering the async receive calls.
-        message_parser_.reserve(message_parser_.size() + 128);
+        // If we don't expect piece payloads, we should always have enough space for
+        // protocol chatter, otherwise the async receive cycle would stop, i.e. there'd
+        // be no one reregistering the async receive calls.
+        if(is_handshaking())
+            // This is probably our first allocation, so we'll need to be able to fit
+            // peer's handshake and bitfield. TODO find better values for both cases!
+            return 1024;
+        else
+            return message_parser_.size() + 128;
     }
 }
 
-inline int peer_session::receive_buffer_capacity() const
+inline int peer_session::effective_receive_buffer_capacity() const
 {
     // The maximum number of bytes receive buffer is able to accommodate (with resizing).
     // Pending bytes written to disk are also counted as part of the receive buffer
@@ -707,6 +702,32 @@ inline int peer_session::receive_buffer_capacity() const
             "session disk bound, receive buffer capacity reached, using reserves");
     }
     return buffer_capacity;
+}
+
+inline void peer_session::request_receive_quota(const int num_bytes)
+{
+    assert(num_bytes > 0);
+    const int quota = rate_limiter_.request_download_quota(num_bytes);
+    assert(quota >= 0);
+    info_.receive_quota += quota;
+    log(log_event::incoming, log::priority::high,
+        "receive quota:: requested: %i, received: %i, total: %i",
+        num_bytes, quota, info_.receive_quota);
+    // If we haven't been able to reserve quota, subscribe for more.
+    if(info_.receive_quota == 0)
+    {
+        log(log_event::incoming, log::priority::high,
+            "CAN'T RECEIVE, no receive quota, subscribing for more");
+        // We can pass regular `this` instead of `SHARED_THIS` as subscription handlers
+        // are removed once we disconnect.
+        rate_limiter_.subscribe_for_download_quota(
+            this, num_bytes, [this](const int quota)
+            {
+                assert(quota > 0);
+                info_.receive_quota += quota;
+                if(!is_stopped()) { receive(); }
+            });
+    }
 }
 
 inline void peer_session::try_finish_disconnecting()
@@ -745,6 +766,7 @@ void peer_session::on_received(const std::error_code& error, size_t num_bytes_re
     send_cork _cork(*this);
     const bool was_choked = am_choked();
     // If we completely filled up receive buffer it may mean socket has more data.
+    // TODO maybe turn this into a loop so that we need only call handle_messages once
     if(message_parser_.is_full())
     {
         // Handle whatever messages we already have before flushing the rest of socket's
@@ -759,10 +781,10 @@ void peer_session::on_received(const std::error_code& error, size_t num_bytes_re
         "received: %i; receive buffer size: %i; quota: %i; total received: %lli",
         num_bytes_received, message_parser_.buffer_size(), info_.receive_quota,
         info_.total_downloaded_bytes);
-    // flush_socket() may have spurred a disconnect.
+    // flush_socket may have spurred a disconnect.
     if(is_disconnected()) { return; }
     handle_messages();
-    // handle_messages() may have spurred a disconnect
+    // handle_messages may have spurred a disconnect
     if(is_disconnected()) { return; }
 
     adjust_receive_buffer(was_choked, num_bytes_received);
@@ -771,7 +793,6 @@ void peer_session::on_received(const std::error_code& error, size_t num_bytes_re
 
 inline int peer_session::flush_socket()
 {
-    assert(message_parser_.is_full());
     // We may not have read all of the available bytes buffered in socket:
     // try sync read remaining bytes.
     std::error_code ec;
@@ -860,8 +881,8 @@ inline void peer_session::handle_messages()
     if(info_.state == state::handshaking)
     {
         handshake_stage();
-        // We don't have the full handshake yet, so receive more bytes and
-        // come back later to try again.
+        // We're still in the handshake stage, meaning don't have the full handshake
+        // yet, so receive more bytes and come back later to try again.
         if(is_disconnected() || (info_.state == state::handshaking)) { return; }
     }
     if(info_.state == state::piece_availability_exchange
@@ -992,12 +1013,14 @@ void peer_session::handle_handshake()
     }
     else
     {
+        // Otherwise peer started the connection, so try to locate the torrent to which
+        // this peer belongs with the `torrent_attacher_` callback.
         torrent_frontend torrent = torrent_attacher_(peer_info_hash);
         torrent_attacher_ = decltype(torrent_attacher_)(); // no longer need it
         if(!torrent)
         {
-            // This means we couldn't find a torrent to which we could be attached,
-            // likely due to peer's bad info_hash.
+            // This means we couldn't find a torrent to which we could be attached
+            // due to peer's invalid info_hash.
             disconnect(peer_session_errc::invalid_info_hash);
             return;
         }
@@ -1019,6 +1042,10 @@ void peer_session::handle_handshake()
         info_.max_outgoing_request_queue_size = 50;
     }
 
+    // Only keep connection alive if connection was properly set up to begin with.
+    start_timer(keep_alive_timer_, minutes(2),
+        [SHARED_THIS](const std::error_code& error) { on_keep_alive_timeout(error); });
+
 #ifdef TIDE_ENABLE_LOGGING
     const auto extensions_str = extensions::to_string(info_.extensions);
     if(info_.client.empty())
@@ -1035,10 +1062,6 @@ void peer_session::handle_handshake()
             info_.client.c_str());
     }
 #endif // TIDE_ENABLE_LOGGING
-
-    // Only keep connection alive if connection was properly set up to begin with.
-    start_timer(keep_alive_timer_, minutes(2),
-        [SHARED_THIS](const std::error_code& error) { on_keep_alive_timeout(error); });
 }
 
 // ----------------------------------

@@ -230,8 +230,10 @@ void engine::verify(const peer_session_settings& s, const int write_cache_line_s
     throw_if_below(s.max_send_buffer_size, 0x4000,
         "peer_session_settings::max_send_buffer_size must be at least 16KiB"
         " (0x4000 bytes)");
+    // TODO check the minimum value for this
     throw_if_below(s.allowed_fast_set_size, 1,
         "peer_session_settings::allowed_fast_set_size must be at least 1");
+    // TODO verify duration settings
 }
 
 void engine::fill_in_defaults(settings& s)
@@ -543,7 +545,7 @@ void engine::update(const std::error_code& error)
 {
     if(error)
     {
-        // TODO not much we can do about these sorts of errors, can we?
+        // TODO not much we can do about these sorts of errors, can we? log, continue
     }
 
     // Only run the main update procedure every second, while update is invoked every

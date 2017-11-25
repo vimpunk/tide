@@ -78,11 +78,22 @@ int rate_limiter::request_quota(const int channel, const int num_desired_bytes)
 void rate_limiter::subscribe_for_quota(const int channel, const token_type token,
     const int num_desired_bytes, std::function<void(int)> handler)
 {
-    quota_requester requester;
-    requester.token = token;
-    requester.num_desired_bytes = num_desired_bytes;
-    requester.handler = std::move(handler);
-    quota_requester_queues_[channel].emplace_back(std::move(requester));
+    auto& requester_queue = quota_requester_queues_[channel];
+    // TODO maybe switch to a map based structure for the requester queues
+    auto requester = std::find_if(requester_queue.begin(), requester_queue.end(),
+        [&token](const auto& r) { return r.token == token; });
+    if(requester == requester_queue.end())
+    {
+        quota_requester requester;
+        requester.token = token;
+        requester.num_desired_bytes = num_desired_bytes;
+        requester.handler = std::move(handler);
+        requester_queue.emplace_back(std::move(requester));
+    }
+    else
+    {
+        requester->num_desired_bytes = num_desired_bytes;
+    }
 }
 
 void rate_limiter::unsubscribe(const token_type token)

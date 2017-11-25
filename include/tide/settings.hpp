@@ -109,8 +109,9 @@ struct torrent_settings
 
     // Specified as the maximum number of bytes that should be transferred in a second.
     //
-    // NOTE: if any of these fields are set, they overwrite their counterpart in
-    // `settings`.
+    // NOTE: if any of these fields are set to other than `values::none`, they overwrite
+    // their counterpart in `settings`, meaning the global rate limits won't include
+    // this torrent. This can be useful when a torrent is to be urgently downloaded.
     int max_download_rate = values::none;
     int max_upload_rate = values::none;
 };
@@ -132,6 +133,8 @@ struct peer_session_settings
 
     // The number of seconds we should wait for a peer (regardless of the last sent
     // message type) before concluding it to have timed out and closing the connection.
+    // This value must be at least 2 minutes, for 2 minutes is BitTorrent's keep-alive
+    // timeout.
     seconds peer_timeout{minutes{2}};
 
     // This is the number of seconds we wait for establishing a connection with a peer.
