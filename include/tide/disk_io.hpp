@@ -358,8 +358,9 @@ public:
     int num_buffered_blocks();
     int num_buffered_blocks(const torrent_id_t id);
 
-    void set_cache_size(const int n);
+    void set_read_cache_capacity(const int n);
     void set_concurrency(const int n);
+    void set_resume_data_path(const path& path);
 
     void read_metainfo(const path& path,
         std::function<void(const std::error_code&, metainfo)> handler);

@@ -107,9 +107,9 @@ void file::erase(std::error_code& error)
     if(error) { return; }
     if(is_open())
     {
-        // we shouldn't delete the file out from under us, even if the file is kept
+        // We shouldn't delete the file out from under us, even if the file is kept
         // alive as long as a file descriptor is referring to it (we probably don't 
-        // want this but TODO)
+        // want this but TODO).
         error = std::make_error_code(std::errc::device_or_resource_busy);
         return;
     }
@@ -128,6 +128,11 @@ void file::move(const path& new_path, std::error_code& error)
     {
         absolute_path_ = new_path;
     }
+}
+
+file::size_type file::query_size(std::error_code& error) const noexcept
+{
+    return system::file_size(path(), error);
 }
 
 void file::open(std::error_code& error)

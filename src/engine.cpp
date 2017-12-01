@@ -490,6 +490,8 @@ inline void engine::apply_disk_io_settings_impl(disk_io_settings s)
 {
     assert(!s.resume_data_path.empty());
     disk_io_.set_concurrency(s.concurrency);
+    disk_io_.set_read_cache_capacity(s.read_cache_capacity);
+    disk_io_.set_resume_data_path(s.resume_data_path);
     settings_.disk_io = std::move(s);
 }
 

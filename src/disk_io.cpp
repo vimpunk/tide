@@ -2,12 +2,15 @@
 #include "torrent_info.hpp"
 #include "file_info.hpp"
 #include "settings.hpp"
+#include "metainfo.hpp"
 #include "bencode.hpp"
 #include "disk_io.hpp"
 
+#include <iterator>
+#include <fstream>
+#include <sstream>
 #include <cmath>
 #include <tuple>
-#include <iterator>
 
 // Functions that have this in their signature are executed on `disk_io`'s thread pool.
 #define TIDE_WORKER_THREAD
@@ -168,10 +171,6 @@ disk_io::~disk_io()
     // TODO make sure we don't destruct while there are jobs etc.
 }
 
-void disk_io::set_cache_size(const int n)
-{
-}
-
 void disk_io::set_concurrency(const int n)
 {
     const int old_concurrency = thread_pool_.concurrency();
@@ -182,13 +181,56 @@ void disk_io::set_concurrency(const int n)
     }
 }
 
+void disk_io::set_read_cache_capacity(const int n)
+{
+    const int old_cache_capacity = read_cache_.capacity();
+    if(n != old_cache_capacity)
+    {
+        read_cache_.set_capacity(n);
+        log(log_event::info, "changed read cache capacity from %i to %i",
+            old_cache_capacity, n);
+    }
+}
+
+void disk_io::set_resume_data_path(const path& path)
+{
+    if(path == settings_.resume_data_path) { return; }
+    std::error_code error;
+    for(auto& torrent : torrents_)
+    {
+        torrent->storage.move_resume_data(
+            path.string() + std::to_string(torrent->id), error);
+        if(error) { /*?*/ }
+    }
+}
+
 void disk_io::read_metainfo(const path& path,
     std::function<void(const std::error_code&, metainfo)> handler)
 {
     thread_pool_.post([this, path, handler = std::move(handler)]
     {
-        //network_ios_.post([handler = std::move(handler),
-            //metainfo = std::move(metainfo)] { handler(std::move(metainfo)); });
+        std::ifstream source(path);
+        std::error_code error;
+        if(!source)
+        {
+            error = system::last_error();
+            network_ios_.post([error, handler = std::move(handler)]
+                { handler(error, {}); });
+        }
+        std::stringstream ss;
+        ss << source.rdbuf();
+        metainfo metainfo;
+        try
+        {
+            bmap metainfo_map = decode_bmap(ss.str());
+            metainfo = parse_and_sanitize_metainfo(std::move(metainfo_map));
+        }
+        catch(const std::error_code& e)
+        {
+            error = e;
+        }
+        network_ios_.post([handler = std::move(handler), error,
+            metainfo = std::move(metainfo)] { handler(error, std::move(metainfo)); });
     });
 }
 
@@ -204,10 +246,14 @@ torrent_storage_handle disk_io::allocate_torrent(const torrent_info& info,
         // Insert new torrent before the first torrent that has a larger id than this
         // one.
         torrent_storage_handle handle;
+        const auto make_torrent = [this, &info, piece_hashes = std::move(piece_hashes)]
+        {
+            return std::make_unique<torrent_entry>(info, std::move(piece_hashes),
+                settings_.resume_data_path.string() + std::to_string(info.id));
+        };
         if(torrents_.empty() || (torrents_.back()->id < info.id))
         {
-            torrents_.emplace_back(std::make_unique<torrent_entry>(
-                info, std::move(piece_hashes), settings_.resume_data_path));
+            torrents_.emplace_back(make_torrent());
             handle = torrents_.back()->storage;
         }
         else
@@ -215,8 +261,7 @@ torrent_storage_handle disk_io::allocate_torrent(const torrent_info& info,
             auto it = torrents_.emplace(std::upper_bound(
                 torrents_.begin(), torrents_.end(), info.id,
                 [](const auto& id, const auto& torrent) { return id < torrent->id; }),
-                std::make_unique<torrent_entry>(info, std::move(piece_hashes),
-                    settings_.resume_data_path));
+                make_torrent());
             handle = (*it)->storage;
         }
         assert(handle);

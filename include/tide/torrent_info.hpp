@@ -103,8 +103,11 @@ struct torrent_info : public stats
 
     enum state : uint8_t
     {
-        // If this state is not set, no other state may be set. TODO guarantee
+        // If this state is not set, no other state other than `stopping` may be set. TODO guarantee
         active,
+        // This state is set when torrent is gracefully stopped (i.e. it waits for all
+        // its peer sessions to stop gracefully as well).
+        stopping,
         // Torrent's disk space is being allocated, which means that a torrent_storage
         // instance and the directory structure is being created.
         allocating,

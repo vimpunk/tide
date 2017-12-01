@@ -102,8 +102,8 @@ public:
      * Default constructed file is invalid (i.e. its handler is invalid).
      *
      * Sets the attributes of the file but does not open or initialize its storage.
-     * This is to allow on demand execution of those functions, so call open() and then
-     * allocate() separately, in this order.
+     * This is to allow on demand execution of those functions, so call `open` and then
+     * `allocate` separately, in this order.
      */
     file() = default;
     file(path path, size_type length, open_mode_flags open_mode);
@@ -119,7 +119,7 @@ public:
      * current settings.
      *
      * Closing a file does NOT sync the file page with the one on disk, so make sure to
-     * all sync_with_disk if needed.
+     * all `sync_with_disk` if needed.
      */
     void open(std::error_code& error);
     void open(open_mode_flags open_mode, std::error_code& error);
@@ -128,7 +128,7 @@ public:
     /**
      * This should be called when the directory in which this file is located has been
      * moved, because the internal path member needs to be updated to match file's path
-     * in the filesystem. file_path is an absolute path to the new location of the file.
+     * in the filesystem. `file_path` is an absolute path to the new location of the file.
      */
     void set_path(path file_path);
 
@@ -143,20 +143,23 @@ public:
 
     /**
      * Removes the data associated with this file from disk. After the successful
-     * execution of this function, is_allocated() returns false.
+     * execution of this function, `is_allocated` returns false.
      *
-     * NOTE: file must be closed before issueing this call.
+     * NOTE: file must be closed before invoking `erase`.
      */
     void erase(std::error_code& error);
     void move(const path& new_path, std::error_code& error);
 
     /**
-     * Note that the returned value is not the one retrieved from the OS, but the
-     * one that was supplied in the constructor, so if another process changes the
-     * underlying file, the returned value will not reflect the actual file size.
+     * Note that so as not to make a system call with each call to `size` and `length`,
+     * the value returned by them is not the one retrieved from the OS, but the one that
+     * was supplied in the constructor, so if another process changes the underlying
+     * file, the returned value will not reflect the actual file size. For this, use
+     * `query_size` that makes a system call to query the file size.
      */
     size_type size() const noexcept;
     size_type length() const noexcept;
+    size_type query_size(std::error_code& error) const noexcept;
 
     const path& absolute_path() const;
     std::string filename() const;

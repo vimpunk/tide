@@ -117,6 +117,7 @@ public:
      * multi-file torrents and save path for single file torrents.
      */
     const path& root_path() const noexcept { return root_path_; }
+    const std::string name() const noexcept { return name_; }
 
     /**
      * Returns the total number of bytes of all files we'll have once all the wanted
@@ -174,6 +175,7 @@ public:
      */
     void move(path path, std::error_code& error);
 
+    void move_resume_data(path path, std::error_code& error);
     bmap read_resume_data(std::error_code& error);
     void write_resume_data(const bmap_encoder& resume_data, std::error_code& error);
 

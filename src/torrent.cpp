@@ -44,10 +44,9 @@ torrent::torrent(
     , trackers_(std::move(trackers))
     , piece_picker_(num_pieces)
     , update_timer_(ios)
-    , announce_timer_(ios)
     , unchoke_comparator_(&torrent::choke_ranker::download_rate_based)
 {
-    // make sure `engine` gave us valid trackers
+    // Make sure `engine` gave us valid trackers.
     for(const auto& e : trackers_) assert(e.tracker);
     info_.id = id;
 }
@@ -195,6 +194,8 @@ void torrent::stop()
             session->stop();
         }
     }
+
+    info_.state[torrent_info::stopping] = true;
 }
 
 void torrent::abort()
@@ -206,7 +207,6 @@ void torrent::abort()
     log(log_event::update, "aborting torrent");
 
     update_timer_.cancel();
-    announce_timer_.cancel();
 
     for(auto& session : peer_sessions_)
     {
@@ -427,6 +427,7 @@ inline void torrent::on_torrent_allocated(
 
 inline bool torrent::should_save_resume_data() const noexcept
 {
+    // Don't save more frequently than this, it would just overwhelm disk.
     return has_state_changed_
         && info_.last_resume_data_save_time - cached_clock::now() >= seconds(30);
 }
@@ -461,6 +462,9 @@ void torrent::on_resume_data_saved(const std::error_code& error)
 
 bmap_encoder torrent::create_resume_data() const
 {
+    // TODO maybe don't use string keys but named constants?
+    // e.g. `resume_data_key::info_hash`
+    // or resume_data_key(const auto& field) => &field - &info
     bmap_encoder resume_data;
 
     // info
@@ -495,10 +499,7 @@ bmap_encoder torrent::create_resume_data() const
     resume_data["priority_files"] = [this]
     {
         blist_encoder priority_files;
-        for(const auto& f : info_.priority_files)
-        {
-            priority_files.push_back(f);
-        }
+        for(const auto& f : info_.priority_files) { priority_files.push_back(f); }
         return priority_files;
     }();
     resume_data["partial_pieces"] = [this]
@@ -697,7 +698,6 @@ void torrent::announce(const int event, const bool force)
         return;
     }
 
-    info_.state[torrent_info::announcing] = true;
     tracker_request request = prepare_tracker_request(event);
 
     // If the event is stopped or completed, we need to send it to all trackers to which
@@ -723,13 +723,13 @@ void torrent::announce(const int event, const bool force)
                 entry.tracker->announce(request, [SHARED_THIS, &entry, event]
                     (const std::error_code& ec, tracker_response response)
                     { on_announce_response(entry, ec, std::move(response), event); });
+                info_.state[torrent_info::announcing] = true;
             }
         }
     }
     else
     {
         tracker_entry* t = pick_tracker(force);
-        // TODO verify that this is correct
         if(!t)
         {
             if(trackers_.empty() && peer_sessions_.empty() && available_peers_.empty())
@@ -757,6 +757,7 @@ void torrent::announce(const int event, const bool force)
             [SHARED_THIS, &entry, event = request.event]
             (const std::error_code& ec, tracker_response r)
             { on_announce_response(entry, ec, std::move(r), event); });
+        info_.state[torrent_info::announcing] = true;
     }
 }
 
@@ -960,31 +961,26 @@ void torrent::update(const std::error_code& error)
         log(log_event::disk, log::priority::high,
             "too many (%i) disk failures, stopping torrent",
             info_.num_disk_io_failures);
+        //alert_queue_.emplace<too_many_disk_io_failures_alert>();
         stop();
         return;
     }
 
+    // If we have no peers, announce to tracker, and if it doesn't give us peers, in the
+    // next update announce to another tracker. repeat this until we get peers or we've
+    // exhausted all our trackers, but don't force announce, because that'd override this.
     if(should_connect_peers()) { connect_peers(); }
     if(needs_peers())
     {
-    // TODO rework this bit
-        const bool has_no_peers = peer_sessions_.empty() && available_peers_.empty();
-        announce(tracker_request::none, has_no_peers);
-        // If we don't have active sessions left it makes no sense to continue updating.
-        // Try to get some peers by announcing, which will reinstate the update cycle.
-        if(has_no_peers)
-        {
-            log(log_event::update, "no peer sessions or available peers, announcing");
-            return;
-        }
+        announce(tracker_request::none);
+        log(log_event::update, "%i peers (max: %i), announcing",
+            total_peers(), info_.settings.max_connections == values::none
+                ? info_.settings.max_connections : global_settings_.max_connections);
     }
 
     // Only run the unchoke procedure every 10 seconds.
     if(cached_clock::now() - info_.last_unchoke_time >= seconds(10)) { unchoke(); }
 
-    // FIXME this is wrong because this update function may not be invoked if we don't
-    // have any seeds, in which case these counters still need incrementing
-    // solution: always have the update cycle run while the torrent is active
     if(is_seed())
     {
         info_.total_seed_time += seconds(1);
@@ -992,19 +988,21 @@ void torrent::update(const std::error_code& error)
         // (only if any of these settings are enabled).
         if(has_reached_share_ratio_limit()
            || has_reached_seed_time_limit()
-           || has_reached_share_time_ratio_limit()) { stop(); }
+           || has_reached_share_time_ratio_limit())
+        {
+            stop();
+        }
     }
     else
     {
         info_.total_leech_time += seconds(1);
     }
 
+    // Propagate stats to user.
     update_thread_safe_info();
-
-    // TODO
-    //if(should_save_resume_data()) { save_resume_data(); }
-
     alert_queue_.emplace<torrent_stats_alert>(get_handle());
+
+    if(should_save_resume_data()) { save_resume_data(); }
 
     start_timer(update_timer_, seconds(1),
         [SHARED_THIS](const std::error_code& error) { update(error); });
@@ -1028,11 +1026,10 @@ inline bool torrent::should_connect_peers() const noexcept
 
 inline bool torrent::needs_peers() const noexcept
 {
-    const int total_peers = peer_sessions_.size() + available_peers_.size();
-    // TODO this is hard coded for now
-    return total_peers < std::min({10,
-        info_.settings.max_connections - int(peer_sessions_.size()),
-        global_settings_.max_connections - global_info_.num_connections});
+    // TODO is 10 as a minimum value good? we probably shouldn't request fewer than that
+    return peer_sessions_.size() + available_peers_.size() < std::min({10,
+        global_settings_.max_connections - global_info_.num_connections,
+        info_.settings.max_connections - int(peer_sessions_.size())});
 }
 
 void torrent::connect_peers()

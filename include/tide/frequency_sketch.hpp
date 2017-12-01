@@ -3,10 +3,11 @@
 
 #include "num_utils.hpp"
 
+#include <stdexcept>
+#include <cassert>
+#include <limits>
 #include <vector>
 #include <cmath>
-#include <stdexcept>
-#include <limits>
 
 namespace tide {
 
@@ -30,6 +31,7 @@ template<typename T> class frequency_sketch
     // sake, the 64 bit blocks are partitioned into four 16 bit sub-blocks, and the four
     // counters corresponding to some T is within a single such sub-block.
     std::vector<uint64_t> table_;
+
     // Incremented with each call to record_access, halved when sampling size is reached.
     int size_;
 
@@ -58,6 +60,8 @@ public:
 
     int frequency(const T& t) const noexcept
     {
+        if(table_.empty()) { return 0; }
+
         const uint32_t hash = util::hash(t);
         int frequency = std::numeric_limits<int>::max();
 
@@ -71,6 +75,8 @@ public:
 
     void record_access(const T& t) noexcept
     {
+        if(table_.empty()) { return; }
+
         const uint32_t hash = util::hash(t);
         bool was_added = false;
 
@@ -88,13 +94,14 @@ protected:
     {
         const int index = table_index(hash, counter_index);
         const int offset = counter_offset(hash, counter_index);
+        assert(index >= 0 && index < table_.size());
         return (table_[index] >> offset) & 0xfL;
     }
 
     /**
      * Returns the table index where the counter associated with hash at
-     * counter_index resides (since each item is mapped to four different counters in
-     * table_, an index is necessary to differentiate between each).
+     * `counter_index` resides (since each item is mapped to four different counters in
+     * `table_`, an index is necessary to differentiate between each).
      */
     int table_index(const uint32_t hash, const int counter_index) const noexcept
     {
@@ -104,19 +111,21 @@ protected:
             0x9ae16a3b2f90404fL,
             0xcbf29ce484222325L
         };
+        assert(counter_index >= 0 && counter_index < 4);
         uint64_t h = seeds[counter_index] * hash;
         h += h >> 32;
-        return h & (table_.size() - 1);
+        return h & (table_.empty() ? 0 : table_.size() - 1);
     }
 
     /**
-     * Increments {counter_index}th counter by 1 if it's below the maximum value (15).
+     * Increments `counter_index`th counter by 1 if it's below the maximum value (15).
      * Returns true if the counter was incremented.
      */
     bool try_increment_counter_at(const uint32_t hash, const int counter_index)
     {
         const int index = table_index(hash, counter_index);
         const int offset = counter_offset(hash, counter_index);
+        assert(index >= 0 && index < table_.size());
         if(can_increment_counter_at(index, offset))
         {
             table_[index] += 1L << offset;
@@ -126,11 +135,11 @@ protected:
     }
 
     /**
-     * table_ holds 64 bit blocks, while counters are 4 bit wide, i.e. there are 16
+     * `table_` holds 64 bit blocks, while counters are 4 bit wide, i.e. there are 16
      * counters in a block.
-     * This function determines the start offset of the counter_indexth counter
+     * This function determines the start offset of the `counter_index`th counter
      * associated with hash.
-     * Offset may be [0, 60] and is a multiple of 4. counter_index must be [0, 3].
+     * Offset may be [0, 60] and is a multiple of 4. `counter_index` must be [0, 3].
      */
     int counter_offset(const uint32_t hash, const int counter_index) const noexcept
     {
@@ -138,7 +147,7 @@ protected:
     }
 
     /**
-     * table_ holds 64 bit blocks, and each block is partitioned into four 16 bit
+     * `table_` holds 64 bit blocks, and each block is partitioned into four 16 bit
      * parts, starting at 0, 16, 32 and 48. Each part is further divided into four 4 bit
      * sub-parts (e.g. 0, 4, 8, 12), which are the start offsets of the counters.
      *
@@ -161,12 +170,12 @@ protected:
         return (table_[table_index] & mask) != mask;
     }
 
-    /** Halves every counter and adjusts size_. */
+    /** Halves every counter and adjusts `size_`. */
     void reset() noexcept
     {
         for(auto& counters : table_)
         {
-            // Do a 'bitwise_and' on each (4 bit) counter with 0111 (7) so as to
+            // Do a bitwise AND on each (4 bit) counter with 0111 (7) so as to
             // eliminate the bit that got shifted over from the counter to the left to
             // the leftmost position of the current counter.
             counters = (counters >> 1) & 0x7777777777777777L;
@@ -175,7 +184,7 @@ protected:
     }
 
     /**
-     * The reset operation is launched when size_ reaches the value returned by this
+     * The reset operation is launched when `size_` reaches the value returned by this
      * function.
      */
     int sampling_size() const noexcept

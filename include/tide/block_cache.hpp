@@ -314,6 +314,22 @@ public:
         return window_.capacity() + main_.capacity();
     }
 
+    /**
+     * NOTE: after this operation the accuracy of the cache will suffer until enough
+     * historic data is gathered (because the frequency sketch is cleared).
+     */
+    void set_capacity(const int n)
+    {
+        if(n < 0) throw std::invalid_argument("cache capacity must be greater than zero");
+
+        filter_.change_capacity(n);
+        window_.set_capacity(window_capacity(n));
+        main_.set_capacity(n - window_.capacity());
+
+        while(window_.size() > window_.capacity()) { evict_from(window_); }
+        while(main_.size() > main_.capacity()) { evict_from(main_); }
+    }
+
     int num_cache_hits() const noexcept { return num_cache_hits_; }
     int num_cache_misses() const noexcept { return num_cache_misses_; }
 
@@ -328,22 +344,6 @@ public:
             }
         }
         return false;
-    }
-
-    /**
-     * NOTE: after this operation the accuracy of the cache will suffer until enough
-     * historic data is gathered (because the frequency sketch is cleared).
-     */
-    void change_capacity(const int n)
-    {
-        if(n < 0) throw std::invalid_argument("cache capacity must be greater than zero");
-
-        filter_.change_capacity(n);
-        window_.set_capacity(window_capacity(n));
-        main_.set_capacity(n - window_.capacity());
-
-        while(window_.size() > window_.capacity()) { evict_from(window_); }
-        while(main_.size() > main_.capacity()) { evict_from(main_); }
     }
 
     block_source get(const key& key)

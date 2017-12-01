@@ -27,8 +27,8 @@ metainfo parse_and_sanitize_metainfo(bmap source)
     // TODO perhaps we should create the info sha1 hash here as well?
     m.piece_length = info_map.find_number("piece length");
 
-    // if torrent is multi-file, there is a 'files' blist in info_map, otherwise info
-    // map has a single 'length' parameter
+    // If torrent is multi-file, there is a 'files' blist in `info_map`, otherwise info
+    // map has a single 'length' parameter.
     blist files;
     if(info_map.try_find_blist("files", files))
     {

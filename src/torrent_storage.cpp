@@ -13,12 +13,12 @@
 
 namespace tide {
 
-// a shared_ptr to info is passed in case torrent is removed while this is running
+// A `shared_ptr` to info is passed in case torrent is removed while this is running.
 torrent_storage::torrent_storage(const torrent_info& info,
     string_view piece_hashes, path resume_data_path
 )
     : resume_data_(resume_data_path, 0,
-        file::open_mode_flags{ file::read_write, file::sequential, file::no_os_cache })
+        file::open_mode_flags{file::read_write, file::sequential, file::no_os_cache})
     , piece_hashes_(piece_hashes)
     , root_path_(info.files.size() == 1
         ? info.save_path
@@ -43,10 +43,7 @@ inline bool torrent_storage::is_file_index_valid(const file_index_t index) const
 
 interval torrent_storage::pieces_in_file(const file_index_t file) const noexcept
 {
-    if(!is_file_index_valid(file))
-    {
-        return {};
-    }
+    if(!is_file_index_valid(file)) { return {}; }
     return interval(files_[file].first_piece, files_[file].last_piece + 1);
 }
 
@@ -80,13 +77,13 @@ file_slice torrent_storage::get_file_slice(
     const file_index_t file, const block_info& block) const noexcept
 {
     if(!is_file_index_valid(file)) { return {}; }
-    // first check if block is actually in this file
+    // First check if block is actually in this file.
     const int64_t piece_offset = block.index * piece_length_;
     const file_entry& entry = files_[file];
     if(piece_offset < entry.torrent_offset
        || piece_offset >= entry.torrent_offset + block.length)
     {
-        // block is not in file
+        // Block is not in file.
         return {};
     }
     return get_file_slice(entry, piece_offset, block.length);
@@ -122,6 +119,11 @@ void torrent_storage::dont_want_file(const file_index_t file) noexcept
         size_to_download_ -= files_[file].storage.length();
         files_[file].is_wanted = false;
     }
+}
+
+void torrent_storage::move_resume_data(path path, std::error_code& error)
+{
+    resume_data_.move(path, error);
 }
 
 bmap torrent_storage::read_resume_data(std::error_code& error)
@@ -295,8 +297,8 @@ void torrent_storage::read(view<disk_buffer> buffers,
 {
     if(buffers.size() == 1)
     {
-        // if we only have a single buffer, we don't need a vector (and thus can cut
-        // dynalloc overhead), can call just read(iovec, info, error) directly
+        // If we only have a single buffer, we don't need a vector (and thus can cut
+        // dynalloc overhead), can call just read(iovec, info, error) directly.
         iovec iov;
         iov.iov_base = buffers[0].data();
         iov.iov_len = buffers[0].size();
@@ -334,8 +336,8 @@ void torrent_storage::read(view<iovec> buffers,
         {
             before_reading(file, error);
             if(error) { return 0; }
-            // note that file::read trims buffers' front by num_read, so we must not do
-            // it here again
+            // Note that `file::read` trims the buffers' front by `num_read`, so we
+            // must not do it here again.
             const int num_read = file.storage.read(buffers, slice.offset, error);
             if(!error) { assert(num_read == slice.length); }
             return num_read;
@@ -394,22 +396,22 @@ void torrent_storage::write(view<iovec> buffers,
             {
                 before_writing(file.storage, error);
                 if(error) { return 0; }
-                // note that file::write trims buffers' front by num_written, so we must
-                // not do it here again
+                // Note that `file::write` trims the buffers' front by `num_written`,
+                // so we must not do it here again
                 num_written = file.storage.write(buffers, slice.offset, error);
                 if(error) { return 0; }
             }
             else
             {
-                // we don't want this file, so just ignore it (must not write to it),
+                // We don't want this file, so just ignore it (must not write to it),
                 // but we must also trim the buffer as if it had been consumed by
-                // file::write
+                // `file::write`.
                 util::trim_buffers_front(buffers, slice.length);
                 num_written = slice.length;
             }
-            // we should have written to the entire file slice since file::write
+            // We should have written to the entire file slice since `file::write`
             // guarantees this (and file slice describes the largest possible portion
-            // of buffers that can be written to file without enlarging it)
+            // of buffers that can be written to file without enlarging it).
 #ifdef TIDE_ENABLE_DEBUGGING
             if(num_written != slice.length)
                 log::log_disk_io("{TORRENT_STORAGE}",
@@ -510,7 +512,7 @@ void torrent_storage::initialize_file_entries(const_view<file_info> files)
 {
     assert(!files.empty());
     files_.reserve(files.size());
-    // the path of a file depends whether torrent is multi file or single file/
+    // The path of a file depends whether torrent is multi file or single file.
     file_index_t index = 0;
     int64_t torrent_offset = 0;
     for(const auto& f : files)
@@ -522,7 +524,7 @@ void torrent_storage::initialize_file_entries(const_view<file_info> files)
         entry.torrent_offset = torrent_offset;
         entry.is_wanted = f.is_wanted;
         entry.first_piece = torrent_offset / piece_length_;
-        // move torrent_offset to the next file's beginning / this file's end
+        // Move torrent_offset to the next file's beginning / this file's end.
         torrent_offset += f.length;
         entry.last_piece = torrent_offset / piece_length_;
         files_.emplace_back(std::move(entry));
@@ -538,15 +540,15 @@ void torrent_storage::initialize_file_entries(const_view<file_info> files)
 
 void torrent_storage::create_directory_tree()
 {
-    // we only need directories if this is a multi file torrent
+    // We only need directories if this is a multi file torrent.
     if(files_.size() == 1) { return; }
-    // first, establish the root directory
+    // First, establish the root directory.
     std::error_code error;
-    // create directory will not fail if root directory already exists
+    // Create directory will not fail if root directory already exists.
     system::create_directory(root_path_, error);
-    // this is called from the constructor, so we must throw here
+    // This is called from the constructor, so we must throw here.
     if(error) { throw error; }
-    // then the subdirectories
+    // Then the subdirectories.
     for(const file_entry& file : files_)
     {
         path dir_path = file.storage.absolute_path().parent_path();
@@ -561,9 +563,9 @@ void torrent_storage::create_directory_tree()
 view<torrent_storage::file_entry>
 torrent_storage::files_containing_block(const block_info& block)
 {
-    // get the first byte of block in the conceptual file stream
+    // Get the first byte of block in the conceptual file stream.
     const int64_t block_offset = int64_t(block.index) * piece_length_ + block.offset;
-    // find the first file containing block_offset
+    // Find the first file containing block_offset.
     // TODO check if we can do logarithmic search here
     auto it = std::find_if(files_.begin(), files_.end(), [block_offset](const auto& f)
         { return f.torrent_offset + f.storage.length() > block_offset; });
@@ -571,13 +573,13 @@ torrent_storage::files_containing_block(const block_info& block)
     file_entry* first_file = &*it;
 
     const int64_t block_end = block_offset + block.length;
-    // find the last file containing block_end
+    // Find the last file containing `block_end`.
     it = std::find_if(it, files_.end(), [block_end](const auto& f)
         { return f.torrent_offset + f.storage.length() >= block_end; });
     assert(it != files_.end());
     file_entry* last_file = &*it;
 
-    // + 1 because it's a left inclusive interval and last_file points to a valid file
+    // + 1 because it's a left inclusive interval and `last_file` points to a valid file.
     return {first_file, last_file + 1};
 }
 

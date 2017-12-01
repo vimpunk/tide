@@ -15,3 +15,5 @@ src/*.swp
 src/\'
 src/feature_todo
 continuation_log
+logs
+todo

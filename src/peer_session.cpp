@@ -26,8 +26,8 @@
 
 namespace tide {
 
-// Peer_session needs to be kept alive until all async ops complete, so we bind a
-// shared_ptr to peer_session to each async op's handler along with `this`.
+// `peer_session` needs to be kept alive until all async ops complete, so we bind a
+// `shared_ptr` to `peer_session` to each async op's handler along with `this`.
 #define SHARED_THIS this, self(shared_from_this())
 
 using namespace std::placeholders;
@@ -592,7 +592,7 @@ void peer_session::on_sent(const std::error_code& error, size_t num_bytes_sent)
         num_bytes_sent, info_.send_quota, send_buffer_.size(),
         info_.total_uploaded_bytes);
 
-    // This call to send() will only write to socket again if during the first write
+    // This call to `send` will only write to socket again if during the first write
     // there were more bytes in send buffer to send than we had quota for, and since the
     // first thing in send is asking for more bandwidth quota, we may be able to send
     // off the rest of the send buffer's contents.
@@ -2196,7 +2196,7 @@ void peer_session::send_request(const block_info& block)
 void peer_session::send_block(const block_source& block)
 {
     static constexpr int header_size = 4 + 1 + 2 * 4;
-    // Send_buffer is optimized for sending blocks so we don't need to copy it into a
+    // `send_buffer` is optimized for sending blocks so we don't need to copy it into a
     // separate buffer, just separate the block header (msg header and block info) and 
     // append the block separately.
     fixed_payload<header_size> block_header;
@@ -2431,6 +2431,7 @@ void peer_session::make_requests()
 
     if(torrent_info.num_pending_blocks >= torrent_info.num_blocks)
     {
+        // TODO enter end game mode? or should we do this elsewhere?
     }
 
     info_.last_outgoing_request_time = cached_clock::now();

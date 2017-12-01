@@ -145,21 +145,16 @@ class torrent : public std::enable_shared_from_this<torrent>
     torrent_info ts_info_;
     mutable std::mutex ts_info_mutex_;
 
-    // The update cycle runs every second (TODO), cleans up finished peer_sessions,
-    // connects to new peers, if necessary, and does general housekeeping. Also, every
-    // ten seconds it invokes the choking algorithm, which reorders the peers according
-    // to the choke algorithms peer score and unchokes the top max_upload_slots number
-    // of peers, and chokes the rest, but every thirty seconds the optimistic_unchoke
-    // algorithm is run.
-    // However, if torrent is stopped or there are no peers, the update cycle does not
-    // run, because there isn't anything that needs to be updated. As soon as it's 
-    // continued and connects to peers, it is reinstated.
+    // The update cycle runs every second, cleans up finished `peer_session`s, connects
+    // to new peers, if necessary, makes tracker annoucnes, and does general housekeeping.
+    // Also, every ten seconds it invokes the choking algorithm, which reorders the peers
+    // according to the choke algorithms peer score and unchokes the top
+    // `max_upload_slots` number of peers, and chokes the rest, but every thirty seconds
+    // the `optimistic_unchoke` algorithm is run.
+    // It runs even when we have no peers, because we still need to update statistics
+    // (seed/leech time, throughput rates and other).
+    // This is stopped when torrent is stopped.
     deadline_timer update_timer_;
-
-    // The announce cycle runs separately, because even if we aren't connected to any
-    // peers (though if torrent is stopped, this doesn't run either), we periodically
-    // contact tracker in hopes of acquiring peers.
-    deadline_timer announce_timer_;
 
     // A function that returns true if the first `peer_session` is favored over the second
     // is used to sort a torrent's peer list such that the peers that we want to unchoke
@@ -664,6 +659,7 @@ inline bool torrent::has_reached_share_time_ratio_limit() const noexcept
 
 inline bool torrent::has_reached_seed_time_limit() const noexcept
 {
+    // TODO is seconds(0) not a valid seed_time_limit value?
     return global_settings_.seed_time_limit != seconds(0)
         && total_seed_time() >= global_settings_.seed_time_limit;
 }

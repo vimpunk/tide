@@ -35,9 +35,9 @@ struct alert
     };
 
     // The time this alert was posted.
-    time_point timestamp;
+    time_point time;
 
-    alert() : timestamp(cached_clock::now()) {}
+    alert() : time(cached_clock::now()) {}
     virtual int category() const noexcept = 0;
 };
 
@@ -82,7 +82,8 @@ struct torrent_started_alert final : public torrent_alert
 struct torrent_stats_alert final : public torrent_alert
 {
     explicit torrent_stats_alert(torrent_handle h) : torrent_alert(h) {}
-    int category() const noexcept override { return torrent_alert::category() | stats; }
+    int category() const noexcept override
+    { return torrent_alert::category() | category::stats; }
 };
 
 struct download_complete_alert final : public torrent_alert
@@ -129,16 +130,28 @@ struct peer_stats_alert final : public peer_alert
         : peer_alert(std::move(ep), pid)
         //, stats(std::move(s))
     {}
-    int category() const noexcept override { return peer_alert::category() | stats; }
+
+    int category() const noexcept override
+    { return peer_alert::category() | category::stats; }
 };
 
 // -- storage related alerts --
 
 /** Base class for storage related alerts. */
-struct storage_alert final : public alert
+struct storage_alert : public alert
 {
     int category() const noexcept override { return storage; }
 };
+
+/*
+struct disk_io_failure_alert : public storage_alert, public error_alert
+{
+    int category() const noexcept override
+    { return storage_alert::category() | error_alert::category(); }
+};
+
+struct too_many_disk_io_failures_alert : public disk_io_failure_alert {};
+*/
 
 /*
 struct disk_io_stats final : public stats_alert
@@ -155,12 +168,13 @@ struct metainfo_parsed_alert final : public alert
     int category() const noexcept { return async_result; }
 };
 
+/** Convenience method to cast an alert to the specified one. */
 template<typename T> T* alert_cast(alert* a)
 {
     static_assert(std::is_base_of<alert, T>::value,
         "alert_cast may only be used with types inheriting from alert");
 
-    if(a) { return dynamic_cast<T*>(a); }
+    if(a && dynamic_cast<T*>(a)) { return dynamic_cast<T*>(a); }
     return nullptr;
 }
 
