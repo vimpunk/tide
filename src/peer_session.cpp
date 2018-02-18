@@ -246,7 +246,7 @@ void peer_session::on_connected(const std::error_code& error)
     if(settings_.encryption_policy == peer_session_settings::no_encryption)
     {
         if(info_.is_outbound) { send_handshake(); }
-        // Otherwise send_handshake() is called after we've received peer's handshake.
+        // Otherwise `send_handshake` is called after we've received peer's handshake.
         receive();
     }
     else
@@ -626,6 +626,7 @@ void peer_session::receive()
         message_parser_.free_space_size());
     if(num_to_receive == 0)// { return; }
     {
+        // TODO remove after bug is found
         log(log_event::incoming, log::priority::high,
             "num_to_receive is 0! receive_quota: %i, message_parser_.free_space_size: %i",
             info_.receive_quota, message_parser_.free_space_size());
@@ -772,7 +773,7 @@ void peer_session::on_received(const std::error_code& error, size_t num_bytes_re
         // Handle whatever messages we already have before flushing the rest of socket's
         // buffer, to avoid reallocating receive buffer.
         handle_messages();
-        // handle_messages() may have spurred a disconnect
+        // `handle_messages` may have spurred a disconnect
         if(is_disconnected()) { return; }
         num_bytes_received += flush_socket();
     }
@@ -781,10 +782,10 @@ void peer_session::on_received(const std::error_code& error, size_t num_bytes_re
         "received: %i; receive buffer size: %i; quota: %i; total received: %lli",
         num_bytes_received, message_parser_.buffer_size(), info_.receive_quota,
         info_.total_downloaded_bytes);
-    // flush_socket may have spurred a disconnect.
+    // `flush_socket` may have spurred a disconnect.
     if(is_disconnected()) { return; }
     handle_messages();
-    // handle_messages may have spurred a disconnect
+    // `handle_messages` may have spurred a disconnect
     if(is_disconnected()) { return; }
 
     adjust_receive_buffer(was_choked, num_bytes_received);
@@ -1073,7 +1074,7 @@ inline void peer_session::handle_bitfield()
 
     message msg = message_parser_.extract_message();
     const int num_pieces = torrent_.piece_picker().num_pieces();
-    if(!bitfield::is_bitfield_data_valid(msg.data, num_pieces))
+    if(!bitfield::is_raw_bitfield_valid(msg.data, num_pieces))
     {
         // Peer sent an invalid bitfield, disconnect immediately.
         disconnect(peer_session_errc::invalid_bitfield_message);
@@ -1398,11 +1399,11 @@ void peer_session::handle_block()
     }
 
     // Erase request from queue as we either got it or no longer expect it
-    // (handle_reject_request also erases it so no need to do this after invoking it).
+    // (`handle_reject_request` also erases it so no need to do this after invoking it).
     outgoing_requests_.erase(request);
 
-    // NOTE: we must upload stats before adjusting request timeout and request queue
-    // size as we adjust request timeout based on stats.
+    // NOTE: we must update stats before adjusting request timeout and request queue
+    // size as we adjust request timeout based on these stats.
     update_download_stats(block_info.length);
     adjust_request_timeout();
     adjust_best_request_queue_size();
@@ -1418,7 +1419,7 @@ void peer_session::handle_block()
     else
     {
         // We MUST have download, because at this point block is deemed valid, which
-        // means its request entry in outgoing_requests_ was found, meaning we expect
+        // means its request entry in `outgoing_requests_` was found, meaning we expect
         // this block, so its corresponding download instance must also be present.
         piece_download& download = find_download(block_info.index);
         download.got_block(remote_endpoint(), block_info);

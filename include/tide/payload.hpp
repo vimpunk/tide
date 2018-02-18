@@ -13,7 +13,7 @@
 namespace tide {
 
 /**
- * Used to represent an outgoing raw network messages and provides convenient
+ * Used to represent an outgoing raw network message and provides convenient
  * multi-byte integer host to network conversion with builder semantics.
  */
 struct payload

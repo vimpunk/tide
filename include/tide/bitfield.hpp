@@ -64,7 +64,7 @@ public:
         : blocks_(bytes.begin(), bytes.end())
         , num_bits_(num_bits)
     {
-        if(!is_bitfield_data_valid(bytes, num_bits))
+        if(!is_raw_bitfield_valid(bytes, num_bits))
         {
             throw std::invalid_argument(
                 "byte sequence does not match the requested number of bits in bitfield");
@@ -83,7 +83,7 @@ public:
     template<
         typename Bytes,
         typename = decltype(std::declval<Bytes>().data())
-    > static bool is_bitfield_data_valid(const Bytes& bytes, size_type num_bits) noexcept
+    > static bool is_raw_bitfield_valid(const Bytes& bytes, size_type num_bits) noexcept
     {
         if(num_blocks_for(num_bits) != size_type(bytes.size()))
         {
