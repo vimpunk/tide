@@ -86,7 +86,6 @@ class message_parser
     int unused_begin_ = 0;
 
 public:
-
     bool is_full() const noexcept;
     bool empty() const noexcept;
 
@@ -147,20 +146,20 @@ public:
     bool has_handshake() const noexcept;
 
     /**
-     * Handshake message structure differ from the other BT messages, so this method must
-     * be used to extract them.
+     * Handshake message structure differ from the other BT messages, so this method
+     * must be used to extract them.
      *
      * An exception is thrown if the handshake could not be parsed.
      *
      * NOTE: no guarantees can be made that the current message is not a handshake,
-     * (since the message header is different), so caller must ensure that they only call
-     * this when it is known that the message is a handshake.
+     * (since the message header is different), so caller must ensure that they only
+     * call this when it is known that the message is a handshake.
      */
     handshake extract_handshake();
 
     /**
-     * Returns the next message and advances the "message pointer", i.e. consecutive
-     * calls to this function convey iterator semantics.
+     * Returns the next message and advances the "message pointer", i.e.
+     * consecutive calls to this function convey iterator semantics.
      *
      * An exception is thrown if has_message() returns false.
      */
@@ -199,22 +198,24 @@ public:
      */
     int num_bytes_left_till_completion() const noexcept;
 
-    /** Skips to the next message. Exception is thrown if there is no message to skip. */
+    /**
+     * Skips to the next message. Exception is thrown if there is no message to skip.
+     */
     void skip_message();
 
     /**
-     * This should be called once all the messages in message buffer have been extracted.
-     * If extracting everything resulted in reaching the end of the buffer, the message 
-     * pointer is simply reset to 0. If, on the other hand, we have an incomplete
-     * message, we verify that the buffer is large enough to receive the rest, reserve 
-     * space if it's not, and then shift the incomplete bytes to the front to increase
-     * the receive space.
+     * This should be called once all the messages in message buffer have been
+     * extracted.
+     * If extracting everything resulted in reaching the end of the buffer, the
+     * message pointer is simply reset to 0. If, on the other hand, we have an
+     * incomplete message, we verify that the buffer is large enough to receive the
+     * rest, reserve space if it's not, and then shift the incomplete bytes to the
+     * front to increase the receive space.
      * TODO we might not want to automatically reserve space
      */
     void optimize_receive_space();
 
 private:
-
     /**
      * Determines if we have n more message bytes in buffer in the range
      * [message_begin_, message_begin_ + n).

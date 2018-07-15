@@ -8,10 +8,10 @@
 namespace tide {
 
 /**
- * Accumulates some value for Interval Units (seconds by default), after which the value
- * is reset. Using cached_clock, it automatically resets itself if more than Interval
- * Units have passed.
- * This can be used to tally the number of bytes transferred in a second, for instance.
+ * Accumulates some value for Interval TimeUnits (seconds by default), after which the
+ * value is reset. Using clock, it automatically resets itself if more than
+ * Interval TimeUnits have passed.  This can be used to tally the number of bytes
+ * transferred in a second, for instance.
  */
 template<
     size_t Interval,
@@ -23,12 +23,11 @@ template<
     mutable time_point last_update_time_;
 
 public:
-
-    per_round_counter() : last_update_time_(cached_clock::now()) {}
+    per_round_counter() : last_update_time_(clock::now()) {}
 
     void clear() noexcept
     {
-        last_update_time_ = cached_clock::now();
+        last_update_time_ = clock::now();
         prev_round_value_ = value_ = 0;
     }
 
@@ -51,29 +50,31 @@ public:
     }
 
 private:
-
     void update_impl(const int n) const noexcept
     {
-        const auto elapsed = duration_cast<TimeUnit>(
-            cached_clock::now() - last_update_time_);
+        // TODO maybe change to clock::now()
+        const auto elapsed = duration_cast<milliseconds>(
+                clock::now() - last_update_time_);
         if((elapsed >= TimeUnit(Interval)) && (elapsed < TimeUnit(2 * Interval)))
         {
+            // If more than a second but less than a second has passed, the
+            // current value becomes the previous value and the new value
+            // becomes the current value.
             prev_round_value_ = value_;
             value_ = n;
-            last_update_time_ += elapsed;
         }
         else if(elapsed >= TimeUnit(2 * Interval))
         {
-            // Since more than 2 rounds have passed, meaning there was nothing added to
-            // counter, the previous value is 0.
+            // Since more than two rounds have passed, meaning there was nothing
+            // added to counter, the previous value becomes 0.
             prev_round_value_ = 0;
             value_ = n;
-            last_update_time_ += elapsed;
         }
         else
         {
             value_ += n;
         }
+        last_update_time_ += elapsed;
     }
 };
 

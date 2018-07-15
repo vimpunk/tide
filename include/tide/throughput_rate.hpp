@@ -37,7 +37,6 @@ class throughput_rate
     mutable int prev_second_rate_ = 0;
 
 public:
-
     throughput_rate() : last_update_time_(cached_clock::now()) {}
 
     void clear()
@@ -84,7 +83,6 @@ public:
     }
 
 private:
-
     /**
      * Since the getters need to update as well but conceptually they are const methods
      * a const update method is provided, so that the publicly exposed update method is

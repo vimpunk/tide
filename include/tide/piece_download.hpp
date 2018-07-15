@@ -72,7 +72,6 @@ struct piece_download
     };
 
 private:
-
     std::vector<peer> peers_;
     std::vector<block> blocks_;
 
@@ -118,7 +117,6 @@ private:
     milliseconds avg_request_rtt_{0};
 
 public:
-
     piece_download(const piece_index_t index, const int piece_length);
 
     /** Tests whether there are blocks left to request. */
@@ -228,7 +226,6 @@ public:
     int pick_blocks(RequestQueue& queue, const peer_id_type& id, const int n);
 
 private:
-
     void update_average_request_rtt(const duration& rtt);
     block_info pick_block(peer& peer, int offset_hint);
 
@@ -315,4 +312,3 @@ int piece_download::pick_blocks(RequestQueue& queue,
 } // namespace tide
 
 #endif // TIDE_PIECE_DOWNLOAD_HEADER
-

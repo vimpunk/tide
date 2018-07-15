@@ -31,8 +31,9 @@ void message_parser::shrink_to_fit(const int n)
 
 view<uint8_t> message_parser::get_receive_buffer(const int n)
 {
-    // TODO decide whether we want to always receive or let user know they requested more
-    // (which may be useful when higher control over memory usage is needed)
+    // TODO decide whether we want to always receive or let user know they
+    // requested more (which may be useful when higher control over memory usage
+    // is needed)
     if(n > free_space_size())
     {
         buffer_.resize(buffer_size() + n - free_space_size());
