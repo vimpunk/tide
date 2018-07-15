@@ -9,7 +9,7 @@
 #include <memory>
 #include <mutex>
 
-namespace asio { class io_service; }
+#include <asio/io_context.hpp>
 
 namespace tide {
 
@@ -32,10 +32,9 @@ class torrent_handle
 {
     std::weak_ptr<torrent> torrent_;
     // This is remains valid for the lifetime of the engine instance, which owns ios_.
-    asio::io_service* ios_;
+    asio::io_context* ios_;
 
 public:
-
     torrent_handle() = default;
     explicit torrent_handle(std::weak_ptr<torrent> t);
 
@@ -126,7 +125,6 @@ public:
     bool is_seed() const noexcept;
 
 private:
-
     /**
      * Executes function in a thread-safe manner, if torrent_ is still valid.
      * F must be a callable that takes a reference to torrent.

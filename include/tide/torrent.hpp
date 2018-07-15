@@ -52,9 +52,9 @@ class torrent : public std::enable_shared_from_this<torrent>
     friend class torrent_frontend;
     friend class torrent_handle;
 
-    // This is main network `io_service` that runs everything network related. It's used
+    // This is main network `io_context` that runs everything network related. It's used
     // to instantiate `peer_session`s.
-    asio::io_service& ios_;
+    asio::io_context& ios_;
 
     // Torrent only interacts with `disk_io` to allocate itself if it's a new torrent, or
     // to verify previously downloaded files' integrity, if it's continued. Then, it
@@ -181,7 +181,6 @@ class torrent : public std::enable_shared_from_this<torrent>
     std::string piece_hashes_;
 
 public:
-
     /**
      * This is called for new torrents. It applies `args` and sets the `piece_picker`
      * strategy.
@@ -190,15 +189,15 @@ public:
      * sanitized etc, so it is crucial that `engine` do this.
      */
     torrent(torrent_id_t id,
-        asio::io_service& ios,
-        disk_io& disk_io,
-        rate_limiter& global_rate_limiter,
-        const settings& global_settings,
-        engine_info& global_info,
-        std::vector<tracker_entry> trackers,
-        endpoint_filter& endpoint_filter,
-        alert_queue& alert_queue,
-        torrent_args args);
+            asio::io_context& ios,
+            disk_io& disk_io,
+            rate_limiter& global_rate_limiter,
+            const settings& global_settings,
+            engine_info& global_info,
+            std::vector<tracker_entry> trackers,
+            endpoint_filter& endpoint_filter,
+            alert_queue& alert_queue,
+            torrent_args args);
 
     /**
      * This is called for continued torrents. `engine` retrieves the resume state data and
@@ -206,15 +205,15 @@ public:
      * the work is done by torrent, albeit only after invoking `start`.
      */
     torrent(torrent_id_t id,
-        asio::io_service& ios,
-        disk_io& disk_io,
-        rate_limiter& global_rate_limiter,
-        const settings& global_settings,
-        engine_info& global_info,
-        std::vector<tracker_entry> trackers,
-        endpoint_filter& endpoint_filter,
-        alert_queue& alert_queue,
-        bmap resume_data);
+            asio::io_context& ios,
+            disk_io& disk_io,
+            rate_limiter& global_rate_limiter,
+            const settings& global_settings,
+            engine_info& global_info,
+            std::vector<tracker_entry> trackers,
+            endpoint_filter& endpoint_filter,
+            alert_queue& alert_queue,
+            bmap resume_data);
 
     /**
      * Since torrent is not exposed to the public directly, users may interact with a
@@ -382,18 +381,17 @@ public:
     void erase_torrent_files();
 
 private:
-
     /** Initializes fields common to both constructors. */
     torrent(torrent_id_t id,
-        const int num_pieces,
-        asio::io_service& ios,
-        disk_io& disk_io,
-        rate_limiter& rate_limiter,
-        const settings& global_settings,
-        engine_info& engine_info,
-        std::vector<tracker_entry> trackers,
-        endpoint_filter& endpoint_filter,
-        alert_queue& alert_queue);
+            const int num_pieces,
+            asio::io_context& ios,
+            disk_io& disk_io,
+            rate_limiter& rate_limiter,
+            const settings& global_settings,
+            engine_info& engine_info,
+            std::vector<tracker_entry> trackers,
+            endpoint_filter& endpoint_filter,
+            alert_queue& alert_queue);
 
     void apply_torrent_args(torrent_args& args);
 
@@ -482,9 +480,9 @@ private:
     int calculate_num_want() const noexcept;
 
     void on_announce_response(tracker_entry& tracker, const std::error_code& error,
-        tracker_response response, const int event);
+            tracker_response response, const int event);
     void on_announce_error(tracker_entry& tracker,
-        const std::error_code& error, const int event);
+            const std::error_code& error, const int event);
 
     /**
      * Adds a peer returned in an announce response if we're not already connected to
@@ -516,7 +514,7 @@ private:
     // -------------
 
     void on_torrent_allocated(const std::error_code& error,
-        torrent_storage_handle storage);
+            torrent_storage_handle storage);
     void handle_disk_error(const std::error_code& error);
     void check_storage_integrity();
     void on_storage_integrity_checked(const std::error_code& error);
@@ -568,9 +566,9 @@ private:
     struct choke_ranker
     {
         static bool upload_rate_based(
-            const peer_session& a, const peer_session& b) noexcept;
+                const peer_session& a, const peer_session& b) noexcept;
         static bool download_rate_based(
-            const peer_session& a, const peer_session& b) noexcept;
+                const peer_session& a, const peer_session& b) noexcept;
     };
 
     // -----

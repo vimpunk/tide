@@ -1,7 +1,7 @@
 #include "torrent_handle.hpp"
 #include "torrent.hpp"
 
-#include <asio/io_service.hpp>
+#include <asio/io_context.hpp>
 
 namespace tide {
 

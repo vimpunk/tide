@@ -1,10 +1,9 @@
 cmake_minimum_required(VERSION 3.9.2)
 project(tide)
 
-#option(USE_EXPERIMENTAL_FILESYSTEM "use std::experimental::filesystem" ON)
-#option(DEBUG "debug build" OFF)
+set(CMAKE_CXX_STANDARD 17)
 
-add_definitions(-DTIDE_USE_EXPERIMENTAL_FILESYSTEM)
+#option(DEBUG "debug build" OFF)
 
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
     message("Configuring Debug build...")
@@ -63,11 +62,18 @@ add_library(tide SHARED ${tide_src})
 
 # Make headers available just by their names for internal use.
 target_include_directories(tide PRIVATE
-    # The actual location of the headers used in the source files.
+    # The actual location of the headers.
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/tide>
-    # The format of the headers used in the source files.
+    # The format of the headers as included in the source files.
     $<INSTALL_INTERFACE:include/tide>
     )
+
+#target_include_directories(tide PRIVATE
+    ## The actual location of the headers.
+    #$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lib>
+    ## The format of the headers as included in the source files.
+    #$<INSTALL_INTERFACE:include>
+    #)
 
 # The public installation of the headers.
 # TODO is this necessary?
@@ -76,9 +82,10 @@ target_include_directories(tide PUBLIC
     $<INSTALL_INTERFACE:include>
     )
 
-# Include mio (memory mapping) library.
+# Include mio (memory mapping) and own fork of beast (http).
 # TODO turn this into a find_package command
 target_include_directories(tide PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib/mio/include)
+target_include_directories(tide PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib/beast-standalone/include)
 
 # Find appropriate threading library.
 set(THREADS_PREFER_PTHREAD_FLAG ON)
@@ -90,16 +97,6 @@ else()
     return()
 endif()
 
-# TODO make this conditional as we only need it when were not using std::filesystem.
-# Find required Boost components.
-find_package(Boost REQUIRED COMPONENTS filesystem system)
-if(Boost_FOUND)
-    target_link_libraries(tide Boost::filesystem Boost::system)
-else()
-    message("Boost could not be found")
-    return()
-endif()
-
 # TODO turn linking crypto this into a find_package command
 target_link_libraries(tide crypto)
 
@@ -108,8 +105,9 @@ install(TARGETS tide LIBRARY DESTINATION lib)
 
 # Install tide header files.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/tide DESTINATION include)
-# Install mio header files.
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib/mio/include/mio DESTINATION include)
-
 # Install the tide convenience header as well.
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/tide.hpp DESTINATION include)
+# Install mio header files.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib/mio/include/mio DESTINATION include)
+# Install beast-standalone header files.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib/beast-standalone/include/beast DESTINATION include)

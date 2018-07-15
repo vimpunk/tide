@@ -7,66 +7,6 @@
 namespace tide {
 namespace system {
 
-#ifdef TIDE_USE_BOOST_FILESYSTEM
-
-bool exists(const path& path, std::error_code& error)
-{
-    boost::filesystem::error_code ec;
-    const auto result = boost::filesystem::exists(path, ec);
-    if(ec) error = std::make_error_code(ec.value(), std::system_category());
-    return result;
-}
-
-bool exists(const path& path)
-{
-    std::error_code ec;
-    return exists(path, ec);
-}
-
-int64_t file_size(const path& path, std::error_code& error)
-{
-    boost::filesystem::error_code ec;
-    const auto result = boost::filesystem::file_size(path, ec);
-    if(ec) error = std::make_error_code(ec.value(), std::system_category());
-    return result;
-}
-
-bool is_directory(const path& path, std::error_code& error)
-{
-    boost::filesystem::error_code ec;
-    const auto result = boost::filesystem::is_directory(path, ec);
-    if(ec) error = std::make_error_code(ec.value(), std::system_category());
-    return result;
-}
-
-void create_directory(const path& path, std::error_code& error)
-{
-    boost::filesystem::error_code ec;
-    boost::filesystem::create_directory(path, ec);
-    if(ec) error = std::make_error_code(ec.value(), std::system_category());
-}
-
-void create_directories(const path& path, std::error_code& error)
-{
-    boost::filesystem::error_code ec;
-    boost::filesystem::create_directories(path, ec);
-    if(ec) error = std::make_error_code(ec.value(), std::system_category());
-}
-
-void rename(const path& old_path, const path& new_path, std::error_code& error)
-{
-    boost::filesystem::error_code ec;
-    boost::filesystem::move(old_path, new_path, ec);
-    if(ec) error = std::make_error_code(ec.value(), std::system_category());
-}
-
-void rename(const path& old_path, const path& new_path, std::error_code& error)
-{
-    rename(old_path, new_path, error);
-}
-
-#endif // defined(TIDE_USE_BOOST_FILESYSTEM)
-
 std::error_code last_error() noexcept
 {
     std::error_code error;

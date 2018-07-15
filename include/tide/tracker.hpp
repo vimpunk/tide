@@ -21,7 +21,7 @@
 #include <array>
 #include <deque>
 
-#include <asio/io_service.hpp>
+#include <asio/io_context.hpp>
 
 namespace tide {
 
@@ -359,7 +359,7 @@ class http_tracker final : public tracker
 
 public:
 
-    http_tracker(asio::io_service& ios, std::string host, const settings& settings);
+    http_tracker(asio::io_context& ios, std::string host, const settings& settings);
     void announce(tracker_request parameters,
         std::function<void(const std::error_code&, tracker_response)> handler) override;
     void scrape(std::vector<sha1_hash> info_hashes,
@@ -446,7 +446,7 @@ class udp_tracker final : public tracker
         // This is responsible for timing out a request.
         deadline_timer timeout_timer;
 
-        request(asio::io_service& ios, int32_t tid);
+        request(asio::io_context& ios, int32_t tid);
         virtual ~request() = default;
 
         // Handlers are not the same for announce and scrape, so we can't put them here.
@@ -468,7 +468,7 @@ class udp_tracker final : public tracker
         // the allocation churn.
         fixed_payload<98> payload;
 
-        announce_request(asio::io_service& ios, int32_t tid, tracker_request p,
+        announce_request(asio::io_context& ios, int32_t tid, tracker_request p,
             std::function<void(const std::error_code&, tracker_response)> h);
 
         void on_error(const std::error_code& error) override { handler(error, {}); }
@@ -488,7 +488,7 @@ class udp_tracker final : public tracker
         // Size cannot be fixed because info_hashes is of variable size.
         struct payload payload;
 
-        scrape_request(asio::io_service& ios, int32_t tid, std::vector<sha1_hash> i,
+        scrape_request(asio::io_context& ios, int32_t tid, std::vector<sha1_hash> i,
             std::function<void(const std::error_code&, scrape_response)> h);
 
         void on_error(const std::error_code& error) override { handler(error, {}); }
@@ -549,7 +549,7 @@ public:
      * url may or may not include the "udp://" protocol identifier, but it must include
      * the port number.
      */
-    udp_tracker(asio::io_service& ios, const std::string& url, const settings& settings);
+    udp_tracker(asio::io_context& ios, const std::string& url, const settings& settings);
     ~udp_tracker();
 
     void abort() override;

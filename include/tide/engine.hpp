@@ -20,7 +20,7 @@
 #include <vector>
 #include <mutex>
 
-#include <asio/io_service.hpp>
+#include <asio/io_context.hpp>
 
 namespace tide {
 
@@ -36,9 +36,9 @@ class peer_session;
  */
 class engine
 {
-    // This is the io_service that runs all network related connections. This is also
+    // This is the io_context that runs all network related connections. This is also
     // passed to disk_io for callbacks to be posted on network thread.
-    asio::io_service network_ios_;
+    asio::io_context network_ios_;
 
     // All disk related tasks are done through this class, so only a single object
     // exists at any given time. Each torrent instance, and their peer_sessions receive
@@ -71,7 +71,8 @@ class engine
     // torrents share the same tracker, so when a torrent is created, we first check
     // if its tracker(s) already exist(s), and if so, we can pass the existing instance
     // to torrent. A tracker is removed from here when all torrents that use it have
-    // been removed (checked using `std::shared_ptr`'s reference count).
+    // been removed (checked using `std::shared_ptr`'s reference count, which in
+    // this case is safe to do because trackers aren't shared across threads).
     std::vector<std::shared_ptr<tracker>> trackers_;
 
     // Incoming connections are stored here until the handshake has been concluded after
@@ -84,7 +85,7 @@ class engine
 
     // We want to keep `network_ios_` running indefinitely until shutdown, so keep it
     // busy with this work object.
-    asio::io_service::work work_;
+    asio::io_context::work work_;
 
     // This is the acceptor on which we're listening for inbound TCP connections.
     tcp::acceptor acceptor_;
@@ -101,7 +102,6 @@ class engine
     engine_info info_;
 
 public:
-
     /**
      * The constructor immediately starts `engine`'s internal update cycle on a new
      * thread.
@@ -187,7 +187,6 @@ public:
     void move_torrent_to_queue_bottom(const torrent_handle& torrent);
 
 private:
-
     template<typename Function>
     void for_each_torrent(Function fn);
 
@@ -244,8 +243,8 @@ private:
      * torrents remaining by the time this function finishes.
      */
     static void apply_max_active_torrents_setting(
-        std::vector<std::shared_ptr<torrent>>& torrents,
-        int& num_active, const int max_active);
+            std::vector<std::shared_ptr<torrent>>& torrents,
+            int& num_active, const int max_active);
 
     /**
      * Finds `torrent` and the queue within which it resides, which may `leeches_` or
@@ -257,8 +256,8 @@ private:
     void find_torrent_and_execute(const torrent_handle& torrent, Function fn);
 
     static void move_torrent_to_position(
-        std::vector<std::shared_ptr<torrent>>& torrents,
-        int curr_pos, const int pos);
+            std::vector<std::shared_ptr<torrent>>& torrents,
+            int curr_pos, const int pos);
 };
 
 inline bool engine::is_listening() const noexcept { return false; } // for now

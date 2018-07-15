@@ -30,7 +30,7 @@ constexpr int block_index(const int offset) noexcept
 
 disk_io::partial_piece::partial_piece(piece_index_t index_, int length_,
     int max_write_buffer_size, std::function<void(bool)> completion_handler_,
-    asio::io_service& ios
+    asio::io_context& ios
 )
     : save_progress((length_ + (0x4000 - 1)) / 0x4000)
     , index(index_)
@@ -157,7 +157,7 @@ inline bool disk_io::torrent_entry::is_block_valid(const block_info& block)
 // disk_io
 // -------
 
-disk_io::disk_io(asio::io_service& network_ios, const disk_io_settings& settings)
+disk_io::disk_io(asio::io_context& network_ios, const disk_io_settings& settings)
     : network_ios_(network_ios)
     , settings_(settings)
     , read_cache_(std::max(settings.read_cache_capacity, 0))
@@ -614,7 +614,7 @@ void disk_io::handle_complete_piece(torrent_entry& torrent, partial_piece& piece
         if(is_piece_good)
         {
             // NOTE: must not capture reference to piece as it may be removed by
-            // the save completion handler below and io_service does not guarantee in
+            // the save completion handler below and io_context does not guarantee in
             // order execution.
             log(invoked_on::thread_pool, log_event::write,
                 "piece(%i) passed hash test", piece.index);

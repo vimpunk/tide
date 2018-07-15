@@ -24,7 +24,7 @@
 #include <vector>
 #include <memory>
 
-namespace asio { class io_service; }
+#include <asio/io_context.hpp>
 
 namespace tide {
 
@@ -364,7 +364,7 @@ public:
      *
      * The socket must be initialized, but not opened, nor connected.
      */
-    peer_session(asio::io_service& ios,
+    peer_session(asio::io_context& ios,
         tcp::endpoint peer_endpoint,
         torrent_rate_limiter& rate_limiter,
         const peer_session_settings& settings,
@@ -388,7 +388,7 @@ public:
      * the correct hash so the connection is closed and this `peer_session` may be
      * removed.
      */
-    peer_session(asio::io_service& ios,
+    peer_session(asio::io_context& ios,
         tcp::endpoint peer_endpoint,
         torrent_rate_limiter& rate_limiter,
         const peer_session_settings& settings,
@@ -543,7 +543,7 @@ public:
 private:
 
     /** Initializes fields common to both constructors. */
-    peer_session(asio::io_service& ios, tcp::endpoint peer_endpoint,
+    peer_session(asio::io_context& ios, tcp::endpoint peer_endpoint,
         torrent_rate_limiter& rate_limiter, const peer_session_settings& settings);
 
     /** If our interest changes, sends the corresponding send_{un,}interested message. */
@@ -1127,6 +1127,5 @@ template<> struct hash<tide::pending_block>
 };
 
 } // namespace std
-
 
 #endif // TIDE_PEER_SESSION_HEADER

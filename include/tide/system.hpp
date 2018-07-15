@@ -5,6 +5,7 @@
 #include "time.hpp"
 
 #include <system_error>
+#include <filesystem>
 #include <cstdint>
 
 #include <mio/page.hpp>
@@ -22,56 +23,10 @@
 # define INVALID_HANDLE_VALUE -1 // This is the macro used on Windows.
 #endif // _WIN32
 
-#if defined(TIDE_USE_BOOST_FILESYSTEM)
-# error "Not implemented." // TODO
-
-# include <boost/filesystem.hpp>
-
 namespace tide {
 namespace system {
 
-bool exists(const path& path);
-bool exists(const path& path, std::error_code& error);
-bool is_directory(const path& path, std::error_code& error);
-
-int64_t file_size(const path& path, std::error_code& error);
-
-void create_directory(const path& path, std::error_code& error);
-void create_directories(const path& path, std::error_code& error);
-
-/** On Linux open file descriptors for old_path are unaffected. TODO check on Windows. */
-void rename(const path& old_path, const path& new_path, std::error_code& error);
-void rename(const path& old_path, const path& new_path, std::error_code& error);
-
-} // namespace system
-} // namespace tide
-
-#elif __cplusplus >= 201406L
-
-# include <filesystem>
-
-namespace tide {
-namespace system {
 using namespace std::filesystem;
-} // namespace system
-} // namespace tide
-
-#elif defined(TIDE_USE_EXPERIMENTAL_FILESYSTEM)
-
-# include <experimental/filesystem>
-
-namespace tide {
-namespace system {
-using namespace std::experimental::filesystem;
-} // namespace system
-} // namespace tide
-
-#else // defined(TIDE_USE_EXPERIMENTAL_FILESYSTEM)
-# error "Need boost or std filesystem support."
-#endif // defined(TIDE_USE_EXPERIMENTAL_FILESYSTEM)
-
-namespace tide {
-namespace system {
 
 using file_handle_type =
 #ifdef _WIN32

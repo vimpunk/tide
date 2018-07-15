@@ -132,7 +132,7 @@ void tracker::log(const log_event event, const log::priority priority,
 // http tracker
 // ------------
 
-http_tracker::http_tracker(asio::io_service& ios,
+http_tracker::http_tracker(asio::io_context& ios,
     std::string host, const settings& settings)
     : tracker(host, settings)
     , socket_(ios)
@@ -446,13 +446,13 @@ inline void http_tracker::on_request_error(const std::error_code& error)
 // udp tracker
 // -----------
 
-inline udp_tracker::request::request(asio::io_service& ios, int32_t tid)
+inline udp_tracker::request::request(asio::io_context& ios, int32_t tid)
     : transaction_id(tid)
     , timeout_timer(ios)
 {}
 
 inline udp_tracker::announce_request::announce_request(
-    asio::io_service& ios, int32_t tid, tracker_request p,
+    asio::io_context& ios, int32_t tid, tracker_request p,
     std::function<void(const std::error_code&, tracker_response)> h
 )
     : request(ios, tid)
@@ -461,7 +461,7 @@ inline udp_tracker::announce_request::announce_request(
 {}
 
 inline udp_tracker::scrape_request::scrape_request(
-    asio::io_service& ios, int32_t tid, std::vector<sha1_hash> i,
+    asio::io_context& ios, int32_t tid, std::vector<sha1_hash> i,
     std::function<void(const std::error_code&, scrape_response)> h
 )
     : request(ios, tid)
@@ -469,7 +469,7 @@ inline udp_tracker::scrape_request::scrape_request(
     , handler(std::move(h))
 {}
 
-udp_tracker::udp_tracker(asio::io_service& ios,
+udp_tracker::udp_tracker(asio::io_context& ios,
     const std::string& url, const settings& settings
 )
     : tracker(/*util::strip_protocol_identifier(*/url/*)*/, settings)
@@ -530,7 +530,7 @@ Request& udp_tracker::create_request_entry(Parameters parameters, Handler handle
     const auto tid = create_transaction_id();
     // Return value is pair<iterator, bool>, and *iterator is pair<int, uptr<request>>.
     request& request = *requests_.emplace(tid,
-        std::make_unique<Request>(socket_.get_io_service(), tid,
+        std::make_unique<Request>(socket_.get_io_context(), tid,
             std::move(parameters), std::move(handler))
     ).first->second;
     return static_cast<Request&>(request);

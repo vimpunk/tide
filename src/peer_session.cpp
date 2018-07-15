@@ -22,7 +22,7 @@
 # include <sstream>
 #endif // TIDE_ENABLE_LOGGING
 
-#include <asio/io_service.hpp>
+#include <asio/io_context.hpp>
 
 namespace tide {
 
@@ -70,7 +70,7 @@ public:
 };
 
 peer_session::peer_session(
-    asio::io_service& ios,
+    asio::io_context& ios,
     tcp::endpoint peer_endpoint,
     torrent_rate_limiter& rate_limiter,
     const peer_session_settings& settings
@@ -94,7 +94,7 @@ peer_session::peer_session(
 }
 
 peer_session::peer_session(
-    asio::io_service& ios,
+    asio::io_context& ios,
     tcp::endpoint peer_endpoint,
     torrent_rate_limiter& rate_limiter,
     const peer_session_settings& settings,
@@ -111,7 +111,7 @@ peer_session::peer_session(
 }
 
 peer_session::peer_session(
-    asio::io_service& ios,
+    asio::io_context& ios,
     tcp::endpoint peer_endpoint,
     torrent_rate_limiter& rate_limiter,
     const peer_session_settings& settings,

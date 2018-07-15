@@ -24,7 +24,7 @@ namespace tide {
 torrent::torrent(
     torrent_id_t id,
     const int num_pieces,
-    asio::io_service& ios,
+    asio::io_context& ios,
     disk_io& disk_io,
     rate_limiter& global_rate_limiter,
     const settings& global_settings,
@@ -54,7 +54,7 @@ torrent::torrent(
 // For new torrents.
 torrent::torrent(
     torrent_id_t id,
-    asio::io_service& ios,
+    asio::io_context& ios,
     disk_io& disk_io,
     rate_limiter& global_rate_limiter,
     const settings& global_settings,
@@ -78,7 +78,7 @@ torrent::torrent(
 // TODO
 torrent::torrent(
     torrent_id_t id,
-    asio::io_service& ios,
+    asio::io_context& ios,
     disk_io& disk_io,
     rate_limiter& global_rate_limiter,
     const settings& global_settings,

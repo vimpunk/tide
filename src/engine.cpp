@@ -35,8 +35,7 @@ engine::~engine()
 
 TIDE_NETWORK_THREAD
 inline void engine::move_torrent_to_position(
-    std::vector<std::shared_ptr<torrent>>& torrents,
-    int curr_pos, const int pos)
+        std::vector<std::shared_ptr<torrent>>& torrents, int curr_pos, const int pos)
 {
     if((curr_pos == pos) || (pos < 0) || (pos >= torrents.size())) { return; }
     using std::swap;
@@ -445,8 +444,8 @@ void engine::apply_max_active_seeds_setting(const int max_active_seeds)
 
 TIDE_NETWORK_THREAD
 void engine::apply_max_active_torrents_setting(
-    std::vector<std::shared_ptr<torrent>>& torrents,
-    int& num_active, const int max_active)
+        std::vector<std::shared_ptr<torrent>>& torrents,
+        int& num_active, const int max_active)
 {
     if(num_active > max_active)
     {

@@ -27,7 +27,7 @@
 #include <vector>
 #include <map>
 
-#include <asio/io_service.hpp>
+#include <asio/io_context.hpp>
 
 namespace tide {
 
@@ -88,10 +88,10 @@ public:
 
 private:
 
-    // This is the io_service that runs the network thread. It is used to post handlers
+    // This is the io_context that runs the network thread. It is used to post handlers
     // on the network thread so that no syncing is required between the two threads, as
-    // io_service is thread-safe.
-    asio::io_service& network_ios_;
+    // io_context is thread-safe.
+    asio::io_context& network_ios_;
 
     const disk_io_settings& settings_;
 
@@ -239,7 +239,7 @@ private:
 
         /** Initializes the const fields, buffer_expiry_timer and calculates num_blocks. */
         partial_piece(piece_index_t index_, int length_, int max_write_buffer_size,
-            std::function<void(bool)> completion_handler, asio::io_service& ios);
+            std::function<void(bool)> completion_handler, asio::io_context& ios);
 
         /**
          * Determines whether all blocks have been received, regardless if they are 
@@ -351,7 +351,7 @@ private:
 
 public:
 
-    disk_io(asio::io_service& network_ios, const disk_io_settings& settings);
+    disk_io(asio::io_context& network_ios, const disk_io_settings& settings);
     ~disk_io();
 
     int num_buffered_pieces();
