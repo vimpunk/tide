@@ -15,9 +15,10 @@ namespace detail {
 class engine_logger
 {
     std::ofstream file_;
+
 public:
     void log(const std::string& header, const std::string& log,
-        const priority priority = priority::normal);
+            const priority priority = priority::normal);
     void flush() { TIDE_FLUSH(file_); }
 };
 
@@ -26,18 +27,20 @@ class disk_io_logger
 {
     std::ofstream file_;
     std::mutex file_mutex_;
+
 public:
     void log(const std::string& header, const std::string& log,
-        const bool concurrent, const priority priority);
+            const bool concurrent, const priority priority);
     void flush() { TIDE_FLUSH(file_); }
 };
 
 class torrent_logger
 {
     std::map<torrent_id_t, std::ofstream> files_;
+
 public:
     void log(const torrent_id_t torrent, const std::string& header,
-        const std::string& log, const priority priority);
+            const std::string& log, const priority priority);
     void flush()
     {
         for(auto& e : files_) { TIDE_FLUSH(e.second); }
@@ -50,9 +53,10 @@ class peer_session_logger
     std::map<tcp::endpoint, std::ofstream> files_;
 #endif
     std::ofstream incoming_connections_;
+
 public:
     void log(const torrent_id_t torrent, const tcp::endpoint& endpoint,
-        const std::string& header, const std::string& log, const priority priority);
+            const std::string& header, const std::string& log, const priority priority);
     void flush()
     {
     #ifdef TIDE_LOG_PEERS_SEPARATELY
@@ -61,6 +65,8 @@ public:
         TIDE_FLUSH(incoming_connections_);
     }
 };
+
+// global logger instances
 
 engine_logger engine_logger;
 disk_io_logger disk_io_logger;
@@ -103,7 +109,8 @@ std::string make_log_path(const String& name)
 
 #endif // TIDE_ENABLE_LOGGING
 
-void engine_logger::log(const std::string& header, const std::string& log, const priority priority)
+void engine_logger::log(const std::string& header,
+        const std::string& log, const priority priority)
 {
 #ifdef TIDE_ENABLE_LOGGING
     if(priority < TIDE_MIN_LOG_PRIORITY) { return; }
@@ -116,7 +123,7 @@ void engine_logger::log(const std::string& header, const std::string& log, const
 }
 
 void disk_io_logger::log(const std::string& header, const std::string& log,
-    const bool concurrent, const priority priority)
+        const bool concurrent, const priority priority)
 {
 #ifdef TIDE_ENABLE_LOGGING
     if(priority < TIDE_MIN_LOG_PRIORITY) { return; }
@@ -137,7 +144,7 @@ void disk_io_logger::log(const std::string& header, const std::string& log,
 }
 
 void torrent_logger::log(const torrent_id_t torrent, const std::string& header,
-    const std::string& log, const priority priority)
+        const std::string& log, const priority priority)
 {
 #ifdef TIDE_ENABLE_LOGGING
     if(priority < TIDE_MIN_LOG_PRIORITY) { return; }
@@ -156,7 +163,7 @@ void torrent_logger::log(const torrent_id_t torrent, const std::string& header,
 }
 
 void peer_session_logger::log(const torrent_id_t torrent, const tcp::endpoint& endpoint,
-    const std::string& header, const std::string& log, const priority priority)
+        const std::string& header, const std::string& log, const priority priority)
 {
 #ifdef TIDE_ENABLE_LOGGING
     if(priority < TIDE_MIN_LOG_PRIORITY) { return; }
@@ -197,25 +204,25 @@ void peer_session_logger::log(const torrent_id_t torrent, const tcp::endpoint& e
 } // namespace detail
 
 void log_torrent(const torrent_id_t torrent, const std::string& header,
-    const std::string& log, const priority priority)
+        const std::string& log, const priority priority)
 {
     detail::torrent_logger.log(torrent, header, log, priority);
 }
 
 void log_peer_session(const torrent_id_t torrent, const tcp::endpoint& endpoint,
-    const std::string& header, const std::string& log, const priority priority)
+        const std::string& header, const std::string& log, const priority priority)
 {
     detail::peer_session_logger.log(torrent, endpoint, header, log, priority);
 }
 
 void log_engine(const std::string& header, const std::string& log,
-    const priority priority)
+        const priority priority)
 {
     detail::engine_logger.log(header, log, priority);
 }
 
 void log_disk_io(const std::string& header, const std::string& log,
-    const bool concurrent, const priority priority)
+        const bool concurrent, const priority priority)
 {
     detail::disk_io_logger.log(header, log, concurrent, priority);
 }
@@ -228,5 +235,5 @@ void flush()
     detail::disk_io_logger.flush();
 }
 
-} // namespace log
-} // namespace tide
+} // log
+} // tide

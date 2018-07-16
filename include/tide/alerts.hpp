@@ -38,6 +38,12 @@ struct alert
     time_point time;
 
     alert() : time(cached_clock::now()) {}
+    alert(const alert&) = default;
+    alert& operator=(const alert&) = default;
+    alert(alert&&) = default;
+    alert& operator=(alert&&) = default;
+    virtual ~alert() {}
+
     virtual int category() const noexcept = 0;
 };
 
@@ -169,7 +175,8 @@ struct metainfo_parsed_alert final : public alert
 };
 
 /** Convenience method to cast an alert to the specified one. */
-template<typename T> T* alert_cast(alert* a)
+template<typename T>
+T* alert_cast(alert* a)
 {
     static_assert(std::is_base_of<alert, T>::value,
         "alert_cast may only be used with types inheriting from alert");
@@ -178,6 +185,6 @@ template<typename T> T* alert_cast(alert* a)
     return nullptr;
 }
 
-} // namespace tide
+} // tide
 
 #endif // TIDE_ALERTS_HEADER

@@ -21,14 +21,14 @@ enum class priority
 };
 
 void log_torrent(const torrent_id_t torrent, const std::string& header,
-    const std::string& log, const priority priority = priority::normal);
+        const std::string& log, const priority priority = priority::normal);
 void log_peer_session(const torrent_id_t torrent, const tcp::endpoint& endpoint,
-    const std::string& header, const std::string& log,
-    const priority priority = priority::normal);
+        const std::string& header, const std::string& log,
+        const priority priority = priority::normal);
 void log_engine(const std::string& header, const std::string& log,
-    const priority priority = priority::normal);
+        const priority priority = priority::normal);
 void log_disk_io(const std::string& header, const std::string& log,
-    const bool concurrent = false, const priority priority = priority::normal);
+        const bool concurrent = false, const priority priority = priority::normal);
 
 /**
  * Call this in a SIGABRT handler so that even when an assertion fires, everything
@@ -36,7 +36,7 @@ void log_disk_io(const std::string& header, const std::string& log,
  */
 void flush();
 
-} // namespace log
-} // namespace tide
+} // log
+} // tide
 
 #endif // TIDE_LOG_HEADER
