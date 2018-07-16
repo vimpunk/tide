@@ -5,6 +5,8 @@
 
 namespace tide {
 
+// Use aliases so that should we need to migrate to Boost.Asio, the transition
+// will be easier.
 using std::error_category;
 using std::error_condition;
 using std::errc;

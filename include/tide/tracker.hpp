@@ -3,6 +3,7 @@
 
 #include "string_view.hpp"
 #include "peer_entry.hpp"
+#include "error_code.hpp"
 #include "settings.hpp"
 #include "payload.hpp"
 #include "socket.hpp"
@@ -12,7 +13,6 @@
 #include "log.hpp"
 
 #include <unordered_map>
-#include <system_error>
 #include <functional>
 #include <utility>
 #include <string>
@@ -101,7 +101,6 @@ class tracker_request_builder
     tracker_request request_;
 
 public:
-
     // --------------
     // -- required --
     // --------------
@@ -183,15 +182,15 @@ enum class tracker_errc
     invalid_transaction_id
 };
 
-struct tracker_error_category : public std::error_category
+struct tracker_error_category : public error_category
 {
     const char* name() const noexcept override { return "tracker"; }
     std::string message(int env) const override;
 };
 
 const tracker_error_category& tracker_category();
-std::error_code make_error_code(tracker_errc e);
-std::error_condition make_error_condition(tracker_errc e);
+error_code make_error_code(tracker_errc e);
+error_condition make_error_condition(tracker_errc e);
 
 } // namespace tide
 
@@ -209,7 +208,6 @@ namespace tide {
 class tracker
 {
 protected:
-
     // The full announce URL of the form "protocol://tracker.host.domain:port/announce".
     // The port number need not be included, in which case the default 80 for HTTP and
     // 443 for HTTPS used.
@@ -232,7 +230,6 @@ protected:
     bool is_aborted_ = false;
 
 public:
-
     tracker(std::string url, const settings& settings);
     virtual ~tracker() = default;
 
@@ -243,7 +240,7 @@ public:
      * fields in response are empty/invalid.
      */
     virtual void announce(tracker_request parameters,
-        std::function<void(const std::error_code&, tracker_response)> handler) = 0;
+            std::function<void(const error_code&, tracker_response)> handler) = 0;
 
     /**
      * A scrape request is used to get data about one, multiple or all torrents tracker
@@ -251,9 +248,9 @@ public:
      * requestable torrents are scraped that tracker has.
      */
     //virtual void scrape(const sha1_hash& info_hash,
-        //std::function<void(const std::error_code&, scrape_response)> handler) = 0;
+            //std::function<void(const error_code&, scrape_response)> handler) = 0;
     virtual void scrape(std::vector<sha1_hash> info_hashes,
-        std::function<void(const std::error_code&, scrape_response)> handler) = 0;
+            std::function<void(const error_code&, scrape_response)> handler) = 0;
 
     /**
      * This should be called when torrent is shutting down but we don't want to wait
@@ -275,7 +272,6 @@ public:
     int num_fails() const noexcept { return num_fails_; }
 
 protected:
-
     enum class log_event
     {
         connecting,
@@ -289,7 +285,7 @@ protected:
     void log(const log_event event, const char* format, Args&&... args) const;
     template<typename... Args>
     void log(const log_event event, const log::priority priority,
-        const char* format, Args&&... args) const;
+            const char* format, Args&&... args) const;
 };
 
 /**
@@ -326,21 +322,21 @@ class http_tracker final : public tracker
         int num_retries = 0;
 
         virtual ~request() = default;
-        virtual void on_error(const std::error_code& error) = 0;
+        virtual void on_error(const error_code& error) = 0;
     };
 
     struct announce_request final : public request
     {
         // This is the callback to be invoked once our request is served.
-        std::function<void(const std::error_code&, tracker_response)> handler;
-        void on_error(const std::error_code& error) override { handler(error, {}); }
+        std::function<void(const error_code&, tracker_response)> handler;
+        void on_error(const error_code& error) override { handler(error, {}); }
     };
 
     struct scrape_request final : public request
     {
         // This is the callback to be invoked once our request is served.
-        std::function<void(const std::error_code&, scrape_response)> handler;
-        void on_error(const std::error_code& error) override { handler(error, {}); }
+        std::function<void(const error_code&, scrape_response)> handler;
+        void on_error(const error_code& error) override { handler(error, {}); }
     };
 
     // All requests are enqueued at the back of this queue, and requests are popped from
@@ -358,17 +354,15 @@ class http_tracker final : public tracker
     bool is_resolved_ = false;
 
 public:
-
     http_tracker(asio::io_context& ios, std::string host, const settings& settings);
     void announce(tracker_request parameters,
-        std::function<void(const std::error_code&, tracker_response)> handler) override;
+            std::function<void(const error_code&, tracker_response)> handler) override;
     void scrape(std::vector<sha1_hash> info_hashes,
-        std::function<void(const std::error_code&, scrape_response)> handler) override;
+            std::function<void(const error_code&, scrape_response)> handler) override;
     void abort() override;
 
 private:
-
-    void on_host_resolved(const std::error_code& error, tcp::resolver::iterator it);
+    void on_host_resolved(const error_code& error, tcp::resolver::iterator it);
 
     /**
      * Sending an announce request or a scrape request entails the same sort of
@@ -382,12 +376,12 @@ private:
     std::string create_target_string(const tracker_request& r) const;
     std::string create_target_string(const std::vector<sha1_hash>& r) const;
 
-    void on_message_sent(const std::error_code& error, const size_t num_bytes_sent);
+    void on_message_sent(const error_code& error, const size_t num_bytes_sent);
 
-    void on_announce_response(const std::error_code& error, const size_t num_bytes_sent);
-    void on_scrape_response(const std::error_code& error, const size_t num_bytes_sent);
+    void on_announce_response(const error_code& error, const size_t num_bytes_sent);
+    void on_scrape_response(const error_code& error, const size_t num_bytes_sent);
 
-    tracker_response parse_announce_response(std::error_code& error);
+    tracker_response parse_announce_response(error_code& error);
     scrape_response parse_scrape_response();
 
     /**
@@ -399,10 +393,10 @@ private:
     /** Returns the current pending request. See requests_ comment. */
     request& current_request() noexcept;
 
-    void on_request_error(const std::error_code& error);
+    void on_request_error(const error_code& error);
 
     void start_timeout();
-    void on_timeout(const std::error_code& error);
+    void on_timeout(const error_code& error);
 };
 
 /**
@@ -450,7 +444,7 @@ class udp_tracker final : public tracker
         virtual ~request() = default;
 
         // Handlers are not the same for announce and scrape, so we can't put them here.
-        virtual void on_error(const std::error_code& error) = 0;
+        virtual void on_error(const error_code& error) = 0;
     };
 
     struct announce_request final : public request
@@ -459,7 +453,7 @@ class udp_tracker final : public tracker
         tracker_request parameters;
 
         // This is the callback to be invoked once our request is served.
-        std::function<void(const std::error_code&, tracker_response)> handler;
+        std::function<void(const error_code&, tracker_response)> handler;
 
         // There is only ever one outstanding datagram, which is stored here until it's
         // confirmed that it has been sent.
@@ -469,9 +463,9 @@ class udp_tracker final : public tracker
         fixed_payload<98> payload;
 
         announce_request(asio::io_context& ios, int32_t tid, tracker_request p,
-            std::function<void(const std::error_code&, tracker_response)> h);
+                std::function<void(const error_code&, tracker_response)> h);
 
-        void on_error(const std::error_code& error) override { handler(error, {}); }
+        void on_error(const error_code& error) override { handler(error, {}); }
     };
 
     struct scrape_request final : public request
@@ -481,7 +475,7 @@ class udp_tracker final : public tracker
         std::vector<sha1_hash> info_hashes;
 
         // This is the callback to be invoked once our request is served.
-        std::function<void(const std::error_code&, scrape_response)> handler;
+        std::function<void(const error_code&, scrape_response)> handler;
 
         // There is only ever one outstanding datagram, which is stored here until it's
         // confirmed that it has been sent.
@@ -489,9 +483,9 @@ class udp_tracker final : public tracker
         struct payload payload;
 
         scrape_request(asio::io_context& ios, int32_t tid, std::vector<sha1_hash> i,
-            std::function<void(const std::error_code&, scrape_response)> h);
+                std::function<void(const error_code&, scrape_response)> h);
 
-        void on_error(const std::error_code& error) override { handler(error, {}); }
+        void on_error(const error_code& error) override { handler(error, {}); }
     };
 
     // Pending requests are mapped to their transaction ids.
@@ -544,7 +538,6 @@ class udp_tracker final : public tracker
     bool is_resolved_ = false;
 
 public:
-
     /**
      * url may or may not include the "udp://" protocol identifier, but it must include
      * the port number.
@@ -555,16 +548,15 @@ public:
     void abort() override;
 
     void announce(tracker_request parameters,
-        std::function<void(const std::error_code&, tracker_response)> handler) override;
+            std::function<void(const error_code&, tracker_response)> handler) override;
     void scrape(std::vector<sha1_hash> info_hashes,
-        std::function<void(const std::error_code&, scrape_response)> handler) override;
+            std::function<void(const error_code&, scrape_response)> handler) override;
 
     udp::endpoint remote_endpoint() const noexcept;
     udp::endpoint local_endpoint() const noexcept;
 
 private:
-
-    void on_host_resolved(const std::error_code& error, udp::resolver::iterator it);
+    void on_host_resolved(const error_code& error, udp::resolver::iterator it);
 
     /**
      * Creates an entry and places it in requests_, and return a reference to it.
@@ -601,8 +593,8 @@ private:
     void send_message(Request& request, const size_t num_bytes_to_send);
 
     /** Checks errors and makes sure the entire send buffer was transmitted. */
-    void on_message_sent(request& request,
-        const std::error_code& error, const size_t num_bytes_sent);
+    void on_message_sent(request& request, const error_code& error,
+            const size_t num_bytes_sent);
 
     void receive_message();
 
@@ -614,8 +606,7 @@ private:
      * int32_t transaction_id
      * And action is used to determine which handler is invoked.
      */
-    void on_message_received(const std::error_code& error,
-        const size_t num_bytes_received);
+    void on_message_received(const error_code& error, const size_t num_bytes_received);
 
     /**
      * If multiple torrents announce in quick succession and we have yet to establish
@@ -626,8 +617,9 @@ private:
      */
     void handle_connect_response(request& request, const size_t num_bytes_received);
     void handle_announce_response(announce_request& request,
-        const size_t num_bytes_received);
-    void handle_scrape_response(scrape_request& request, const size_t num_bytes_received);
+            const size_t num_bytes_received);
+    void handle_scrape_response(scrape_request& request,
+            const size_t num_bytes_received);
     void handle_error_response(request& request, const size_t num_bytes_received);
 
     /**
@@ -637,7 +629,7 @@ private:
     void resume_stalled_requests();
 
     void start_timeout(request& request);
-    void on_timeout(const std::error_code& error, request& request);
+    void on_timeout(const error_code& error, request& request);
     void retry(request& request);
     void retry(announce_request& request);
     void retry(scrape_request& request);
@@ -648,7 +640,7 @@ private:
      * internet connection is down), or it is not clear which request to associate with
      * this error (e.g. wrong transaction_id -- which request's handler to call?).
      */
-    void on_global_error(const std::error_code& error);
+    void on_global_error(const error_code& error);
 };
 
 /**
@@ -688,7 +680,7 @@ struct tracker_entry
     time_point last_force_time;
 
     // If there was an error with tracker, it will be kept here.
-    std::error_code last_error;
+    error_code last_error;
 
     // The last warning message is stored here.
     std::string warning_message;

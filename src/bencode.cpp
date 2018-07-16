@@ -53,15 +53,34 @@ bmap_encoder::proxy::proxy(const std::string& s) : value_(bencode_string(s)) {}
 bmap_encoder::proxy::proxy(const bmap_encoder& b) : value_(b.encode()) {}
 bmap_encoder::proxy::proxy(const blist_encoder& b) : value_(b.encode()) {}
 bmap_encoder::proxy& bmap_encoder::proxy::operator=(const int64_t i)
-{ value_ = bencode_number(i); }
+{
+    value_ = bencode_number(i);
+    return *this;
+}
+
 bmap_encoder::proxy& bmap_encoder::proxy::operator=(const char* s)
-{ value_ = bencode_string(s); }
+{
+    value_ = bencode_string(s);
+    return *this;
+}
+
 bmap_encoder::proxy& bmap_encoder::proxy::operator=(const std::string& s)
-{ value_ = bencode_string(s); }
+{
+    value_ = bencode_string(s);
+    return *this;
+}
+
 bmap_encoder::proxy& bmap_encoder::proxy::operator=(const bmap_encoder& b)
-{ value_ = b.encode(); }
+{
+    value_ = b.encode();
+    return *this;
+}
+
 bmap_encoder::proxy& bmap_encoder::proxy::operator=(const blist_encoder& b)
-{ value_ = b.encode(); }
+{
+    value_ = b.encode();
+    return *this;
+}
 
 std::string bmap_encoder::encode() const
 {

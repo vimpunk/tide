@@ -2,8 +2,8 @@
 #define TIDE_BDECODE_HEADER
 
 #include "string_view.hpp"
+#include "error_code.hpp"
 
-#include <system_error>
 #include <stdexcept>
 #include <iterator>
 #include <sstream>
@@ -35,16 +35,16 @@ enum class bencode_errc
     unknown_type,
 };
 
-struct bencode_error_category : public std::error_category
+struct bencode_error_category : public error_category
 {
     const char* name() const noexcept override { return "bencode"; }
     std::string message(int env) const override;
-    std::error_condition default_error_condition(int ev) const noexcept override;
+    error_condition default_error_condition(int ev) const noexcept override;
 };
 
 const bencode_error_category& bencode_category();
-std::error_code make_error_code(bencode_errc e);
-std::error_condition make_error_condition(bencode_errc e);
+error_code make_error_code(bencode_errc e);
+error_condition make_error_condition(bencode_errc e);
 
 } // namespace tide
 
@@ -120,9 +120,9 @@ namespace detail {
 
 class bcontainer;
 void format_map(std::stringstream& ss, const bcontainer& map,
-    const btoken* head = nullptr, int nesting_level = 0);
+        const btoken* head = nullptr, int nesting_level = 0);
 void format_list(std::stringstream& ss, const bcontainer& list,
-    const btoken* head = nullptr, int nesting_level = 0);
+        const btoken* head = nullptr, int nesting_level = 0);
 
 /**
  * Defines common operations for container type bencode classes (list, map).
@@ -146,7 +146,6 @@ class bcontainer
     const btoken* head_ = nullptr;
 
 protected:
-
     bcontainer() = default;
 
     /**
@@ -190,7 +189,6 @@ protected:
     }
 
 public:
-
     bcontainer(const bcontainer& other)
         : tokens_(other.tokens_)
         , encoded_(other.encoded_)
@@ -253,13 +251,13 @@ public:
     string_view encode() const;
 
     friend void format_map(std::stringstream& ss, const bcontainer& map,
-        const btoken* head, int nesting_level);
+            const btoken* head, int nesting_level);
     friend void format_list(std::stringstream& ss, const bcontainer& list,
-        const btoken* head, int nesting_level);
+            const btoken* head, int nesting_level);
 };
 
 inline string_view make_string_view_from_token(
-    const std::string& encoded, const btoken& token)
+        const std::string& encoded, const btoken& token)
 {
     assert(token.offset < encoded.length());
     const int str_length = std::atoi(&encoded[token.offset]);
@@ -359,7 +357,6 @@ class blist final : public detail::bcontainer, public belement
     template<typename BType, btype TokenType> class list_proxy;
 
 public:
-
     using numbers = list_proxy<int64_t, btype::number>;
     using strings = list_proxy<std::string, btype::string>;
     using string_views = list_proxy<string_view, btype::string>;
@@ -428,7 +425,6 @@ public:
     }
 
 private:
-
     template<typename BType, btype TokenType> friend class list_proxy;
 
     /**
@@ -506,7 +502,6 @@ private:
             const btoken* pos_;
 
         public:
-
             const_iterator() = default;
 
             /** pos must point to the first token in the list that matches TokenType. */
@@ -609,7 +604,6 @@ private:
 class bmap final : public detail::bcontainer, public belement
 {
 public:
-
     bmap() = default;
 
     bmap(std::vector<btoken>&& tokens, std::string&& encoded)
@@ -754,7 +748,6 @@ public:
     }
 
 private:
-
     /**
      * Returns the first value in map (no matter at which level of nesting) whose key
      * matches the search key, or a nullptr if no match is found.
@@ -764,14 +757,14 @@ private:
      * start_pos must be a map token (i.e. a token with type == btype::map).
      */
     const btoken* find_token(const std::string& key,
-        const btoken* start_pos = nullptr) const noexcept;
+            const btoken* start_pos = nullptr) const noexcept;
 
     /**
      * If list nested in this map (starting at token) has any nested maps, the search
      * for key is continued in them, otherwise nullptr is returned.
      */
     const btoken* find_token_in_list(
-        const std::string& key, const btoken* token) const noexcept;
+            const std::string& key, const btoken* token) const noexcept;
 };
 
 inline std::ostream& operator<<(std::ostream& out, const blist& b)
@@ -790,14 +783,14 @@ inline std::ostream& operator<<(std::ostream& out, const bmap& b)
  * The resulting bmap instance takes ownership of the intput string.
  */
 bmap decode_bmap(std::string s);
-bmap decode_bmap(std::string s, std::error_code& error);
+bmap decode_bmap(std::string s, error_code& error);
 
 /**
  * Decodes a bencoded list into a blist instance.
  * The resulting blist instance takes ownership of the intput string.
  */
 blist decode_blist(std::string s);
-blist decode_blist(std::string s, std::error_code& error);
+blist decode_blist(std::string s, error_code& error);
 
 /**
  * Returns one of the four bencode types. If the parsed type is a single bnumber or
@@ -805,7 +798,7 @@ blist decode_blist(std::string s, std::error_code& error);
  * the container takes ownership of the input string.
  */
 std::unique_ptr<belement> decode(std::string s);
-std::unique_ptr<belement> decode(std::string s, std::error_code& error);
+std::unique_ptr<belement> decode(std::string s, error_code& error);
 
 } // namespace tide
 

@@ -59,8 +59,8 @@ class torrent;
 class torrent_frontend
 {
     std::shared_ptr<torrent> torrent_;
-public:
 
+public:
     torrent_frontend() = default;
     explicit torrent_frontend(torrent& t);
 
@@ -87,11 +87,12 @@ public:
      * piece completion handler, which when invoked, posts the piece's hash result to
      * all the peers attached to piece_download, to which the saved block belongs.
      */
-    void save_block(const block_info& block_info, disk_buffer block_data,
-        piece_download& download, std::function<void(const std::error_code&)> handler);
+    void save_block(const block_info& block_info,
+            disk_buffer block_data, piece_download& download,
+            std::function<void(const std::error_code&)> handler);
 
     void fetch_block(const block_info& block_info,
-        std::function<void(const std::error_code&, block_source)> handler);
+            std::function<void(const std::error_code&, block_source)> handler);
 
     /**
      * If we're gracefully stopping, which is an async operation, torrent needs to know 

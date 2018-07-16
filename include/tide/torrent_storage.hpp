@@ -4,6 +4,7 @@
 #include "torrent_info.hpp"
 #include "string_view.hpp"
 #include "block_info.hpp"
+#include "error_code.hpp"
 #include "interval.hpp"
 #include "bdecode.hpp"
 #include "bencode.hpp"
@@ -12,7 +13,6 @@
 #include "path.hpp"
 #include "file.hpp"
 
-#include <system_error>
 #include <memory>
 #include <vector>
 
@@ -100,13 +100,12 @@ class torrent_storage
     int64_t size_ = 0; // const
 
 public:
-
     /**
      * Initializes internal file entries, and if torrent is multi-file, establishes
      * the final directory structure (but does not allocate any files).
      */
     torrent_storage(const torrent_info& info,
-        string_view piece_hashes, path resume_data_path);
+            string_view piece_hashes, path resume_data_path);
     torrent_storage(const torrent_storage&) = delete;
     torrent_storage& operator=(const torrent_storage&) = delete;
     torrent_storage(torrent_storage&&) = default;
@@ -150,7 +149,7 @@ public:
      * fields in file_slice are 0. This can happen if the block is not in file.
      */
     file_slice get_file_slice(const file_index_t file,
-        const block_info& block) const noexcept;
+            const block_info& block) const noexcept;
 
     /** Returns the expected 20 byte SHA-1 hash for this piece. */
     sha1_hash expected_piece_hash(const piece_index_t piece) const noexcept;
@@ -163,7 +162,7 @@ public:
     void want_file(const file_index_t file) noexcept;
     void dont_want_file(const file_index_t file) noexcept;
 
-    void erase_file(const file_index_t file, std::error_code& error);
+    void erase_file(const file_index_t file, error_code& error);
 
     /**
      * Moves the entire download, that is, if torrent is multi-file, moves the root
@@ -173,11 +172,11 @@ public:
      * file in single-file mode. The new root directory will be at path / torrent name
      * for multi-file and at path for single-file.
      */
-    void move(path path, std::error_code& error);
+    void move(path path, error_code& error);
 
-    void move_resume_data(path path, std::error_code& error);
-    bmap read_resume_data(std::error_code& error);
-    void write_resume_data(const bmap_encoder& resume_data, std::error_code& error);
+    void move_resume_data(path path, error_code& error);
+    bmap read_resume_data(error_code& error);
+    void write_resume_data(const bmap_encoder& resume_data, error_code& error);
 
     /**
      * Hashes every downloaded piece and compares them to their expected values, if they
@@ -191,9 +190,9 @@ public:
      * should be parallelized using the second overload, partitioning the number of
      * pieces as necessary.
      */
-    void check_storage_integrity(bitfield& pieces, std::error_code& error);
+    void check_storage_integrity(bitfield& pieces, error_code& error);
     void check_storage_integrity(bitfield& pieces, int first_piece,
-        int num_pieces_to_check, std::error_code& error);
+            int num_pieces_to_check, error_code& error);
 
     /**
      * Returns a list of memory mapped objects that fully cover the specified portion
@@ -209,9 +208,9 @@ public:
      * already been.
      */
     std::vector<mmap_source> create_mmap_sources(
-        const block_info& info, std::error_code& error);
+            const block_info& info, error_code& error);
     //std::vector<mmap_sink> create_mmap_sink( // TODO
-        //const block_info& info, std::error_code& error);
+            //const block_info& info, error_code& error);
 
     /**
      * Blocking scatter-gather IO.
@@ -229,15 +228,14 @@ public:
      *
      * TODO ensure atomicity for these operations
      */
-    void read(iovec buffer, const block_info& info, std::error_code& error);
-    void read(std::vector<iovec> buffers, const block_info& info, std::error_code& error);
-    void read(view<disk_buffer> buffers, const block_info& info, std::error_code& error);
-    void write(iovec buffer, const block_info& info, std::error_code& error);
-    void write(std::vector<iovec> buffers, const block_info& info, std::error_code& error);
-    void write(view<disk_buffer> buffers, const block_info& info, std::error_code& error);
+    void read(iovec buffer, const block_info& info, error_code& error);
+    void read(std::vector<iovec> buffers, const block_info& info, error_code& error);
+    void read(view<disk_buffer> buffers, const block_info& info, error_code& error);
+    void write(iovec buffer, const block_info& info, error_code& error);
+    void write(std::vector<iovec> buffers, const block_info& info, error_code& error);
+    void write(view<disk_buffer> buffers, const block_info& info, error_code& error);
 
 private:
-
     /**
      * We don't expose these as buffers' iovecs are modified during both calls, which
      * would lead to surprises (iovecs at file boundaries are modified to align with
@@ -249,8 +247,8 @@ private:
      should add a check to ensure that num_bytes_in_buffers == info.length or we
      should map files according to the length of the buffers
      */
-    void read(view<iovec> buffers, const block_info& info, std::error_code& error);
-    void write(view<iovec> buffers, const block_info& info, std::error_code& error);
+    void read(view<iovec> buffers, const block_info& info, error_code& error);
+    void write(view<iovec> buffers, const block_info& info, error_code& error);
 
     /**
      * Maps each file in torrent_info::files to a file_entry with correct data set up. 
@@ -271,14 +269,14 @@ private:
      * function checks and takes care of doing so if necessary. If otherwise it's
      * allocated just not open, it is opened.
      */
-    void before_writing(file& file, std::error_code& error);
+    void before_writing(file& file, error_code& error);
 
     /**
      * When reading, files must already be allocated, so if they aren't, an error is
      * set. If otherwise it's allocated just not open, it is opened.
      */
-    void before_reading(file_entry& file, std::error_code& error);
-    void before_reading(file& file, std::error_code& error);
+    void before_reading(file_entry& file, error_code& error);
+    void before_reading(file& file, error_code& error);
 
     /**
      * Both reading from, writing to and mapping files (the portions of them that
@@ -292,19 +290,19 @@ private:
      * int(file_entry&,     // the current file on which to operate
      *     file_slice&      // the offset into the file where block starts and the
      *                      // number of bytes that block occupies in file
-     *     std::error_code& // this must be set to any io error that occured, after
+     *     error_code& // this must be set to any io error that occured, after
      *                      // this function will stop immediately
      * )
      */
-    template<typename Function> void for_each_file(Function fn,
-        const block_info& block, std::error_code& error);
+    template<typename Function>
+    void for_each_file(Function fn, const block_info& block, error_code& error);
 
     /**
      * Returns the position where in file offset, which refers to the offset in
      * all files combined, is and how much of length is contained in file.
      */
     file_slice get_file_slice(const file_entry& file,
-        int64_t torrent_offset, int64_t length) const noexcept;
+            int64_t torrent_offset, int64_t length) const noexcept;
 
     /** Returns a range of files that contain some portion of the block or piece. */
     view<file_entry> files_containing_block(const block_info& block);

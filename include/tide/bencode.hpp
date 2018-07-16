@@ -21,6 +21,7 @@ class bmap_encoder
     {
         friend class bmap_encoder;
         std::string value_;
+
     public:
         proxy() = default;
         // overloads so that map["key"] = value becomes valid
@@ -42,7 +43,6 @@ class bmap_encoder
     std::map<std::string, proxy> map_;
 
 public:
-
     proxy& operator[](const std::string& key) { return map_[key]; }
 
     std::string encode() const;
@@ -57,7 +57,6 @@ class blist_encoder
     int num_bytes_ = 2;
 
 public:
-
     void push_back(int64_t n);
     void push_back(string_view s);
     void push_back(const blist_encoder& l);

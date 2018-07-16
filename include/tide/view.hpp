@@ -28,12 +28,10 @@ template<typename T> struct view
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
 private:
-
     pointer data_ = nullptr;
     size_type length_ = 0;
 
 public:
-
     view() = default;
 
     constexpr view(pointer data, size_type length)
