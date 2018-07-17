@@ -37,7 +37,8 @@ engine::~engine()
 
 TIDE_NETWORK_THREAD
 inline void engine::move_torrent_to_position(
-        std::vector<std::shared_ptr<torrent>>& torrents, int curr_pos, const int pos)
+        std::vector<std::shared_ptr<torrent>>& torrents,
+        int curr_pos, const int pos)
 {
     if((curr_pos == pos) || (pos < 0) || (pos >= torrents.size())) { return; }
     using std::swap;
@@ -271,7 +272,7 @@ void engine::fill_in_defaults(settings& s)
 /** Attempts to query the system for RAM info and if it fails it returns an estimate. */
 inline system::ram ram_status()
 {
-    std::error_code error;
+    error_code error;
     auto ram = system::ram_status(error);
     if(error)
     {
@@ -339,6 +340,13 @@ void engine::fill_in_defaults(disk_io_settings& s)
 
 void engine::fill_in_defaults(torrent_args& args)
 {
+    // The name field for a file in metainfo in single file mode is optional, so
+    // it may be empty. In this case, we need to fill it in with the torrent's
+    // name.
+    if(args.metainfo.files.size() == 1 && args.metainfo.files.front().path.empty())
+    {
+        // TODO
+    }
 }
 
 void engine::apply_settings(settings s)
@@ -548,7 +556,7 @@ inline void engine::apply_peer_session_settings_impl(peer_session_settings s)
 }
 
 TIDE_NETWORK_THREAD
-void engine::update(const std::error_code& error)
+void engine::update(const error_code& error)
 {
     if(error)
     {
@@ -574,7 +582,7 @@ void engine::update(const std::error_code& error)
     cached_clock::update();
     ts_cached_clock::set(cached_clock::now());
     start_timer(update_timer_, milliseconds(100),
-            [this](const std::error_code& error) { update(error); });
+            [this](const error_code& error) { update(error); });
 }
 
 TIDE_NETWORK_THREAD
@@ -721,7 +729,7 @@ void engine::parse_metainfo(const path& path)
 {
     asio::post(network_ios_, [this, path]
     {
-        disk_io_.read_metainfo(path, [this](const std::error_code& error, metainfo m)
+        disk_io_.read_metainfo(path, [this](const error_code& error, metainfo m)
         {
             if(error)
                 alert_queue_.emplace<error_alert>(error);

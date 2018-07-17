@@ -7,13 +7,13 @@
 #include "rate_limiter.hpp"
 #include "alert_queue.hpp"
 #include "engine_info.hpp"
+#include "error_code.hpp"
 #include "settings.hpp"
 #include "metainfo.hpp"
 #include "disk_io.hpp"
 #include "torrent.hpp"
 #include "types.hpp"
 
-#include <system_error>
 #include <functional>
 #include <cstdint>
 #include <thread>
@@ -86,7 +86,7 @@ class engine
     settings settings_;
 
     // We want to keep `network_ios_` running indefinitely until shutdown, so
-    // keep it busy with this work object.
+    // keep it busy with this work guard.
     asio::executor_work_guard<asio::io_context::executor_type> work_;
 
     // This is the acceptor on which we're listening for inbound TCP
@@ -210,7 +210,7 @@ private:
     std::vector<tracker_entry> get_trackers(const metainfo& metainfo);
     bool has_tracker(string_view url) const noexcept;
 
-    void update(const std::error_code& error = std::error_code());
+    void update(const error_code& error = error_code());
 
     /** Moves all torrents that became seeds in `leeches_` to `seeds_`. */
     void relocate_new_seeds();
