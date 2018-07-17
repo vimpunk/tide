@@ -21,6 +21,7 @@
 #include <mutex>
 
 #include <asio/io_context.hpp>
+#include <asio/executor_work_guard.hpp>
 
 namespace tide {
 
@@ -86,7 +87,7 @@ class engine
 
     // We want to keep `network_ios_` running indefinitely until shutdown, so
     // keep it busy with this work object.
-    asio::io_context::work work_;
+    asio::executor_work_guard<asio::io_context::executor_type> work_;
 
     // This is the acceptor on which we're listening for inbound TCP
     // connections.

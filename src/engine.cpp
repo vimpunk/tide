@@ -18,7 +18,7 @@ namespace tide {
 
 engine::engine(settings s)
     : disk_io_(network_ios_, settings_.disk_io)
-    , work_(network_ios_)
+    , work_(asio::make_work_guard(network_ios_))
     , acceptor_(network_ios_)
     , update_timer_(network_ios_)
 {
