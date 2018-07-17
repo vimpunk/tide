@@ -54,7 +54,8 @@ class send_buffer
         int size() const noexcept override { return bytes.size(); }
     };
 
-    template<size_t N> struct raw_fixed_buffer_holder final : public buffer_holder
+    template<size_t N> struct
+    raw_fixed_buffer_holder final : public buffer_holder
     {
         std::array<uint8_t, N> bytes;
 
@@ -69,7 +70,8 @@ class send_buffer
         int size() const noexcept override { return bytes.size(); }
     };
 
-    template<typename DiskBuffer> struct disk_buffer_holder final : public buffer_holder
+    template<typename DiskBuffer>
+    struct disk_buffer_holder final : public buffer_holder
     {
         DiskBuffer bytes;
 
@@ -96,7 +98,6 @@ class send_buffer
     int size_ = 0;
 
 public:
-
     bool empty() const noexcept;
     int size() const noexcept;
 
@@ -108,11 +109,12 @@ public:
     void append(const block_source& block);
 
     /**
-     * Returns an asio ConstBufferSequence compliant list of buffers whose total size is
-     * at most num_bytes (less if there aren't that many bytes available for sending).
+     * Returns an asio ConstBufferSequence compliant list of buffers whose total
+     * size is at most num_bytes (less if there aren't that many bytes available
+     * for sending).
      */
-    // TODO find a way to not have to build a vector every time we send something
-    // maybe somehow return a view to a vector stored in the class?
+    // TODO find a way to not have to build a vector every time we send
+    // something maybe somehow return a view to a vector stored in the class?
     std::vector<asio::const_buffer> get_buffers(int num_bytes) const;
 
     /**

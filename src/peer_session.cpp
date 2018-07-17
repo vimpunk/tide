@@ -23,6 +23,7 @@
 #endif // TIDE_ENABLE_LOGGING
 
 #include <asio/io_context.hpp>
+#include <asio/io_context.hpp>
 
 namespace tide {
 
@@ -632,7 +633,7 @@ void peer_session::receive()
     }
 
     view<uint8_t> buffer = message_parser_.get_receive_buffer(num_to_receive);
-    socket_->async_read_some(asio::mutable_buffers_1(buffer.data(), buffer.size()),
+    socket_->async_read_some(asio::buffer(buffer.data(), buffer.size()),
             [SHARED_THIS](const error_code& error, size_t num_bytes_received)
             { on_received(error, num_bytes_received); });
 

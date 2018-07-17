@@ -3,8 +3,6 @@ project(tide)
 
 set(CMAKE_CXX_STANDARD 17)
 
-#option(DEBUG "debug build" OFF)
-
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
     message("Configuring Debug build...")
     add_definitions(-DTIDE_ENABLE_LOGGING)

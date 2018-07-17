@@ -175,14 +175,20 @@ struct metainfo_parsed_alert final : public alert
 };
 
 /** Convenience method to cast an alert to the specified one. */
-template<typename T>
-T* alert_cast(alert* a)
+template<typename Alert>
+Alert* alert_cast(alert* a) noexcept
 {
-    static_assert(std::is_base_of<alert, T>::value,
+    static_assert(std::is_base_of<alert, typename std::decay<Alert>::type>::value,
         "alert_cast may only be used with types inheriting from alert");
 
-    if(a && dynamic_cast<T*>(a)) { return dynamic_cast<T*>(a); }
+    if(a && dynamic_cast<Alert*>(a)) { return dynamic_cast<Alert*>(a); }
     return nullptr;
+}
+
+template<typename Alert>
+bool is(const alert& a) noexcept
+{
+    return alert_cast<const Alert>(const_cast<alert*>(&a)) != nullptr;
 }
 
 } // tide

@@ -201,7 +201,7 @@ void peer_session_logger::log(const torrent_id_t torrent, const tcp::endpoint& e
 #endif // TIDE_ENABLE_LOGGING
 }
 
-} // namespace detail
+} // detail
 
 void log_torrent(const torrent_id_t torrent, const std::string& header,
         const std::string& log, const priority priority)

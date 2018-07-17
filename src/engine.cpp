@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <cassert>
 
+#include <asio/post.hpp>
+
 #include <iostream>
 
 // Functions that have this in their signature are executed on the network thread, which
@@ -80,7 +82,7 @@ void engine::find_torrent_and_execute(const torrent_handle& torrent, Function fn
 void engine::set_torrent_queue_position(const torrent_handle& torrent, const int pos)
 {
     if(pos < 0) { throw std::invalid_argument("pos must be larger than 0"); }
-    network_ios_.post([this, torrent, pos]
+    asio::post(network_ios_, [this, torrent, pos]
     {
         find_torrent_and_execute(torrent, [this, pos](auto& torrents, auto it)
             { move_torrent_to_position(torrents, it - torrents.begin(), pos); });
@@ -89,7 +91,7 @@ void engine::set_torrent_queue_position(const torrent_handle& torrent, const int
 
 void engine::increment_torrent_queue_position(const torrent_handle& torrent)
 {
-    network_ios_.post([this, torrent]
+    asio::post(network_ios_, [this, torrent]
     {
         find_torrent_and_execute(torrent,
             [this](auto& torrents, auto it)
@@ -102,7 +104,7 @@ void engine::increment_torrent_queue_position(const torrent_handle& torrent)
 
 void engine::decrement_torrent_queue_position(const torrent_handle& torrent)
 {
-    network_ios_.post([this, torrent]
+    asio::post(network_ios_, [this, torrent]
     {
         find_torrent_and_execute(torrent,
             [this](auto& torrents, auto it)
@@ -115,7 +117,7 @@ void engine::decrement_torrent_queue_position(const torrent_handle& torrent)
 
 void engine::move_torrent_to_queue_top(const torrent_handle& torrent)
 {
-    network_ios_.post([this, torrent]
+    asio::post(network_ios_, [this, torrent]
     {
         find_torrent_and_execute(torrent, [this](auto& torrents, auto it)
             { move_torrent_to_position(torrents, it - torrents.begin(), 0); });
@@ -124,7 +126,7 @@ void engine::move_torrent_to_queue_top(const torrent_handle& torrent)
 
 void engine::move_torrent_to_queue_bottom(const torrent_handle& torrent)
 {
-    network_ios_.post([this, torrent]
+    asio::post(network_ios_, [this, torrent]
     {
         find_torrent_and_execute(torrent,
             [this](auto& torrents, auto it)
@@ -343,7 +345,7 @@ void engine::apply_settings(settings s)
 {
     verify(s);
     fill_in_defaults(s);
-    network_ios_.post([this, s = std::move(s)]() mutable
+    asio::post(network_ios_, [this, s = std::move(s)]() mutable
     {
         apply_disk_io_settings_impl(std::move(s.disk_io));
         apply_torrent_settings_impl(std::move(s.torrent));
@@ -430,22 +432,23 @@ void engine::apply_max_connections_setting(const int max_connections)
 TIDE_NETWORK_THREAD
 void engine::apply_max_active_leeches_setting(const int max_active_leeches)
 {
-    apply_max_active_torrents_setting(leeches_,
-        info_.num_active_leeches, max_active_leeches);
+    info_.num_active_leeches = apply_max_active_torrents_setting(leeches_,
+            info_.num_active_leeches, max_active_leeches);
     settings_.max_active_leeches = max_active_leeches;
 }
 
 TIDE_NETWORK_THREAD
 void engine::apply_max_active_seeds_setting(const int max_active_seeds)
 {
-    apply_max_active_torrents_setting(seeds_, info_.num_active_seeds, max_active_seeds);
+    info_.num_active_seeds = apply_max_active_torrents_setting(seeds_,
+            info_.num_active_seeds, max_active_seeds);
     settings_.max_active_seeds = max_active_seeds;
 }
 
 TIDE_NETWORK_THREAD
-void engine::apply_max_active_torrents_setting(
+int engine::apply_max_active_torrents_setting(
         std::vector<std::shared_ptr<torrent>>& torrents,
-        int& num_active, const int max_active)
+        int num_active, const int max_active)
 {
     if(num_active > max_active)
     {
@@ -467,6 +470,7 @@ void engine::apply_max_active_torrents_setting(
             ++num_active;
         }
     }
+    return num_active;
 }
 
 TIDE_NETWORK_THREAD
@@ -480,7 +484,7 @@ void engine::apply_disk_io_settings(disk_io_settings s)
 {
     verify(s);
     fill_in_defaults(s);
-    network_ios_.post([this, s = std::move(s)]
+    asio::post(network_ios_, [this, s = std::move(s)]
         { apply_disk_io_settings_impl(std::move(s)); });
 }
 
@@ -497,7 +501,7 @@ inline void engine::apply_disk_io_settings_impl(disk_io_settings s)
 void engine::apply_torrent_settings(torrent_settings s)
 {
     verify(s);
-    network_ios_.post([this, s = std::move(s)]
+    asio::post(network_ios_, [this, s = std::move(s)]
         { apply_torrent_settings_impl(std::move(s)); });
 }
 
@@ -511,7 +515,7 @@ inline void engine::apply_torrent_settings_impl(torrent_settings s)
 void engine::apply_peer_session_settings(peer_session_settings s)
 {
     verify(s);
-    network_ios_.post([this, s = std::move(s)]
+    asio::post(network_ios_, [this, s = std::move(s)]
         { apply_peer_session_settings_impl(std::move(s)); });
 }
 
@@ -696,12 +700,12 @@ void engine::for_each_torrent(Function fn)
 
 void engine::pause()
 {
-    network_ios_.post([this] { for_each_torrent([](torrent& t) { t.stop(); }); });
+    asio::post(network_ios_, [this] { for_each_torrent([](torrent& t) { t.stop(); }); });
 }
 
 void engine::resume()
 {
-    network_ios_.post([this] { for_each_torrent([](torrent& t) { t.start(); }); });
+    asio::post(network_ios_, [this] { for_each_torrent([](torrent& t) { t.start(); }); });
 }
 
 std::deque<std::unique_ptr<alert>> engine::alerts()
@@ -711,7 +715,7 @@ std::deque<std::unique_ptr<alert>> engine::alerts()
 
 void engine::parse_metainfo(const path& path)
 {
-    network_ios_.post([this, path]
+    asio::post(network_ios_, [this, path]
     {
         disk_io_.read_metainfo(path,
             [this](const std::error_code& error, metainfo m)
@@ -728,8 +732,7 @@ void engine::add_torrent(torrent_args args)
 {
     verify(args);
     fill_in_defaults(args);
-    // TODO fill in default args if user didn't provide optional settings
-    network_ios_.post([this, args = std::move(args)]
+    asio::post(network_ios_, [this, args = std::move(args)]
     {
         const bool start_in_paused = args.start_in_paused;
         const torrent_id_t torrent_id = next_torrent_id();
