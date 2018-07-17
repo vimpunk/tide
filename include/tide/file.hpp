@@ -1,6 +1,7 @@
 #ifndef TIDE_FILE_HEADER
 #define TIDE_FILE_HEADER
 
+#include "error_code.hpp"
 #include "flag_set.hpp"
 #include "system.hpp"
 #include "iovec.hpp"
@@ -9,8 +10,8 @@
 #include "path.hpp"
 #include "mmap.hpp"
 
-#include <system_error>
 #include <cstdint>
+#include <type_traits> // true_type
 
 #ifdef _WIN32
 # ifndef WIN32_LEAN_AND_MEAN
@@ -51,16 +52,16 @@ inline bool operator!=(const int i, const file_errc e) noexcept
     return !(e == i);
 }
 
-struct file_error_category : public std::error_category
+struct file_error_category : public error_category
 {
     const char* name() const noexcept override { return "file"; }
     std::string message(int env) const override;
-    std::error_condition default_error_condition(int ev) const noexcept override;
+    error_condition default_error_condition(int ev) const noexcept override;
 };
 
 const file_error_category& file_category();
-std::error_code make_error_code(file_errc e);
-std::error_condition make_error_condition(file_errc e);
+error_code make_error_code(file_errc e);
+error_condition make_error_condition(file_errc e);
 
 struct file
 {
@@ -89,7 +90,6 @@ struct file
     using size_type = int64_t;
 
 private:
-
     handle_type file_handle_ = INVALID_HANDLE_VALUE;
     path absolute_path_;
     bool is_allocated_ = false;
@@ -97,7 +97,6 @@ private:
     open_mode_flags open_mode_;
 
 public:
-
     /**
      * Default constructed file is invalid (i.e. its handler is invalid).
      *
@@ -121,8 +120,8 @@ public:
      * Closing a file does NOT sync the file page with the one on disk, so make sure to
      * all `sync_with_disk` if needed.
      */
-    void open(std::error_code& error);
-    void open(open_mode_flags open_mode, std::error_code& error);
+    void open(error_code& error);
+    void open(open_mode_flags open_mode, error_code& error);
     void close();
 
     /**
@@ -138,8 +137,8 @@ public:
      * caused it to shrink, the truncated data is lost, but the rest is the same as
      * before, and if file grew, the new bytes are 0.
      */
-    void allocate(std::error_code& error);
-    void allocate(const size_type length, std::error_code& error);
+    void allocate(error_code& error);
+    void allocate(const size_type length, error_code& error);
 
     /**
      * Removes the data associated with this file from disk. After the successful
@@ -147,8 +146,8 @@ public:
      *
      * NOTE: file must be closed before invoking `erase`.
      */
-    void erase(std::error_code& error);
-    void move(const path& new_path, std::error_code& error);
+    void erase(error_code& error);
+    void move(const path& new_path, error_code& error);
 
     /**
      * Note that so as not to make a system call with each call to `size` and `length`,
@@ -159,7 +158,7 @@ public:
      */
     size_type size() const noexcept;
     size_type length() const noexcept;
-    size_type query_size(std::error_code& error) const noexcept;
+    size_type query_size(error_code& error) const noexcept;
 
     const path& absolute_path() const;
     std::string filename() const;
@@ -184,9 +183,9 @@ public:
      * uninitialized.
      */
     mmap_source create_mmap_source(const size_type file_offset,
-        const size_type length, std::error_code& error);
+            const size_type length, error_code& error);
     mmap_sink create_mmap_sink(const size_type file_offset,
-        const size_type length, std::error_code& error);
+            const size_type length, error_code& error);
 
     /**
      * Reads or writes a single buffer and returns the number of bytes read/written, or
@@ -196,10 +195,10 @@ public:
      *
      * An exception is thrown if file_offset is invalid.
      */
-    size_type read(view<uint8_t> buffer, size_type file_offset, std::error_code& error);
-    size_type read(iovec buffer, size_type file_offset, std::error_code& error);
-    size_type write(view<uint8_t> buffer, size_type file_offset, std::error_code& error);
-    size_type write(iovec buffer, size_type file_offset, std::error_code& error);
+    size_type read(view<uint8_t> buffer, size_type file_offset, error_code& error);
+    size_type read(iovec buffer, size_type file_offset, error_code& error);
+    size_type write(view<uint8_t> buffer, size_type file_offset, error_code& error);
+    size_type write(iovec buffer, size_type file_offset, error_code& error);
 
     /**
      * These two functions are scatter-gather operations in that multiple buffers may
@@ -233,25 +232,23 @@ public:
      * these functions return, the buffers view can just be passed to the next file.
      */
     size_type read(view<iovec>& buffers,
-        const size_type file_offset, std::error_code& error);
+            const size_type file_offset, error_code& error);
     size_type write(view<iovec>& buffers,
-        const size_type file_offset, std::error_code& error);
+            const size_type file_offset, error_code& error);
 
     /** If we're in write mode, syncs the file buffer in the OS page cache with disk. */
-    void sync_with_disk(std::error_code& error);
+    void sync_with_disk(error_code& error);
 
 private:
 
     void before_mapping_source(const size_type file_offset,
-        const size_type length, std::error_code& error) const noexcept;
+            const size_type length, error_code& error) const noexcept;
     void before_mapping_sink(const size_type file_offset,
-        const size_type length, std::error_code& error) const noexcept;
-    void before_reading(const size_type file_offset,
-        std::error_code& error) const noexcept;
-    void before_writing(const size_type file_offset,
-        std::error_code& error) const noexcept;
-    void verify_handle(std::error_code& error) const;
-    void verify_file_offset(const size_type file_offset, std::error_code& error) const;
+            const size_type length, error_code& error) const noexcept;
+    void before_reading(const size_type file_offset, error_code& error) const noexcept;
+    void before_writing(const size_type file_offset, error_code& error) const noexcept;
+    void verify_handle(error_code& error) const;
+    void verify_file_offset(const size_type file_offset, error_code& error) const;
 
     /**
      * Abstracts away the plumbing behind a single pread/pwrite operation: repeatedly
@@ -264,7 +261,7 @@ private:
      */
     template<typename PIOFunction>
     size_type single_buffer_io(iovec buffer, size_type file_offset,
-        std::error_code& error, PIOFunction fn);
+            error_code& error, PIOFunction fn);
 
     /**
      * Abstracts away scatter-gather IO by repeatedly calling the supplied pread or
@@ -280,7 +277,7 @@ private:
      */
     template<typename PIOFunction>
     size_type repeated_positional_io(view<iovec>& buffers, size_type file_offset,
-        std::error_code& error, PIOFunction fn);
+            error_code& error, PIOFunction fn);
 
     /**
      * Abstraction around preadv/writev functions, which imparts the responsibility of
@@ -296,7 +293,7 @@ private:
      */
     template<typename PVIOFunction>
     size_type positional_vector_io(view<iovec>& buffers, size_type file_offset,
-        std::error_code& error, PVIOFunction pvio_fn);
+            error_code& error, PVIOFunction pvio_fn);
 };
 
 namespace util {
@@ -363,9 +360,9 @@ inline bool file::is_allocated() const noexcept
 
 } // namespace tide
 
-namespace std
+namespace TIDE_ERROR_CODE_NS
 {
-    template<> struct is_error_code_enum<tide::file_errc> : public true_type {};
+    template<> struct is_error_code_enum<tide::file_errc> : public std::true_type {};
 }
 
 #endif // TIDE_FILE_HEADER

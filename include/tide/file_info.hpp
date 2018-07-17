@@ -1,9 +1,8 @@
 #ifndef TIDE_FILE_INFO_HEADER
 #define TIDE_FILE_INFO_HEADER
 
-#include "path.hpp"
-
 #include <cstdint>
+#include <filesystem>
 
 namespace tide {
 
@@ -12,7 +11,7 @@ struct file_info
     // A relative path. This is so that when user moves torrent, no file data has to
     // be changed, only a single internal root path field.
     // At this point path has been sanitized, so it is safe to use.
-    class path path;
+    std::filesystem::path path;
     // In bytes.
     int64_t length;
     // How many bytes of the file we have downloaded.
@@ -21,7 +20,7 @@ struct file_info
     bool is_wanted = true;
 
     file_info() = default;
-    file_info(class path p, int64_t l)
+    file_info(std::filesystem::path p, int64_t l)
         : path(std::move(p))
         , length(l)
     {}

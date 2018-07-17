@@ -1,7 +1,9 @@
 #ifndef TIDE_PEER_SESSION_ERROR_HEADER
 #define TIDE_PEER_SESSION_ERROR_HEADER
 
-#include <system_error>
+#include "error_code.hpp"
+
+#include <type_traits> // true_type
 #include <string>
 
 namespace tide {
@@ -100,22 +102,22 @@ enum class peer_session_errc
     unwanted_blocks
 };
 
-struct peer_session_error_category : public std::error_category
+struct peer_session_error_category : public error_category
 {
     const char* name() const noexcept override { return "peer_session"; }
     std::string message(int env) const override;
-    std::error_condition default_error_condition(int ev) const noexcept override;
+    error_condition default_error_condition(int ev) const noexcept override;
 };
 
 const peer_session_error_category& peer_session_category();
-std::error_code make_error_code(peer_session_errc e);
-std::error_condition make_error_condition(peer_session_errc e);
+error_code make_error_code(peer_session_errc e);
+error_condition make_error_condition(peer_session_errc e);
 
 } // namespace tide
 
-namespace std
-{
-    template<> struct is_error_code_enum<tide::peer_session_errc> : public true_type {};
+namespace TIDE_ERROR_CODE_NS {
+    template<>
+    struct is_error_code_enum<tide::peer_session_errc> : public std::true_type {};
 }
 
 // for more info:

@@ -15,8 +15,7 @@ namespace tide {
 
 // A `shared_ptr` to info is passed in case torrent is removed while this is running.
 torrent_storage::torrent_storage(const torrent_info& info,
-    string_view piece_hashes, path resume_data_path
-)
+        string_view piece_hashes, std::filesystem::path resume_data_path)
     : resume_data_(resume_data_path, 0,
         file::open_mode_flags{file::read_write, file::sequential, file::no_os_cache})
     , piece_hashes_(piece_hashes)
@@ -50,7 +49,7 @@ interval torrent_storage::pieces_in_file(const file_index_t file) const noexcept
 interval torrent_storage::files_containing_piece(const piece_index_t piece) const noexcept
 {
     auto file = std::find_if(files_.cbegin(), files_.cend(),
-        [piece](const auto& f) { return f.last_piece >= piece; });
+            [piece](const auto& f) { return f.last_piece >= piece; });
     interval result;
     if(file != files_.end())
     {
@@ -121,12 +120,12 @@ void torrent_storage::dont_want_file(const file_index_t file) noexcept
     }
 }
 
-void torrent_storage::move_resume_data(path path, std::error_code& error)
+void torrent_storage::move_resume_data(std::filesystem::path path, error_code& error)
 {
     resume_data_.move(path, error);
 }
 
-bmap torrent_storage::read_resume_data(std::error_code& error)
+bmap torrent_storage::read_resume_data(error_code& error)
 {
     error.clear();
     before_reading(resume_data_, error);
@@ -143,7 +142,7 @@ bmap torrent_storage::read_resume_data(std::error_code& error)
 }
 
 void torrent_storage::write_resume_data(
-    const bmap_encoder& resume_data, std::error_code& error)
+        const bmap_encoder& resume_data, error_code& error)
 {
     error.clear();
     if(!resume_data_.is_open())
@@ -163,7 +162,7 @@ void torrent_storage::write_resume_data(
     resume_data_.write(buffer, 0, error);
 }
 
-void torrent_storage::erase_file(const file_index_t file_index, std::error_code& error)
+void torrent_storage::erase_file(const file_index_t file_index, error_code& error)
 {
     error.clear();
     if(!is_file_index_valid(file_index))
@@ -176,7 +175,7 @@ void torrent_storage::erase_file(const file_index_t file_index, std::error_code&
     file.erase(error);
 }
 
-void torrent_storage::move(path path, std::error_code& error)
+void torrent_storage::move(std::filesystem::path path, error_code& error)
 {
     if(files_.size() == 1)
     {
@@ -201,13 +200,13 @@ void torrent_storage::move(path path, std::error_code& error)
     }
 }
 
-void torrent_storage::check_storage_integrity(bitfield& pieces, std::error_code& error)
+void torrent_storage::check_storage_integrity(bitfield& pieces, error_code& error)
 {
     check_storage_integrity(pieces, 0, num_pieces_, error);
 }
 
 void torrent_storage::check_storage_integrity(bitfield& pieces, int first_piece,
-    int num_pieces_to_check, std::error_code& error)
+        int num_pieces_to_check, error_code& error)
 {
     if(pieces.size() != num_pieces_
        || first_piece >= num_pieces_
@@ -218,7 +217,7 @@ void torrent_storage::check_storage_integrity(bitfield& pieces, int first_piece,
     }
     error.clear();
     const interval files = files_containing_pieces(
-        interval(first_piece, first_piece + num_pieces_to_check));
+            interval(first_piece, first_piece + num_pieces_to_check));
     for(auto i = files.begin; i < files.end; ++i)
     {
     }
@@ -226,74 +225,75 @@ void torrent_storage::check_storage_integrity(bitfield& pieces, int first_piece,
 }
 
 std::vector<mmap_source> torrent_storage::create_mmap_sources(
-    const block_info& info, std::error_code& error)
+        const block_info& info, error_code& error)
 {
     std::vector<mmap_source> mmaps;
     for_each_file(
-        [this, &mmaps]
-        (file_entry& file,
-         const file_slice& slice,
-         std::error_code& error) mutable -> int
-        {
-            before_reading(file, error);
-            if(error) { return 0; }
-            mmaps.emplace_back(file.storage.create_mmap_source(
-                slice.offset, slice.length, error));
-            if(error) { return 0; }
-            //assert(slice.length == mmaps.back().length());
-            return slice.length;
-        },
-        info,
-        error);
+            [this, &mmaps]
+            (file_entry& file,
+             const file_slice& slice,
+             error_code& error) mutable -> int
+            {
+                before_reading(file, error);
+                if(error) { return 0; }
+                mmaps.emplace_back(file.storage.create_mmap_source(
+                        slice.offset, slice.length, error));
+                if(error) { return 0; }
+                //assert(slice.length == mmaps.back().length());
+                return slice.length;
+            },
+            info,
+            error);
     return mmaps;
 }
 
 /*
 std::vector<mmap_sink> torrent_storage::create_mmap_sink(
-    const block_info& info, std::error_code& error)
+    const block_info& info, error_code& error)
 {
     std::vector<mmap_sink> mmaps;
     for_each_file(
-        [this, &mmaps]
-        (file_entry& file,
-         const file_slice& slice,
-         std::error_code& error) mutable -> int
-        {
-            // TODO there is the contingency in which we want to write a block to
-            // several files, but one of them is not wanted, to which we obviously
-            // don't want to write. the problem here is that we return a vector of
-            // mmap sinks which user expects to represent the contiguous blocks of
-            // memory where the block will be written. so if a file is omitted, the
-            // block will all of a sudden not be there. I don't think the whole op
-            // should fail because of this, but somehow user must know that either
-            // not all mappings have returned so don't count the mapped regions'
-            // lengths to keep track of how much of the block has been written, or
-            // that some of the mappings are false but *would* represent this much
-            // memory so user can skip that
-            return 0;
-            /*
-            num_written = file.storage.write(buffers, slice.offset, slice.length, error);
-            if(error)
+            [this, &mmaps]
+            (file_entry& file,
+             const file_slice& slice,
+             error_code& error) mutable -> int
             {
+                // TODO there is the contingency in which we want to write
+                // a block to several files, but one of them is not wanted, to
+                // which we obviously don't want to write. the problem here is
+                // that we return a vector of mmap sinks which user expects to
+                // represent the contiguous blocks of memory where the block
+                // will be written. so if a file is omitted, the block will all
+                // of a sudden not be there. I don't think the whole op should
+                // fail because of this, but somehow user must know that either
+                // not all mappings have returned so don't count the mapped
+                // regions' lengths to keep track of how much of the block has
+                // been written, or that some of the mappings are false but
+                // *would* represent this much memory so user can skip that
                 return 0;
-            }
-            //assert(slice.length == mmaps.back().length());
-            return slice.length;
-            * /
-        },
-        info,
-        error);
+                /*
+                num_written = file.storage.write(buffers, slice.offset, slice.length, error);
+                if(error)
+                {
+                    return 0;
+                }
+                //assert(slice.length == mmaps.back().length());
+                return slice.length;
+                * /
+            },
+            info,
+            error);
     return mmaps;
 }
 */
 
-void torrent_storage::read(iovec buffer, const block_info& info, std::error_code& error)
+void torrent_storage::read(iovec buffer, const block_info& info, error_code& error)
 {
     read(view<iovec>(&buffer, 1), info, error);
 }
 
 void torrent_storage::read(view<disk_buffer> buffers,
-    const block_info& info, std::error_code& error)
+        const block_info& info, error_code& error)
 {
     if(buffers.size() == 1)
     {
@@ -320,39 +320,39 @@ void torrent_storage::read(view<disk_buffer> buffers,
 }
 
 void torrent_storage::read(std::vector<iovec> buffers,
-    const block_info& info, std::error_code& error)
+        const block_info& info, error_code& error)
 {
     read(view<iovec>(buffers), info, error);
 }
 
 void torrent_storage::read(view<iovec> buffers,
-    const block_info& info, std::error_code& error)
+        const block_info& info, error_code& error)
 {
     for_each_file(
-        [this, &buffers]
-        (file_entry& file,
-         const file_slice& slice,
-         std::error_code& error) mutable -> int
-        {
-            before_reading(file, error);
-            if(error) { return 0; }
-            // Note that `file::read` trims the buffers' front by `num_read`, so we
-            // must not do it here again.
-            const int num_read = file.storage.read(buffers, slice.offset, error);
-            if(!error) { assert(num_read == slice.length); }
-            return num_read;
-        },
-        info,
-        error);
+            [this, &buffers]
+            (file_entry& file,
+             const file_slice& slice,
+             error_code& error) mutable -> int
+            {
+                before_reading(file, error);
+                if(error) { return 0; }
+                // Note that `file::read` trims the buffers' front by
+                // `num_read`, so we must not do it here again.
+                const int num_read = file.storage.read(buffers, slice.offset, error);
+                if(!error) { assert(num_read == slice.length); }
+                return num_read;
+            },
+            info,
+            error);
 }
 
-void torrent_storage::write(iovec buffer, const block_info& info, std::error_code& error)
+void torrent_storage::write(iovec buffer, const block_info& info, error_code& error)
 {
     write(view<iovec>(&buffer, 1), info, error);
 }
 
 void torrent_storage::write(view<disk_buffer> buffers,
-    const block_info& info, std::error_code& error)
+        const block_info& info, error_code& error)
 {
     if(buffers.size() == 1)
     {
@@ -377,57 +377,58 @@ void torrent_storage::write(view<disk_buffer> buffers,
 }
 
 void torrent_storage::write(std::vector<iovec> buffers,
-    const block_info& info, std::error_code& error)
+        const block_info& info, error_code& error)
 {
     write(view<iovec>(buffers), info, error);
 }
 
 void torrent_storage::write(view<iovec> buffers,
-    const block_info& info, std::error_code& error)
+        const block_info& info, error_code& error)
 {
     for_each_file(
-        [this, &buffers]
-        (file_entry& file,
-         const file_slice& slice,
-         std::error_code& error) mutable -> int
-        {
-            int num_written = 0;
-            if(file.is_wanted)
+            [this, &buffers]
+            (file_entry& file,
+             const file_slice& slice,
+             error_code& error) mutable -> int
             {
-                before_writing(file.storage, error);
-                if(error) { return 0; }
-                // Note that `file::write` trims the buffers' front by `num_written`,
-                // so we must not do it here again
-                num_written = file.storage.write(buffers, slice.offset, error);
-                if(error) { return 0; }
-            }
-            else
-            {
-                // We don't want this file, so just ignore it (must not write to it),
-                // but we must also trim the buffer as if it had been consumed by
-                // `file::write`.
-                util::trim_buffers_front(buffers, slice.length);
-                num_written = slice.length;
-            }
-            // We should have written to the entire file slice since `file::write`
-            // guarantees this (and file slice describes the largest possible portion
-            // of buffers that can be written to file without enlarging it).
+                int num_written = 0;
+                if(file.is_wanted)
+                {
+                    before_writing(file.storage, error);
+                    if(error) { return 0; }
+                    // Note that `file::write` trims the buffers' front by
+                    // `num_written`, so we must not do it here again
+                    num_written = file.storage.write(buffers, slice.offset, error);
+                    if(error) { return 0; }
+                }
+                else
+                {
+                    // We don't want this file, so just ignore it (must not
+                    // write to it), but we must also trim the buffer as if it
+                    // had been consumed by `file::write`.
+                    util::trim_buffers_front(buffers, slice.length);
+                    num_written = slice.length;
+                }
+                // We should have written to the entire file slice since
+                // `file::write` guarantees this (and file slice describes the
+                // largest possible portion of buffers that can be written to
+                // file without enlarging it).
 #ifdef TIDE_ENABLE_DEBUGGING
-            if(num_written != slice.length)
-                log::log_disk_io("{TORRENT_STORAGE}",
-                    util::format("FATAL! num_written(%i) <> slice.length(%i)",
-                    num_written, slice.length), false, log::priority::high);
+                if(num_written != slice.length)
+                    log::log_disk_io("{TORRENT_STORAGE}",
+                            util::format("FATAL! num_written(%i) <> slice.length(%i)",
+                            num_written, slice.length), false, log::priority::high);
 #endif // TIDE_ENABLE_DEBUGGING
-            assert(num_written == slice.length);
-            return num_written;
-        },
-        info,
-        error);
+                assert(num_written == slice.length);
+                return num_written;
+            },
+            info,
+            error);
 }
 
 template<typename Function>
 void torrent_storage::for_each_file(Function fn,
-    const block_info& block, std::error_code& error)
+        const block_info& block, error_code& error)
 {
     error.clear();
     view<file_entry> files = files_containing_block(block);
@@ -438,9 +439,9 @@ void torrent_storage::for_each_file(Function fn,
     }
 #ifdef TIDE_ENABLE_DEBUGGING
     log::log_disk_io("{TORRENT_STORAGE}",
-        util::format("writing %i bytes in piece(%i) to %i files",
-            block.length, block.index, files.size()),
-        false, log::priority::high);
+            util::format("writing %i bytes in piece(%i) to %i files",
+                    block.length, block.index, files.size()),
+            false, log::priority::high);
 #endif // TIDE_ENABLE_DEBUGGING
 
     int64_t offset = int64_t(block.index) * piece_length_ + block.offset;
@@ -450,9 +451,10 @@ void torrent_storage::for_each_file(Function fn,
         const auto slice = get_file_slice(file, offset, num_left);
 #ifdef TIDE_ENABLE_DEBUGGING
         log::log_disk_io("{TORRENT_STORAGE}",
-            util::format("writing %i bytes to %s at offset(%lli)", 
-                slice.length, file.storage.absolute_path().c_str(), slice.offset),
-            false, log::priority::high);
+                util::format("writing %i bytes to %s at offset(%lli)", 
+                        slice.length, file.storage.absolute_path().c_str(),
+                        slice.offset),
+                false, log::priority::high);
 #endif // TIDE_ENABLE_DEBUGGING
         const int num_transferred = fn(file, slice, error);
         if(error) { return; }
@@ -463,7 +465,7 @@ void torrent_storage::for_each_file(Function fn,
 }
 
 inline file_slice torrent_storage::get_file_slice(const file_entry& file,
-    int64_t torrent_offset, int64_t length) const noexcept
+        int64_t torrent_offset, int64_t length) const noexcept
 {
     file_slice slice;
     slice.offset = torrent_offset - file.torrent_offset;
@@ -475,7 +477,7 @@ inline file_slice torrent_storage::get_file_slice(const file_entry& file,
     return slice;
 }
 
-void torrent_storage::before_writing(file& file, std::error_code& error)
+void torrent_storage::before_writing(file& file, error_code& error)
 {
     if(!file.is_open())
     {
@@ -485,7 +487,7 @@ void torrent_storage::before_writing(file& file, std::error_code& error)
     if(!file.is_allocated()) { file.allocate(error); }
 }
 
-void torrent_storage::before_reading(file_entry& file, std::error_code& error)
+void torrent_storage::before_reading(file_entry& file, error_code& error)
 {
     if(!file.is_wanted)
     {
@@ -495,7 +497,7 @@ void torrent_storage::before_reading(file_entry& file, std::error_code& error)
     before_reading(file.storage, error);
 }
 
-void torrent_storage::before_reading(file& file, std::error_code& error)
+void torrent_storage::before_reading(file& file, error_code& error)
 {
     if(!file.is_open())
     {
@@ -543,7 +545,7 @@ void torrent_storage::create_directory_tree()
     // We only need directories if this is a multi file torrent.
     if(files_.size() == 1) { return; }
     // First, establish the root directory.
-    std::error_code error;
+    error_code error;
     // Create directory will not fail if root directory already exists.
     system::create_directory(root_path_, error);
     // This is called from the constructor, so we must throw here.
@@ -568,14 +570,14 @@ torrent_storage::files_containing_block(const block_info& block)
     // Find the first file containing block_offset.
     // TODO check if we can do logarithmic search here
     auto it = std::find_if(files_.begin(), files_.end(), [block_offset](const auto& f)
-        { return f.torrent_offset + f.storage.length() > block_offset; });
+            { return f.torrent_offset + f.storage.length() > block_offset; });
     assert(it != files_.end());
     file_entry* first_file = &*it;
 
     const int64_t block_end = block_offset + block.length;
     // Find the last file containing `block_end`.
     it = std::find_if(it, files_.end(), [block_end](const auto& f)
-        { return f.torrent_offset + f.storage.length() >= block_end; });
+            { return f.torrent_offset + f.storage.length() >= block_end; });
     assert(it != files_.end());
     file_entry* last_file = &*it;
 

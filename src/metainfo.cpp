@@ -1,5 +1,6 @@
 #include "path_sanitizer.hpp"
 #include "metainfo.hpp"
+#include "string_view.hpp"
 
 namespace tide {
 
@@ -38,15 +39,19 @@ metainfo parse_and_sanitize_metainfo(bmap source)
         {
             const int64_t length = file_info.find_number("length");
             m.files.emplace_back(create_and_sanitize_path(
-                file_info.find_blist("path")), length);
+                    file_info.find_blist("path")), length);
             m.total_length += length;
         }
     }
     else
     {
         m.total_length = info_map.find_number("length");
+        std::string name;
+        info_map.try_find_string("name", name);
+        // TODO sanitize path
+        m.files.emplace_back(std::move(name), m.total_length);
     }
-    
+
     m.num_pieces = (m.total_length + (m.piece_length - 1)) / m.piece_length;
     m.piece_hashes = info_map.find_string_view("pieces");
     m.source = std::move(source);
@@ -54,4 +59,4 @@ metainfo parse_and_sanitize_metainfo(bmap source)
     return m;
 }
 
-} // namespace tide
+} // tide

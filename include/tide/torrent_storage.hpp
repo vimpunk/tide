@@ -10,9 +10,9 @@
 #include "bencode.hpp"
 #include "types.hpp"
 #include "iovec.hpp"
-#include "path.hpp"
 #include "file.hpp"
 
+#include <filesystem>
 #include <memory>
 #include <vector>
 
@@ -83,7 +83,7 @@ class torrent_storage
     // This is an absolute path to the root directory in which torrent is saved. If
     // torrent is multi-file, the root directory is save path / torrent name, otherwise
     // it's just save path.
-    path root_path_;
+    std::filesystem::path root_path_;
 
     // The name of the root directory if this is a multi-file torrent.
     std::string name_;
@@ -105,7 +105,7 @@ public:
      * the final directory structure (but does not allocate any files).
      */
     torrent_storage(const torrent_info& info,
-            string_view piece_hashes, path resume_data_path);
+            string_view piece_hashes, std::filesystem::path resume_data_path);
     torrent_storage(const torrent_storage&) = delete;
     torrent_storage& operator=(const torrent_storage&) = delete;
     torrent_storage(torrent_storage&&) = default;
@@ -115,7 +115,7 @@ public:
      * These return the root path of the torrent, which is save path / torrent name for
      * multi-file torrents and save path for single file torrents.
      */
-    const path& root_path() const noexcept { return root_path_; }
+    const std::filesystem::path& root_path() const noexcept { return root_path_; }
     const std::string name() const noexcept { return name_; }
 
     /**
@@ -172,9 +172,9 @@ public:
      * file in single-file mode. The new root directory will be at path / torrent name
      * for multi-file and at path for single-file.
      */
-    void move(path path, error_code& error);
+    void move(std::filesystem::path path, error_code& error);
 
-    void move_resume_data(path path, error_code& error);
+    void move_resume_data(std::filesystem::path path, error_code& error);
     bmap read_resume_data(error_code& error);
     void write_resume_data(const bmap_encoder& resume_data, error_code& error);
 

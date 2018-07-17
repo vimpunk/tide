@@ -66,7 +66,7 @@ template<typename Function>
 void engine::find_torrent_and_execute(const torrent_handle& torrent, Function fn)
 {
     auto it = std::find_if(leeches_.begin(), leeches_.end(),
-        [&torrent](const auto& t) { return *t == torrent; });
+            [&torrent](const auto& t) { return *t == torrent; });
     if(it != leeches_.end())
     {
         fn(leeches_, it);
@@ -74,7 +74,7 @@ void engine::find_torrent_and_execute(const torrent_handle& torrent, Function fn
     else
     {
         it = std::find_if(seeds_.begin(), seeds_.end(),
-            [&torrent](const auto& t) { return *t == torrent; });
+                [&torrent](const auto& t) { return *t == torrent; });
         if(it != seeds_.end()) { fn(seeds_, it); }
     }
 }
@@ -85,7 +85,7 @@ void engine::set_torrent_queue_position(const torrent_handle& torrent, const int
     asio::post(network_ios_, [this, torrent, pos]
     {
         find_torrent_and_execute(torrent, [this, pos](auto& torrents, auto it)
-            { move_torrent_to_position(torrents, it - torrents.begin(), pos); });
+                { move_torrent_to_position(torrents, it - torrents.begin(), pos); });
     });
 }
 
@@ -93,12 +93,11 @@ void engine::increment_torrent_queue_position(const torrent_handle& torrent)
 {
     asio::post(network_ios_, [this, torrent]
     {
-        find_torrent_and_execute(torrent,
-            [this](auto& torrents, auto it)
-            {
-                const int curr_pos = it - torrents.begin();
-                move_torrent_to_position(torrents, curr_pos, curr_pos + 1);
-            });
+        find_torrent_and_execute(torrent, [this](auto& torrents, auto it)
+        {
+            const int curr_pos = it - torrents.begin();
+            move_torrent_to_position(torrents, curr_pos, curr_pos + 1);
+        });
     });
 }
 
@@ -106,12 +105,11 @@ void engine::decrement_torrent_queue_position(const torrent_handle& torrent)
 {
     asio::post(network_ios_, [this, torrent]
     {
-        find_torrent_and_execute(torrent,
-            [this](auto& torrents, auto it)
-            {
-                const int curr_pos = it - torrents.begin();
-                move_torrent_to_position(torrents, curr_pos, curr_pos - 1);
-            });
+        find_torrent_and_execute(torrent, [this](auto& torrents, auto it)
+        {
+            const int curr_pos = it - torrents.begin();
+            move_torrent_to_position(torrents, curr_pos, curr_pos - 1);
+        });
     });
 }
 
@@ -120,7 +118,7 @@ void engine::move_torrent_to_queue_top(const torrent_handle& torrent)
     asio::post(network_ios_, [this, torrent]
     {
         find_torrent_and_execute(torrent, [this](auto& torrents, auto it)
-            { move_torrent_to_position(torrents, it - torrents.begin(), 0); });
+                { move_torrent_to_position(torrents, it - torrents.begin(), 0); });
     });
 }
 
@@ -128,12 +126,11 @@ void engine::move_torrent_to_queue_bottom(const torrent_handle& torrent)
 {
     asio::post(network_ios_, [this, torrent]
     {
-        find_torrent_and_execute(torrent,
-            [this](auto& torrents, auto it)
-            {
-                move_torrent_to_position(torrents,
-                    it - torrents.begin(), torrents.size() - 1);
-            });
+        find_torrent_and_execute(torrent, [this](auto& torrents, auto it)
+        {
+            move_torrent_to_position(torrents,
+                it - torrents.begin(), torrents.size() - 1);
+        });
     });
 }
 
@@ -157,83 +154,86 @@ void engine::verify(const settings& s) const
     verify(s.peer_session);
 
     throw_if_below(s.listener_port, uint16_t(1024),
-        "settings::listener_port must be between 1024 and 65535 or none");
+            "settings::listener_port must be between 1024 and 65535 or none");
     throw_if_below(s.max_udp_tracker_timeout_retries, 0,
-        "settings::max_udp_tracker_timeout_retries must be none, 0 or more");
+            "settings::max_udp_tracker_timeout_retries must be none, 0 or more");
     throw_if_below(s.slow_torrent_download_rate_threshold, 0,
-        "settings::max_http_tracker_timeout_retries must be none, 0 or more");
+            "settings::max_http_tracker_timeout_retries must be none, 0 or more");
     throw_if_below(s.slow_torrent_upload_rate_threshold, 0,
-        "settings::slow_torrent_upload_rate_threshold must be none, 0 or more");
+            "settings::slow_torrent_upload_rate_threshold must be none, 0 or more");
     throw_if_below(s.min_num_peers, 0,
-        "settings::min_num_peers must be none, 0 or more");
+            "settings::min_num_peers must be none, 0 or more");
     throw_if_below(s.max_active_leeches, 1,
-        "settings::max_active_leeches must be none or above 0");
+            "settings::max_active_leeches must be none or above 0");
     throw_if_below(s.max_active_seeds, 1,
-        "settings::max_active_seeds must be none or above 0");
+            "settings::max_active_seeds must be none or above 0");
     throw_if_below(s.max_upload_slots, 1,
-        "settings::max_upload_slots must be none or above 0");
+            "settings::max_upload_slots must be none or above 0");
     throw_if_below(s.max_connections, 1,
-        "settings::max_connections must be none or above 0");
+            "settings::max_connections must be none or above 0");
     throw_if_below_allow_unlimited(s.max_download_rate, 1,
-        "settings::max_download_rate must be unlimited, none or above 0");
+            "settings::max_download_rate must be unlimited, none or above 0");
     throw_if_below_allow_unlimited(s.max_upload_rate, 1,
-        "settings::max_upload_rate must be unlimited, none or above 0");
+            "settings::max_upload_rate must be unlimited, none or above 0");
     throw_if_below_allow_unlimited(s.share_ratio_limit, 1,
-        "settings::share_ratio_limit must be unlimited, none or above 0");
+            "settings::share_ratio_limit must be unlimited, none or above 0");
     throw_if_below_allow_unlimited(s.share_time_ratio_limit, 1,
-        "settings::share_time_ratio_limit must be unlimited, none or above 0");
+            "settings::share_time_ratio_limit must be unlimited, none or above 0");
 }
 
 void engine::verify(const disk_io_settings& s) const
 {
-    throw_if_below(s.concurrency, 1, "disk_io_settings::concurrency must be at least 1");
+    throw_if_below(s.concurrency, 1,
+            "disk_io_settings::concurrency must be at least 1");
     throw_if_below(s.max_buffered_blocks, 0,
-        "disk_io_settings::max_buffered_blocks must be at least 0");
+            "disk_io_settings::max_buffered_blocks must be at least 0");
     throw_if_below(s.read_cache_capacity, 0,
-        "disk_io_settings::read_cache_capacity must be at least 0");
+            "disk_io_settings::read_cache_capacity must be at least 0");
     throw_if_below(s.read_cache_line_size, 0,
-        "disk_io_settings::read_cache_line_size must be at least 0");
+            "disk_io_settings::read_cache_line_size must be at least 0");
     throw_if_below(s.write_cache_line_size, 0,
-        "disk_io_settings::write_cache_line_size must be at least 0");
-    if(s.resume_data_path.empty()) throw std::invalid_argument(
-        "disk_io_settings::resume_data_path must not be empty");
+            "disk_io_settings::write_cache_line_size must be at least 0");
+    if(s.resume_data_path.empty())
+        throw std::invalid_argument(
+                "disk_io_settings::resume_data_path must not be empty");
 }
 
 void engine::verify(const torrent_settings& s) const
 {
     throw_if_below(s.max_upload_slots, 1,
-        "torrent_settings::max_upload_slots must be none or above 0");
+            "torrent_settings::max_upload_slots must be none or above 0");
     throw_if_below(s.max_connections, 1,
-        "torrent_settings::max_connections must be none or above 0");
+            "torrent_settings::max_connections must be none or above 0");
     throw_if_below_allow_unlimited(s.max_download_rate, 1,
-        "torrent_settings::max_download_rate must be unlimited, none or above 0");
+            "torrent_settings::max_download_rate must be unlimited, none or above 0");
     throw_if_below_allow_unlimited(s.max_upload_rate, 1,
-        "torrent_settings::max_upload_rate must be unlimited, none or above 0");
+            "torrent_settings::max_upload_rate must be unlimited, none or above 0");
 }
 
 void engine::verify(const peer_session_settings& s, const int write_cache_line_size) const
 {
     throw_if_below_allow_unlimited(s.max_incoming_request_queue_size, 10,
-        "peer_session_settings::max_incoming_request_queue_size must be unlimited,"
-        " none or above 10");
+            "peer_session_settings::max_incoming_request_queue_size must be unlimited,"
+            " none or above 10");
     throw_if_below(s.min_outgoing_request_queue_size, 0,
-        "peer_session_settings::min_outgoing_request_queue_size must be 0 or above");
+            "peer_session_settings::min_outgoing_request_queue_size must be"
+            " 0 or above");
     // FIXME for some reason the values of max_outgoing_request_queue_size and
     // min_outgoing_request_queue_size get switched up
     throw_if_below(s.max_outgoing_request_queue_size, s.min_outgoing_request_queue_size,
-        "peer_session_settings::max_outgoing_request_queue_size must be above"
-        " peer_session_settings::min_outgoing_request_queue_size");
+            "peer_session_settings::max_outgoing_request_queue_size must be above"
+            " peer_session_settings::min_outgoing_request_queue_size");
     throw_if_below(s.max_connection_attempts, 1,
-        "peer_session_settings::max_connection_attempts must be above 0");
+            "peer_session_settings::max_connection_attempts must be above 0");
     throw_if_below(s.max_receive_buffer_size, 0x4000 * std::max(1, write_cache_line_size),
-        "peer_session_settings::max_connection_attempts must be above"
-        " disk_io_settings::write_cache_line_size * 16KiB (0x4000 bytes)");
+            "peer_session_settings::max_connection_attempts must be above"
+            " disk_io_settings::write_cache_line_size * 16KiB (0x4000 bytes)");
     throw_if_below(s.max_send_buffer_size, 0x4000,
-        "peer_session_settings::max_send_buffer_size must be at least 16KiB"
-        " (0x4000 bytes)");
+            "peer_session_settings::max_send_buffer_size must be at least 16KiB"
+            " (0x4000 bytes)");
     // TODO check the minimum value for this
     throw_if_below(s.allowed_fast_set_size, 1,
-        "peer_session_settings::allowed_fast_set_size must be at least 1");
+            "peer_session_settings::allowed_fast_set_size must be at least 1");
     // TODO verify duration settings
 }
 
@@ -296,15 +296,15 @@ void engine::fill_in_defaults(disk_io_settings& s)
     {
         // Use up 10% of the available memory, or less.
         s.max_buffered_blocks = std::min(
-            ram.physical_size / 10 / 0x4000,
-            ram.physical_free_space / 2);
+                ram.physical_size / 10 / 0x4000,
+                ram.physical_free_space / 2);
     }
     if(s.read_cache_capacity <= 0)
     {
         // Also use up 10% of the available memory for the read cache.
         s.read_cache_capacity = std::min(
-            ram.physical_size / 10 / 0x4000,
-            ram.physical_free_space / 2);
+                ram.physical_size / 10 / 0x4000,
+                ram.physical_free_space / 2);
     }
     assert(s.read_cache_capacity > 0);
 
@@ -321,9 +321,9 @@ void engine::fill_in_defaults(disk_io_settings& s)
         // for a piece's write cache (i.e the number of blocks buffered before flushed to
         // disk).
         const auto receive_buffer_size_in_blocks =
-            settings_.peer_session.max_receive_buffer_size / 0x4000;
+                settings_.peer_session.max_receive_buffer_size / 0x4000;
         s.write_buffer_capacity = util::clamp(10, s.write_cache_line_size,
-            receive_buffer_size_in_blocks);
+                receive_buffer_size_in_blocks);
         // Try to leave as much space between the minimum value (`write_cache_line_size`)
         // and the upper bound (`write_buffer_capacity`), but don't approach the maximum
         // value (`receive_buffer_size`) too closely, lest it impair download throughput.
@@ -485,7 +485,7 @@ void engine::apply_disk_io_settings(disk_io_settings s)
     verify(s);
     fill_in_defaults(s);
     asio::post(network_ios_, [this, s = std::move(s)]
-        { apply_disk_io_settings_impl(std::move(s)); });
+            { apply_disk_io_settings_impl(std::move(s)); });
 }
 
 TIDE_NETWORK_THREAD
@@ -502,7 +502,7 @@ void engine::apply_torrent_settings(torrent_settings s)
 {
     verify(s);
     asio::post(network_ios_, [this, s = std::move(s)]
-        { apply_torrent_settings_impl(std::move(s)); });
+            { apply_torrent_settings_impl(std::move(s)); });
 }
 
 TIDE_NETWORK_THREAD
@@ -516,7 +516,7 @@ void engine::apply_peer_session_settings(peer_session_settings s)
 {
     verify(s);
     asio::post(network_ios_, [this, s = std::move(s)]
-        { apply_peer_session_settings_impl(std::move(s)); });
+            { apply_peer_session_settings_impl(std::move(s)); });
 }
 
 TIDE_NETWORK_THREAD
@@ -534,13 +534,15 @@ inline void engine::apply_peer_session_settings_impl(peer_session_settings s)
     if(settings_.disk_io.write_cache_line_size > receive_buffer_size_in_blocks)
     {
         // `disk_io_settings::write_cache_line_size` must not be larger than
-        // `peer_session::max_receive_buffer_size`, as otherwise downloads would stall
-        // (see comment in settings.hpp.). So we must shrink the write cache line.
+        // `peer_session::max_receive_buffer_size`, as otherwise downloads would
+        // stall (see comment in settings.hpp.). So we must shrink the write
+        // cache line.
         settings_.disk_io.write_cache_line_size = receive_buffer_size_in_blocks - 1;
     }
     if(settings_.disk_io.write_buffer_capacity - 2 <= receive_buffer_size_in_blocks)
     {
-        // We need to adjust `write_buffer_capacity` to exceed `max_receive_buffer_size`.
+        // We need to adjust `write_buffer_capacity` to exceed
+        // `max_receive_buffer_size`.
         settings_.disk_io.write_buffer_capacity = receive_buffer_size_in_blocks + 2;
     }
 }
@@ -572,7 +574,7 @@ void engine::update(const std::error_code& error)
     cached_clock::update();
     ts_cached_clock::set(cached_clock::now());
     start_timer(update_timer_, milliseconds(100),
-        [this](const std::error_code& error) { update(error); });
+            [this](const std::error_code& error) { update(error); });
 }
 
 TIDE_NETWORK_THREAD
@@ -700,12 +702,14 @@ void engine::for_each_torrent(Function fn)
 
 void engine::pause()
 {
-    asio::post(network_ios_, [this] { for_each_torrent([](torrent& t) { t.stop(); }); });
+    asio::post(network_ios_,
+            [this] { for_each_torrent([](torrent& t) { t.stop(); }); });
 }
 
 void engine::resume()
 {
-    asio::post(network_ios_, [this] { for_each_torrent([](torrent& t) { t.start(); }); });
+    asio::post(network_ios_,
+            [this] { for_each_torrent([](torrent& t) { t.start(); }); });
 }
 
 std::deque<std::unique_ptr<alert>> engine::alerts()
@@ -717,14 +721,13 @@ void engine::parse_metainfo(const path& path)
 {
     asio::post(network_ios_, [this, path]
     {
-        disk_io_.read_metainfo(path,
-            [this](const std::error_code& error, metainfo m)
-            {
-                if(error)
-                    alert_queue_.emplace<error_alert>(error);
-                else
-                    alert_queue_.emplace<metainfo_parsed_alert>(std::move(m));
-            });
+        disk_io_.read_metainfo(path, [this](const std::error_code& error, metainfo m)
+        {
+            if(error)
+                alert_queue_.emplace<error_alert>(error);
+            else
+                alert_queue_.emplace<metainfo_parsed_alert>(std::move(m));
+        });
     });
 }
 
@@ -738,8 +741,8 @@ void engine::add_torrent(torrent_args args)
         const torrent_id_t torrent_id = next_torrent_id();
         // `torrent` calls `disk_io::allocate_torrent` so we don't have to here.
         auto torrent = std::make_shared<tide::torrent>(torrent_id, network_ios_,
-            disk_io_, rate_limiter_, settings_, info_, get_trackers(args.metainfo),
-            endpoint_filter_, alert_queue_, std::move(args));
+                disk_io_, rate_limiter_, settings_, info_, get_trackers(args.metainfo),
+                endpoint_filter_, alert_queue_, std::move(args));
         if(settings_.enqueue_new_torrents_at_top)
         {
             leeches_.insert(leeches_.begin(), torrent);
@@ -775,17 +778,18 @@ void engine::verify(torrent_args& args) const
 
     for(const auto& tracker : args.metainfo.announce_list)
     {
-        if(!is_tracker_url_valid(tracker.url)) throw std::invalid_argument(
-            "metainfo::announce_list[i] url must be valid");
+        if(!is_tracker_url_valid(tracker.url))
+            throw std::invalid_argument("metainfo::announce_list[i] url must be valid");
     }
 
     if((args.metainfo.announce_list.empty() && args.metainfo.announce.empty())
        || !is_tracker_url_valid(args.metainfo.announce))
     {
         assert(util::starts_with("http://a.com", "http://"));
+        // TODO remove
         std::cout << "invalid metainfo: "
-            << std::string(args.metainfo.announce.begin(), args.metainfo.announce.end())
-            << '\n';
+                  << std::string(args.metainfo.announce.begin(), args.metainfo.announce.end())
+                  << '\n';
         throw std::invalid_argument("no valid announce url in metainfo");
     }
 
@@ -829,7 +833,7 @@ std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
         tracker_entry entry;
         entry.tier = tracker.tier;
         auto it = std::find_if(trackers_.begin(), trackers_.end(),
-            [&tracker](const auto& t) { return t->url() == tracker.url; });
+                [&tracker](const auto& t) { return t->url() == tracker.url; });
         if(it != trackers_.end())
         {
             entry.tracker = *it;
@@ -841,13 +845,13 @@ std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
             if(util::is_udp_tracker(tracker.url))
             {
                 entry.tracker = std::make_shared<udp_tracker>(
-                    network_ios_, tracker.url, settings_);
+                        network_ios_, tracker.url, settings_);
                 trackers.emplace_back(std::move(entry));
             }
             else if(util::is_http_tracker(tracker.url))
             {
                 entry.tracker = std::make_shared<http_tracker>(
-                    network_ios_, tracker.url, settings_);
+                        network_ios_, tracker.url, settings_);
                 trackers.emplace_back(std::move(entry));
             }
             // Add new tracker to the engine's tracker collection as well.
@@ -866,4 +870,4 @@ std::vector<tracker_entry> engine::get_trackers(const metainfo& metainfo)
     return trackers;
 }
 
-} // namespace tide
+} // tide

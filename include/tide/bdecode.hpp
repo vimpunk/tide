@@ -5,6 +5,7 @@
 #include "error_code.hpp"
 
 #include <stdexcept>
+#include <optional>
 #include <iterator>
 #include <sstream>
 #include <cstdlib> // atoi

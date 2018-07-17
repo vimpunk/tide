@@ -19,6 +19,8 @@ using std::system_category;
 using std::make_error_code;
 using std::make_error_condition;
 
+#define TIDE_ERROR_CODE_NS std
+
 } // tide
 
 #endif // TIDE_ERROR_CODE_HEADER

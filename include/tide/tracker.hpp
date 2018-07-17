@@ -13,6 +13,7 @@
 #include "log.hpp"
 
 #include <unordered_map>
+#include <type_traits> // true_type
 #include <functional>
 #include <utility>
 #include <string>
@@ -194,8 +195,9 @@ error_condition make_error_condition(tracker_errc e);
 
 } // namespace tide
 
-namespace std {
-template<> struct is_error_code_enum<tide::tracker_errc> : public true_type {};
+namespace TIDE_ERROR_CODE_NS {
+template<>
+struct is_error_code_enum<tide::tracker_errc> : public std::true_type {};
 }
 
 namespace tide {

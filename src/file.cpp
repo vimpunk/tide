@@ -12,22 +12,22 @@
 // TODO currently only linux is supported
 
 file::size_typepread(handle_type file_handle, void* buffer,
-    const file::size_type count, const int64_t file_offset)
+        const file::size_type count, const int64_t file_offset)
 {
 }
 
 file::size_type pwrite(handle_type file_handle, void* buffer,
-    const file::size_type count, const int64_t file_offset)
+        const file::size_type count, const int64_t file_offset)
 {
 }
 
 file::size_type preadv(handle_type file_handle, iovec* buffers,
-    file::size_type iovec_count, int64_t file_offset)
+        file::size_type iovec_count, int64_t file_offset)
 {
 }
 
 file::size_type pwritev(handle_type file_handle, iovec* buffers,
-    file::size_type iovec_count, int64_t file_offset)
+        file::size_type iovec_count, int64_t file_offset)
 {
 }
 #endif // _WIN32
@@ -49,8 +49,7 @@ std::string file_error_category::message(int env) const
     }
 }
 
-std::error_condition
-file_error_category::default_error_condition(int ev) const noexcept
+error_condition file_error_category::default_error_condition(int ev) const noexcept
 {
     switch(static_cast<file_errc>(ev))
     {
@@ -64,7 +63,7 @@ file_error_category::default_error_condition(int ev) const noexcept
     case file_errc::null_transfer:
         */
     default:
-        return std::error_condition(ev, *this);
+        return error_condition(ev, *this);
     }
 }
 
@@ -74,14 +73,14 @@ const file_error_category& file_category()
     return instance;
 }
 
-std::error_code make_error_code(file_errc e)
+error_code make_error_code(file_errc e)
 {
-    return std::error_code(static_cast<int>(e), file_category());
+    return error_code(static_cast<int>(e), file_category());
 }
 
-std::error_condition make_error_condition(file_errc e)
+error_condition make_error_condition(file_errc e)
 {
-    return std::error_condition(static_cast<int>(e), file_category());
+    return error_condition(static_cast<int>(e), file_category());
 }
 
 
@@ -100,7 +99,7 @@ file::~file()
     close();
 }
 
-void file::erase(std::error_code& error)
+void file::erase(error_code& error)
 {
     error.clear();
     verify_handle(error);
@@ -121,7 +120,7 @@ void file::erase(std::error_code& error)
 #endif // _WIN32
 }
 
-void file::move(const path& new_path, std::error_code& error)
+void file::move(const path& new_path, error_code& error)
 {
     system::rename(absolute_path_, new_path, error);
     if(!error)
@@ -130,21 +129,21 @@ void file::move(const path& new_path, std::error_code& error)
     }
 }
 
-file::size_type file::query_size(std::error_code& error) const noexcept
+file::size_type file::query_size(error_code& error) const noexcept
 {
     return system::file_size(path(), error);
 }
 
-void file::open(std::error_code& error)
+void file::open(error_code& error)
 {
     return open(open_mode_, error);
 }
 
-void file::open(open_mode_flags open_mode, std::error_code& error)
+void file::open(open_mode_flags open_mode, error_code& error)
 {
 #ifdef TIDE_ENABLE_DEBUGGING
     log::log_disk_io("{FILE}", util::format("opening file %s",
-        absolute_path().c_str()), true, log::priority::high);
+            absolute_path().c_str()), true, log::priority::high);
 #endif // TIDE_ENABLE_DEBUGGING
     error.clear();
     if(is_open())
@@ -216,12 +215,12 @@ void file::close()
     file_handle_ = INVALID_HANDLE_VALUE;
 }
 
-void file::allocate(std::error_code& error)
+void file::allocate(error_code& error)
 {
     allocate(length(), error);
 }
 
-void file::allocate(const size_type length, std::error_code& error)
+void file::allocate(const size_type length, error_code& error)
 {
 #ifdef TIDE_ENABLE_DEBUGGING
     log::log_disk_io("{FILE}", util::format("allocating file %s",
@@ -296,7 +295,7 @@ void file::allocate(const size_type length, std::error_code& error)
 }
 
 mmap_source file::create_mmap_source(const size_type file_offset,
-    const size_type length, std::error_code& error)
+        const size_type length, error_code& error)
 {
     error.clear();
     before_mapping_source(file_offset, length, error);
@@ -308,7 +307,7 @@ mmap_source file::create_mmap_source(const size_type file_offset,
 }
 
 mmap_sink file::create_mmap_sink(const size_type file_offset,
-    const size_type length, std::error_code& error)
+        const size_type length, error_code& error)
 {
     error.clear();
     before_mapping_sink(file_offset, length, error);
@@ -320,46 +319,46 @@ mmap_sink file::create_mmap_sink(const size_type file_offset,
 }
 
 file::size_type file::read(view<uint8_t> buffer,
-    size_type file_offset, std::error_code& error)
+        size_type file_offset, error_code& error)
 {
     return read(iovec{buffer.data(), buffer.length()}, file_offset, error);
 }
 
-file::size_type file::read(iovec buffer, size_type file_offset, std::error_code& error)
+file::size_type file::read(iovec buffer, size_type file_offset, error_code& error)
 {
     error.clear();
     before_reading(file_offset, error);
     if(!error)
     {
         return single_buffer_io(buffer, file_offset, error,
-            [this](void* buffer, size_type length, size_type offset) -> size_type
-            { return pread(file_handle_, buffer, length, offset); });
+                [this](void* buffer, size_type length, size_type offset) -> size_type
+                { return pread(file_handle_, buffer, length, offset); });
     }
     return 0;
 }
 
 file::size_type file::write(view<uint8_t> buffer,
-    size_type file_offset, std::error_code& error)
+        size_type file_offset, error_code& error)
 {
     return write(iovec{buffer.data(), buffer.length()}, file_offset, error);
 }
 
-file::size_type file::write(iovec buffer, size_type file_offset, std::error_code& error)
+file::size_type file::write(iovec buffer, size_type file_offset, error_code& error)
 {
     error.clear();
     before_writing(file_offset, error);
     if(!error)
     {
         return single_buffer_io(buffer, file_offset, error,
-            [this](void* buffer, size_type length, size_type offset) -> size_type
-            { return pwrite(file_handle_, buffer, length, offset); });
+                [this](void* buffer, size_type length, size_type offset) -> size_type
+                { return pwrite(file_handle_, buffer, length, offset); });
     }
     return 0;
 }
 
 template<typename PIOFunction>
 file::size_type file::single_buffer_io(iovec buffer,
-    size_type file_offset, std::error_code& error, PIOFunction fn)
+        size_type file_offset, error_code& error, PIOFunction fn)
 {
     size_type total_transferred = 0;
     while(buffer.iov_len > 0)
@@ -368,20 +367,20 @@ file::size_type file::single_buffer_io(iovec buffer,
         // a write operation, we'll enlarge file
         assert(length() - file_offset > 0);
         const size_type num_to_transfer = std::min(
-            buffer.iov_len, size_t(length() - file_offset));
+                buffer.iov_len, size_t(length() - file_offset));
         assert(num_to_transfer > 0);
         const size_type num_transferred = fn(buffer.iov_base,
-            num_to_transfer, file_offset);
+                num_to_transfer, file_offset);
         if(num_transferred < 0)
         {
-            const std::error_code ec = system::last_error();
+            const error_code ec = system::last_error();
             if(ec == std::errc::interrupted) { continue; }
             error = ec;
             break;
         }
         else if(num_transferred == 0)
         {
-            const std::error_code ec = system::last_error();
+            const error_code ec = system::last_error();
             if(ec)
                 error = ec;
             else
@@ -396,16 +395,19 @@ file::size_type file::single_buffer_io(iovec buffer,
 }
 
 file::size_type file::read(view<iovec>& buffers,
-    const size_type file_offset, std::error_code& error)
+        const size_type file_offset, error_code& error)
 {
     error.clear();
     return positional_vector_io(buffers, file_offset, error,
-        [this](view<iovec>& buffers, size_type file_offset) -> size_type
-        { return preadv(file_handle_, buffers.data(), buffers.size(), file_offset); });
+            [this](view<iovec>& buffers, size_type file_offset) -> size_type
+            {
+                return preadv(file_handle_, buffers.data(),
+                        buffers.size(), file_offset);
+            });
 }
 
 file::size_type file::write(view<iovec>& buffers,
-    const size_type file_offset, std::error_code& error)
+        const size_type file_offset, error_code& error)
 {
     error.clear();
     before_writing(file_offset, error);
@@ -456,15 +458,15 @@ file::size_type file::write(view<iovec>& buffers,
         // stop there)
         // now trim the excess bytes in the partial buffer
         const size_type num_bytes_to_trim =
-            buff_offset + it->iov_len - adjusted_file_length;
+                buff_offset + it->iov_len - adjusted_file_length;
         it->iov_len -= num_bytes_to_trim;
 
         num_written = positional_vector_io(buffers, file_offset, error,
-            [this](view<iovec>& buffers, size_type file_offset) -> size_type
-            {
-                return pwritev(file_handle_, buffers.data(),
-                    buffers.size(), file_offset);
-            });
+                [this](view<iovec>& buffers, size_type file_offset) -> size_type
+                {
+                    return pwritev(file_handle_, buffers.data(),
+                        buffers.size(), file_offset);
+                });
 
         if(num_bytes_to_trim > 0)
         {
@@ -491,11 +493,11 @@ file::size_type file::write(view<iovec>& buffers,
     else
     {
         num_written = positional_vector_io(buffers, file_offset, error,
-            [this](view<iovec>& buffers, size_type file_offset) -> size_type
-            {
-                return pwritev(file_handle_, buffers.data(),
-                    buffers.size(), file_offset);
-            });
+                [this](view<iovec>& buffers, size_type file_offset) -> size_type
+                {
+                    return pwritev(file_handle_, buffers.data(),
+                        buffers.size(), file_offset);
+                });
     }
 
     if(!error && open_mode_[no_os_cache]) { sync_with_disk(error); }
@@ -507,8 +509,8 @@ file::size_type file::write(view<iovec>& buffers,
 // to perform better under repeated calls to pread/pwrite (some personal anecdotes
 // indicated that this seems to be the case)
 template<typename PIOFunction>
-file::size_type file::repeated_positional_io(view<iovec>& buffers, size_type file_offset,
-    std::error_code& error, PIOFunction fn)
+file::size_type file::repeated_positional_io(view<iovec>& buffers,
+        size_type file_offset, error_code& error, PIOFunction fn)
 {
     size_type file_length_left = length() - file_offset;
     size_type total_transferred = 0;
@@ -518,19 +520,20 @@ file::size_type file::repeated_positional_io(view<iovec>& buffers, size_type fil
         // has been sent
         while(buffer.iov_len > 0)
         {
-            const size_type num_to_transfer = std::min(file_length_left, size_type(buffer.iov_len));
+            const size_type num_to_transfer = std::min(file_length_left,
+                    size_type(buffer.iov_len));
             const size_type num_transferred = fn(buffer.iov_base,
-                num_to_transfer, file_offset);
+                    num_to_transfer, file_offset);
             if(num_transferred < 0)
             {
-                const std::error_code ec = system::last_error();
+                const error_code ec = system::last_error();
                 if(ec == std::errc::interrupted) { continue; }
                 error = ec;
                 return total_transferred;
             }
             else if(num_transferred == 0)
             {
-                const std::error_code ec = system::last_error();
+                const error_code ec = system::last_error();
                 if(ec)
                     error = ec;
                 else
@@ -551,7 +554,7 @@ file::size_type file::repeated_positional_io(view<iovec>& buffers, size_type fil
 
 template<typename PVIOFunction>
 file::size_type file::positional_vector_io(view<iovec>& buffers,
-    size_type file_offset, std::error_code& error, PVIOFunction fn)
+        size_type file_offset, error_code& error, PVIOFunction fn)
 {
     size_type file_length_left = length() - file_offset;
     size_type total_transferred = 0;
@@ -559,28 +562,31 @@ file::size_type file::positional_vector_io(view<iovec>& buffers,
     // the requested bytes so we have to call it again until all requested bytes are
     // transferred
 #ifdef TIDE_ENABLE_DEBUGGING
-    log::log_disk_io("{FILE}", util::format("buffers.size() = %i, file_length_left = %lli",
-            buffers.size(), file_length_left), false, log::priority::high);
+    log::log_disk_io("{FILE}",
+            util::format("buffers.size() = %i, file_length_left = %lli",
+                    buffers.size(), file_length_left),
+            false, log::priority::high);
 #endif // TIDE_ENABLE_DEBUGGING
     int loop_counter = 0;
     while(!buffers.empty() && (file_length_left > 0))
     {
 #ifdef TIDE_ENABLE_DEBUGGING
         log::log_disk_io("{FILE}",
-            util::format("%ith loop in trying to transfer data from/to file",
-                loop_counter), false, log::priority::high);
+                util::format("%ith loop in trying to transfer data from/to file",
+                        loop_counter),
+                false, log::priority::high);
 #endif // TIDE_ENABLE_DEBUGGING
         const size_type num_transferred = fn(buffers, file_offset);
         if(num_transferred < 0)
         {
-            const std::error_code ec = system::last_error();
+            const error_code ec = system::last_error();
             if(ec == std::errc::interrupted) { continue; }
             error = ec;
             break;
         }
         else if(num_transferred == 0)
         {
-            const std::error_code ec = system::last_error();
+            const error_code ec = system::last_error();
             if(ec)
                 error = ec;
             else
@@ -596,7 +602,7 @@ file::size_type file::positional_vector_io(view<iovec>& buffers,
     return total_transferred;
 }
 
-void file::sync_with_disk(std::error_code& error)
+void file::sync_with_disk(error_code& error)
 {
     error.clear();
     // no need to sync if we're not in write mode
@@ -615,20 +621,20 @@ void file::sync_with_disk(std::error_code& error)
 }
 
 inline void file::before_mapping_source(const size_type file_offset,
-    const size_type length, std::error_code& error) const noexcept
+        const size_type length, error_code& error) const noexcept
 {
     before_reading(file_offset, error);
     if(!error)
     {
         if(file_offset + length > length_)
         {
-            error = std::make_error_code(std::errc::invalid_argument);
+            error = make_error_code(errc::invalid_argument);
         }
     }
 }
 
 inline void file::before_mapping_sink(const size_type file_offset,
-    const size_type length, std::error_code& error) const noexcept
+        const size_type length, error_code& error) const noexcept
 {
     before_writing(file_offset, error);
     if(!error)
@@ -641,7 +647,7 @@ inline void file::before_mapping_sink(const size_type file_offset,
 }
 
 inline void file::before_reading(const size_type file_offset,
-    std::error_code& error) const noexcept
+        error_code& error) const noexcept
 {
     verify_file_offset(file_offset, error);
     if(error) { return; }
@@ -655,7 +661,7 @@ inline void file::before_reading(const size_type file_offset,
 }
 
 inline void file::before_writing(const size_type file_offset,
-    std::error_code& error) const noexcept
+        error_code& error) const noexcept
 {
     verify_file_offset(file_offset, error);
     if(error) { return; }
@@ -672,7 +678,7 @@ inline void file::before_writing(const size_type file_offset,
     }
 }
 
-inline void file::verify_handle(std::error_code& error) const
+inline void file::verify_handle(error_code& error) const
 {
     if(!is_open())
     {
@@ -681,7 +687,7 @@ inline void file::verify_handle(std::error_code& error) const
 }
 
 inline void file::verify_file_offset(const size_type file_offset,
-    std::error_code& error) const
+        error_code& error) const
 {
     if((file_offset >= length()) || (file_offset < 0))
     {
