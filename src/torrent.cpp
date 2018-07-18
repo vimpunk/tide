@@ -22,17 +22,16 @@ namespace tide {
 
 // Common constructor.
 torrent::torrent(
-    torrent_id_t id,
-    const int num_pieces,
-    asio::io_context& ios,
-    disk_io& disk_io,
-    rate_limiter& global_rate_limiter,
-    const settings& global_settings,
-    engine_info& global_info,
-    std::vector<tracker_entry> trackers,
-    endpoint_filter& endpoint_filter,
-    alert_queue& alert_queue
-)
+        torrent_id_t id,
+        const int num_pieces,
+        asio::io_context& ios,
+        disk_io& disk_io,
+        rate_limiter& global_rate_limiter,
+        const settings& global_settings,
+        engine_info& global_info,
+        std::vector<tracker_entry> trackers,
+        endpoint_filter& endpoint_filter,
+        alert_queue& alert_queue)
     : ios_(ios)
     , disk_io_(disk_io)
     , global_rate_limiter_(global_rate_limiter)
@@ -53,19 +52,18 @@ torrent::torrent(
 
 // For new torrents.
 torrent::torrent(
-    torrent_id_t id,
-    asio::io_context& ios,
-    disk_io& disk_io,
-    rate_limiter& global_rate_limiter,
-    const settings& global_settings,
-    engine_info& global_info,
-    std::vector<tracker_entry> trackers,
-    endpoint_filter& endpoint_filter,
-    alert_queue& alert_queue,
-    torrent_args args
-)
+        torrent_id_t id,
+        asio::io_context& ios,
+        disk_io& disk_io,
+        rate_limiter& global_rate_limiter,
+        const settings& global_settings,
+        engine_info& global_info,
+        std::vector<tracker_entry> trackers,
+        endpoint_filter& endpoint_filter,
+        alert_queue& alert_queue,
+        torrent_args args)
     : torrent(id, args.metainfo.num_pieces, ios, disk_io, global_rate_limiter,
-        global_settings, global_info, std::move(trackers), endpoint_filter, alert_queue) 
+            global_settings, global_info, std::move(trackers), endpoint_filter, alert_queue) 
 {
     apply_torrent_args(args);
     if(!info_.settings.download_sequentially && piece_picker_.num_have_pieces() < 4)
@@ -77,20 +75,19 @@ torrent::torrent(
 // For resumed torrents.
 // TODO
 torrent::torrent(
-    torrent_id_t id,
-    asio::io_context& ios,
-    disk_io& disk_io,
-    rate_limiter& global_rate_limiter,
-    const settings& global_settings,
-    engine_info& global_info,
-    std::vector<tracker_entry> trackers,
-    endpoint_filter& endpoint_filter,
-    alert_queue& alert_queue,
-    bmap resume_data
-)
+        torrent_id_t id,
+        asio::io_context& ios,
+        disk_io& disk_io,
+        rate_limiter& global_rate_limiter,
+        const settings& global_settings,
+        engine_info& global_info,
+        std::vector<tracker_entry> trackers,
+        endpoint_filter& endpoint_filter,
+        alert_queue& alert_queue,
+        bmap resume_data)
     : torrent(id, resume_data.find_number("num_pieces"), ios, disk_io, 
-        global_rate_limiter, global_settings, global_info, std::move(trackers),
-        endpoint_filter, alert_queue) 
+            global_rate_limiter, global_settings, global_info, std::move(trackers),
+            endpoint_filter, alert_queue) 
 {
     restore_resume_data(resume_data);
     if(!info_.settings.download_sequentially)
@@ -104,7 +101,7 @@ void torrent::apply_torrent_args(torrent_args& args)
     piece_hashes_ = args.metainfo.piece_hashes;
 
     info_.info_hash = create_sha1_digest(
-        args.metainfo.source.find_bmap("info").encode());
+            args.metainfo.source.find_bmap("info").encode());
     info_.save_path = std::move(args.save_path);
 
     info_.num_pieces = args.metainfo.num_pieces;
@@ -112,10 +109,10 @@ void torrent::apply_torrent_args(torrent_args& args)
     info_.size = args.metainfo.total_length;
     info_.piece_length = args.metainfo.piece_length;
     info_.last_piece_length =
-        info_.size - (info_.num_pieces - 1) * info_.piece_length;
+            info_.size - (info_.num_pieces - 1) * info_.piece_length;
     info_.num_blocks = (info_.num_pieces)
-        * util::ceil_division(info_.piece_length, 0x4000)
-        + util::ceil_division(info_.last_piece_length, 0x4000);
+            * util::ceil_division(info_.piece_length, 0x4000)
+            + util::ceil_division(info_.last_piece_length, 0x4000);
 
     info_.settings = std::move(args.settings);
     info_.files = std::move(args.metainfo.files);
@@ -151,7 +148,7 @@ void torrent::start()
     {
         log(log_event::disk, "allocating torrent storage");
         info_.state[torrent_info::allocating] = true;
-        std::error_code error;
+        error_code error;
         auto handle = disk_io_.allocate_torrent(info_, piece_hashes_, error);
         // For now, allocation is done synchronously.
         on_torrent_allocated(error, handle);
@@ -227,14 +224,17 @@ void torrent::abort()
 void torrent::force_tracker_announce(string_view url)
 {
     auto entry = std::find_if(trackers_.begin(), trackers_.end(),
-        [&url](const auto& t) { return t.tracker->url() == url; });
+            [&url](const auto& t) { return t.tracker->url() == url; });
     if(entry != trackers_.end())
     {
         log(log_event::tracker, log::priority::high,
-            "sending event(none) to tracker(%s)", url.data());
+                "sending event(none) to tracker(%s)", url.data());
         entry->tracker->announce(prepare_tracker_request(tracker_request::none),
-            [SHARED_THIS, entry] (const std::error_code& ec, tracker_response r)
-            { on_announce_response(*entry, ec, std::move(r), tracker_request::none); });
+                [SHARED_THIS, entry] (const error_code& ec, tracker_response r)
+                {
+                    on_announce_response(*entry, ec, std::move(r),
+                            tracker_request::none);
+                });
         // TODO verify that iterator to tracker (`entry`) is not invalidated
     }
 }
@@ -254,7 +254,7 @@ void torrent::attach_peer_session(std::shared_ptr<peer_session> session)
         const auto& ep = session->remote_endpoint();
         const auto& ip = ep.address().to_string();
         log(log_event::peer, "connection limit reached, can't connect to %s:%i",
-            ip.c_str(), ep.port());
+                ip.c_str(), ep.port());
 #endif // TIDE_ENABLE_LOGGING
         //alert_queue_.emplace<torrent_connection_limit_reached_alert>(get_handle());
     }
@@ -388,7 +388,7 @@ int torrent::close_n_connections(const int n)
 }
 
 inline void torrent::on_torrent_allocated(
-    const std::error_code& error, torrent_storage_handle storage)
+        const error_code& error, torrent_storage_handle storage)
 {
     if(error || !storage)
     {
@@ -402,7 +402,7 @@ inline void torrent::on_torrent_allocated(
         {
             // TODO allocation is no longer async
             //disk_io_.allocate_torrent(info_, piece_hashes_,
-                //[SHARED_THIS](const std::error_code& ec, torrent_storage_handle storage)
+                //[SHARED_THIS](const error_code& ec, torrent_storage_handle storage)
                 //{ on_torrent_allocated(ec, storage); });
         }
         return;
@@ -420,7 +420,7 @@ inline void torrent::on_torrent_allocated(
     {
         // At this point each entry must be sanitized.
         log(log_event::disk, "making file (%s) priority",
-            info_.files[file].path.c_str());
+                info_.files[file].path.c_str());
         piece_picker_.make_priority(storage_.pieces_in_file(file));
     }
 }
@@ -437,20 +437,20 @@ inline void torrent::save_resume_data()
     if(!has_state_changed_) { return; }
     log(log_event::disk, "saving torrent resume data");
     disk_io_.save_torrent_resume_data(id(), create_resume_data(),
-        [SHARED_THIS](const std::error_code& error) { on_resume_data_saved(error); });
+            [SHARED_THIS](const error_code& error) { on_resume_data_saved(error); });
     has_state_changed_ = false;
     info_.state[torrent_info::saving_state] = true;
     info_.last_resume_data_save_time = cached_clock::now();
 }
 
-void torrent::on_resume_data_saved(const std::error_code& error)
+void torrent::on_resume_data_saved(const error_code& error)
 {
     info_.state[torrent_info::saving_state] = false;
     if(error)
     {
         const auto reason = error.message();
         log(log_event::disk, log::priority::high,
-            "failed to save torrent resume data: %s", reason.c_str());
+                "failed to save torrent resume data: %s", reason.c_str());
         has_state_changed_ = true;
         if(should_save_resume_data()) { save_resume_data(); }
     }
@@ -469,7 +469,7 @@ bmap_encoder torrent::create_resume_data() const
 
     // info
     resume_data["info_hash"] = std::string(
-        info_.info_hash.begin(), info_.info_hash.end());
+            info_.info_hash.begin(), info_.info_hash.end());
     resume_data["bitfield"] = is_seed() ? "have_all"
                                         : piece_picker_.my_bitfield().to_string();
     resume_data["save_path"] = info_.save_path.c_str();
@@ -537,10 +537,10 @@ bmap_encoder torrent::create_resume_data() const
     // stats
     resume_data["total_seed_time"] = to_int<seconds>(info_.total_seed_time);
     resume_data["total_leech_time"] = to_int<seconds>(info_.total_leech_time);
-    resume_data["download_started_time"] = to_int<seconds>(
-        info_.download_started_time.time_since_epoch());
-    resume_data["download_finished_time"] = to_int<seconds>(
-        info_.download_finished_time.time_since_epoch());
+    resume_data["download_started_time"] = 
+            to_int<seconds>(info_.download_started_time);
+    resume_data["download_finished_time"] =
+            to_int<seconds>(info_.download_finished_time);
     resume_data["total_downloaded_piece_bytes"] = info_.total_downloaded_piece_bytes;
     resume_data["total_uploaded_piece_bytes"] = info_.total_uploaded_piece_bytes;
     resume_data["total_downloaded_bytes"] = info_.total_downloaded_bytes;
@@ -646,9 +646,9 @@ void torrent::restore_resume_data(const bmap& resume_data)
 
     // settings
     resume_data.try_find_number("download_sequentially",
-        info_.settings.download_sequentially);
+            info_.settings.download_sequentially);
     resume_data.try_find_number("stop_when_downloaded",
-        info_.settings.stop_when_downloaded);
+            info_.settings.stop_when_downloaded);
     resume_data.try_find_number("max_upload_slots", info_.settings.max_upload_slots);
     resume_data.try_find_number("max_connections", info_.settings.max_connections);
     resume_data.try_find_number("max_upload_rate", info_.settings.max_upload_rate);
@@ -666,28 +666,29 @@ void torrent::restore_resume_data(const bmap& resume_data)
     info_.download_finished_time = time_point(seconds(int_buffer));
 
     resume_data.try_find_number("total_downloaded_piece_bytes",
-        info_.total_downloaded_piece_bytes);
+            info_.total_downloaded_piece_bytes);
     resume_data.try_find_number("total_uploaded_piece_bytes",
-        info_.total_uploaded_piece_bytes);
+            info_.total_uploaded_piece_bytes);
     resume_data.try_find_number("total_downloaded_bytes",
-        info_.total_downloaded_bytes);
+            info_.total_downloaded_bytes);
     resume_data.try_find_number("total_uploaded_bytes",
-        info_.total_uploaded_bytes);
+            info_.total_uploaded_bytes);
     resume_data.try_find_number("total_verified_piece_bytes",
-        info_.total_verified_piece_bytes);
+            info_.total_verified_piece_bytes);
     resume_data.try_find_number("total_failed_piece_bytes",
-        info_.total_failed_piece_bytes);
+            info_.total_failed_piece_bytes);
     resume_data.try_find_number("total_wasted_bytes",
-        info_.total_wasted_bytes);
+            info_.total_wasted_bytes);
     resume_data.try_find_number("total_bytes_written_to_disk",
-        info_.total_bytes_written_to_disk);
+            info_.total_bytes_written_to_disk);
     resume_data.try_find_number("total_bytes_read_from_disk",
-        info_.total_bytes_read_from_disk);
+            info_.total_bytes_read_from_disk);
     resume_data.try_find_number("num_hash_fails", info_.num_hash_fails);
     resume_data.try_find_number("num_illicit_requests", info_.num_illicit_requests);
     resume_data.try_find_number("num_unwanted_blocks", info_.num_unwanted_blocks);
     resume_data.try_find_number("num_disk_io_failures", info_.num_disk_io_failures);
-    resume_data.try_find_number("num_timed_out_requests", info_.num_timed_out_requests);
+    resume_data.try_find_number("num_timed_out_requests",
+            info_.num_timed_out_requests);
 }
 
 void torrent::announce(const int event, const bool force)
@@ -700,15 +701,16 @@ void torrent::announce(const int event, const bool force)
 
     tracker_request request = prepare_tracker_request(event);
 
-    // If the event is stopped or completed, we need to send it to all trackers to which
-    // we have announced in the past, otherwise just pick the most suitable tracker, as
-    // we're just requesting more peers.
+    // If the event is stopped or completed, we need to send it to all trackers
+    // to which we have announced in the past, otherwise just pick the most
+    // suitable tracker, as we're just requesting more peers.
     if((event == tracker_request::stopped) || (event == tracker_request::completed))
     {
         for(auto& entry : trackers_)
         {
-            // Don't send the `stopped` and `completed` events more than once, or if we 
-            // haven't contacted tracker at all (haven't sent a `started` event).
+            // Don't send the `stopped` and `completed` events more than once,
+            // or if we haven't contacted tracker at all (haven't sent
+            // a `started` event).
             if((entry.has_sent_completed && (event == tracker_request::completed))
                || (entry.has_sent_stopped && (event == tracker_request::stopped)))
             {
@@ -717,12 +719,12 @@ void torrent::announce(const int event, const bool force)
             else if(entry.has_sent_started && entry.tracker->is_reachable())
             {
                 log(log_event::tracker, log::priority::high,
-                    "sending event(%s) to tracker(%s)",
-                    event == tracker_request::completed ? "completed" : "stopped",
-                    entry.tracker->url().c_str());
+                        "sending event(%s) to tracker(%s)",
+                        event == tracker_request::completed ? "completed" : "stopped",
+                        entry.tracker->url().c_str());
                 entry.tracker->announce(request, [SHARED_THIS, &entry, event]
-                    (const std::error_code& ec, tracker_response response)
-                    { on_announce_response(entry, ec, std::move(response), event); });
+                        (const error_code& ec, tracker_response r)
+                        { on_announce_response(entry, ec, std::move(r), event); });
                 info_.state[torrent_info::announcing] = true;
             }
         }
@@ -735,8 +737,8 @@ void torrent::announce(const int event, const bool force)
             if(trackers_.empty() && peer_sessions_.empty() && available_peers_.empty())
             {
                 log(log_event::tracker, log::priority::high,
-                    "couldn't find tracker to announce to and we don't have any peers,"
-                    " stopping torrent");
+                        "couldn't find tracker to announce to and we don't have"
+                        " any peers, stopping torrent");
                 stop();
             }
             log(log_event::tracker, "cannot announce, no suitable tracker");
@@ -750,13 +752,13 @@ void torrent::announce(const int event, const bool force)
             request.event = tracker_request::started;
         }
         log(log_event::tracker, log::priority::high,
-            "sending event(%s) to tracker(%s)",
-            request.event == tracker_request::started ? "started" : "none",
-            entry.tracker->url().c_str());
+                "sending event(%s) to tracker(%s)",
+                request.event == tracker_request::started ? "started" : "none",
+                entry.tracker->url().c_str());
         entry.tracker->announce(std::move(request),
-            [SHARED_THIS, &entry, event = request.event]
-            (const std::error_code& ec, tracker_response r)
-            { on_announce_response(entry, ec, std::move(r), event); });
+                [SHARED_THIS, &entry, event = request.event]
+                (const error_code& ec, tracker_response r)
+                { on_announce_response(entry, ec, std::move(r), event); });
         info_.state[torrent_info::announcing] = true;
     }
 }
@@ -781,10 +783,11 @@ inline tracker_request torrent::prepare_tracker_request(const int event) const n
 
 inline int torrent::calculate_num_want() const noexcept
 {
-    const int available = global_settings_.max_connections - global_info_.num_connections;
+    const int available = global_settings_.max_connections
+            - global_info_.num_connections;
     if(available == 0) { return 0; }
     const int num_desired = info_.settings.max_connections
-        - peer_sessions_.size() - available_peers_.size();
+            - peer_sessions_.size() - available_peers_.size();
     // We should request at least 10 peers as even if currently we're not able to
     // connect as many, we may soon need more peers in which case we'd have to do
     // another tracker request, but this way we have some peers saved up.
@@ -829,8 +832,8 @@ inline bool torrent::can_force_announce_to(const tracker_entry& t) const noexcep
         && cached_clock::now() - t.last_force_time >= seconds(10);
 }
 
-void torrent::on_announce_response(tracker_entry& tracker, const std::error_code& error,
-    tracker_response response, const int event)
+void torrent::on_announce_response(tracker_entry& tracker, const error_code& error,
+        tracker_response response, const int event)
 {
     info_.state[torrent_info::announcing] = false;
     if(error)
@@ -840,23 +843,24 @@ void torrent::on_announce_response(tracker_entry& tracker, const std::error_code
     }
 
     log(log_event::tracker, log::priority::high,
-        "received announce response from %s (peers: %i; "
-        "interval: %i; seeders: %i; leechers: %i; tracker_id: %s)",
-        tracker.tracker->url().c_str(), response.peers.size()
-        + response.ipv4_peers.size() + response.ipv6_peers.size(), response.interval,
-        response.num_seeders, response.num_leechers, response.tracker_id.c_str());
+            "received announce response from %s (peers: %i; "
+            "interval: %i; seeders: %i; leechers: %i; tracker_id: %s)",
+            tracker.tracker->url().c_str(), response.peers.size()
+            + response.ipv4_peers.size() + response.ipv6_peers.size(),
+            response.interval, response.num_seeders, response.num_leechers,
+            response.tracker_id.c_str());
     //alert_queue_.emplace<announce_response_alert>(tracker.tracker.url(),
-        //response.interval, response.num_seeders, response.num_leechers);
+            //response.interval, response.num_seeders, response.num_leechers);
 
     const auto now = cached_clock::now();
     info_.last_announce_time = now;
     tracker.last_announce_time = now; 
     if(event == tracker_request::started)
-        tracker.has_sent_started = true;
+            tracker.has_sent_started = true;
     else if(event == tracker_request::completed)
-        tracker.has_sent_completed = true;
+            tracker.has_sent_completed = true;
     else if(event == tracker_request::stopped)
-        tracker.has_sent_stopped = true;
+            tracker.has_sent_stopped = true;
 
     if(!response.warning_message.empty())
     {
@@ -866,7 +870,7 @@ void torrent::on_announce_response(tracker_entry& tracker, const std::error_code
     }
 
     available_peers_.reserve(available_peers_.size()
-        + response.ipv4_peers.size() + response.ipv6_peers.size());
+            + response.ipv4_peers.size() + response.ipv6_peers.size());
     for(auto& ep : response.ipv4_peers) { add_peer(std::move(ep)); }
     for(auto& ep : response.ipv6_peers) { add_peer(std::move(ep)); }
 
@@ -884,7 +888,7 @@ void torrent::on_announce_response(tracker_entry& tracker, const std::error_code
 }
 
 inline void torrent::on_announce_error(tracker_entry& tracker,
-    const std::error_code& error, const int event)
+        const error_code& error, const int event)
 {
     // TODO is this correct?
     if(error == asio::error::network_down)
@@ -900,7 +904,7 @@ inline void torrent::on_announce_error(tracker_entry& tracker,
         if(++tracker.num_fails > 100)
         {
             trackers_.erase(std::find_if(trackers_.begin(), trackers_.end(),
-                [&tracker](const auto& t) { return &t == &tracker; }));
+                    [&tracker](const auto& t) { return &t == &tracker; }));
             if(trackers_.empty() && peer_sessions_.empty() && available_peers_.empty())
             {
                 stop();
@@ -919,7 +923,7 @@ inline void torrent::add_peer(tcp::endpoint peer)
     {
         // Only add peer if it's not already connected or is in `available_peers_`.
         auto psit = std::find_if(peer_sessions_.begin(), peer_sessions_.end(),
-            [&peer](const auto& session) { return session->remote_endpoint() == peer; });
+                [&peer](const auto& session) { return session->remote_endpoint() == peer; });
         auto apit = std::find(available_peers_.begin(), available_peers_.end(), peer);
         if((psit == peer_sessions_.end()) && (apit == available_peers_.end()))
         {
@@ -930,7 +934,7 @@ inline void torrent::add_peer(tcp::endpoint peer)
     }
 }
 
-void torrent::update(const std::error_code& error)
+void torrent::update(const error_code& error)
 {
     if(error)
     {
@@ -941,7 +945,7 @@ void torrent::update(const std::error_code& error)
     }
 
     log(log_event::update, "upload rate: %i bytes/s; download rate: %i bytes/s",
-        info_.upload_rate.rate(), info_.download_rate.rate());
+            info_.upload_rate.rate(), info_.download_rate.rate());
 
     if(local_rate_limiter_.is_detached_from_global_rate_limiter())
     {
@@ -959,23 +963,25 @@ void torrent::update(const std::error_code& error)
     if(info_.num_disk_io_failures >= 300)
     {
         log(log_event::disk, log::priority::high,
-            "too many (%i) disk failures, stopping torrent",
-            info_.num_disk_io_failures);
+                "too many (%i) disk failures, stopping torrent",
+                info_.num_disk_io_failures);
         //alert_queue_.emplace<too_many_disk_io_failures_alert>();
         stop();
         return;
     }
 
-    // If we have no peers, announce to tracker, and if it doesn't give us peers, in the
-    // next update announce to another tracker. repeat this until we get peers or we've
-    // exhausted all our trackers, but don't force announce, because that'd override this.
+    // If we have no peers, announce to tracker, and if it doesn't give us
+    // peers, in the next update announce to another tracker. repeat this until
+    // we get peers or we've exhausted all our trackers, but don't force
+    // announce, because that'd override this.
     if(should_connect_peers()) { connect_peers(); }
     if(needs_peers())
     {
         announce(tracker_request::none);
         log(log_event::update, "%i peers (max: %i), announcing",
-            total_peers(), info_.settings.max_connections == values::none
-                ? info_.settings.max_connections : global_settings_.max_connections);
+                total_peers(), info_.settings.max_connections == values::none
+                                ? info_.settings.max_connections
+                                : global_settings_.max_connections);
     }
 
     // Only run the unchoke procedure every 10 seconds.
@@ -1005,14 +1011,14 @@ void torrent::update(const std::error_code& error)
     if(should_save_resume_data()) { save_resume_data(); }
 
     start_timer(update_timer_, seconds(1),
-        [SHARED_THIS](const std::error_code& error) { update(error); });
+            [SHARED_THIS](const error_code& error) { update(error); });
 }
 
 inline int torrent::num_connectable_peers() const noexcept
 {
     return std::min({int(available_peers_.size()),
-        info_.settings.max_connections - int(peer_sessions_.size()),
-        global_settings_.max_connections - global_info_.num_connections});
+            info_.settings.max_connections - int(peer_sessions_.size()),
+            global_settings_.max_connections - global_info_.num_connections});
 }
 
 inline bool torrent::should_connect_peers() const noexcept
@@ -1028,8 +1034,8 @@ inline bool torrent::needs_peers() const noexcept
 {
     // TODO is 10 as a minimum value good? we probably shouldn't request fewer than that
     return peer_sessions_.size() + available_peers_.size() < std::min({10,
-        global_settings_.max_connections - global_info_.num_connections,
-        info_.settings.max_connections - int(peer_sessions_.size())});
+            global_settings_.max_connections - global_info_.num_connections,
+            info_.settings.max_connections - int(peer_sessions_.size())});
 }
 
 void torrent::connect_peers()
@@ -1037,11 +1043,11 @@ void torrent::connect_peers()
     const int num_to_connect = num_connectable_peers();
     if(num_to_connect <= 0) { return; }
     log(log_event::update, "connecting %i peer%c", num_to_connect,
-        num_to_connect == 1 ? 0 : 's');
+            num_to_connect == 1 ? 0 : 's');
     for(auto i = 0; i < num_to_connect; ++i) { connect_peer(available_peers_[i]); }
     // Erase the peers from the available peers list to which we've connected.
     available_peers_.erase(available_peers_.begin(),
-        available_peers_.begin() + num_to_connect);
+            available_peers_.begin() + num_to_connect);
 }
 
 inline void torrent::connect_peer(tcp::endpoint& peer)
@@ -1049,8 +1055,8 @@ inline void torrent::connect_peer(tcp::endpoint& peer)
     const auto address = peer.address().to_string();
     log(log_event::update, "connecting peer(%s:%i)", address.c_str(), peer.port());
     peer_sessions_.emplace_back(std::make_shared<peer_session>(ios_,
-        std::move(peer), local_rate_limiter_, global_settings_.peer_session,
-        torrent_frontend(*this)));
+            std::move(peer), local_rate_limiter_, global_settings_.peer_session,
+            torrent_frontend(*this)));
     peer_sessions_.back()->start();
     // Even if we're unsuccessful in connecting peer, we still want to reserve a
     // connection slot, i.e. increase this field (it will be decreased when this
@@ -1074,7 +1080,7 @@ inline void torrent::remove_finished_peer_sessions()
     }
     if(num_removed > 0)
         log(log_event::update, "removing %i peer session%c", num_removed,
-            num_removed == 1 ? 0 : 's');
+                num_removed == 1 ? 0 : 's');
 }
 
 void torrent::on_peer_session_stopped(peer_session& session)
@@ -1083,8 +1089,8 @@ void torrent::on_peer_session_stopped(peer_session& session)
 #ifdef TIDE_ENABLE_LOGGING
     const auto address = session.remote_endpoint().address().to_string();
     log(log_event::update, "session(%s:%i, %s, %lis) finished", address.c_str(),
-        session.remote_endpoint().port(), session.is_peer_seed() ? "seed" : "leech",
-        session.connection_duration().count());
+            session.remote_endpoint().port(), session.is_peer_seed()
+                    ? "seed" : "leech", session.connection_duration().count());
 #endif // TIDE_ENABLE_LOGGING
 
     if(!session.is_peer_choked())
@@ -1137,8 +1143,8 @@ inline void torrent::sort_unchoke_candidates(const int n)
 {
     assert(n <= peer_sessions_.size());
     std::partial_sort(peer_sessions_.begin(), peer_sessions_.begin() + n,
-        peer_sessions_.end(), [this](const auto& a, const auto& b)
-        { return unchoke_comparator_(*a, *b); });
+            peer_sessions_.end(), [this](const auto& a, const auto& b)
+            { return unchoke_comparator_(*a, *b); });
 }
 
 inline int torrent::num_to_unchoke(const bool unchoke_optimistically) const noexcept
@@ -1222,15 +1228,15 @@ void torrent::optimistic_unchoke()
     if(!candidates.empty())
     {
         std::sort(candidates.begin(), candidates.end(),
-            [](const auto& a, const auto& b)
-            {
-                return a->connection_established_time()
-                     < b->connection_established_time();
-            });
-        // Pick peer by generating a random number skewed towards the lower end, thereby
-        // giving newer peers a better chance at being picked.
+                [](const auto& a, const auto& b)
+                {
+                    return a->connection_established_time()
+                         < b->connection_established_time();
+                });
+        // Pick peer by generating a random number skewed towards the lower end,
+        // thereby giving newer peers a better chance at being picked.
         const int peer_index = std::floor(candidates.size()
-            * std::pow(util::random_real(), 2));
+                * std::pow(util::random_real(), 2));
         candidates[peer_index]->unchoke_peer();
         // Candidates must have eligible peers only.
         assert(!candidates[peer_index]->is_peer_choked());
@@ -1239,14 +1245,14 @@ void torrent::optimistic_unchoke()
 }
 
 bool torrent::choke_ranker::upload_rate_based(
-    const peer_session& a, const peer_session& b) noexcept
+        const peer_session& a, const peer_session& b) noexcept
 {
-    // Instead of using weighed upload rate averages for determining a peer's bandwidth
-    // between unchoke rounds, we instead count the number of bytes that were sent
-    // during this period, and disregard past performance.
-    // Note to self: function is called upload based but we query downloaded bytes;
-    // function name refers to peer's upload capacity, while the query functions are
-    // from our perspective TODO perhaps change this to be less confusing.
+    // Instead of using weighed upload rate averages for determining a peer's
+    // bandwidth between unchoke rounds, we instead count the number of bytes
+    // that were sent during this period, and disregard past performance.  Note
+    // to self: function is called upload based but we query downloaded bytes;
+    // function name refers to peer's upload capacity, while the query functions
+    // are from our perspective TODO perhaps change this to be less confusing.
     const auto down1 = a.num_bytes_downloaded_this_round();
     const auto down2 = b.num_bytes_downloaded_this_round();
     if(down1 != down2) { return down1 > down2; }
@@ -1254,7 +1260,7 @@ bool torrent::choke_ranker::upload_rate_based(
 }
 
 bool torrent::choke_ranker::download_rate_based(
-    const peer_session& a, const peer_session& b) noexcept
+        const peer_session& a, const peer_session& b) noexcept
 {
     const auto up1 = a.num_bytes_uploaded_this_round();
     const auto up2 = b.num_bytes_uploaded_this_round();
@@ -1277,15 +1283,17 @@ void torrent::on_new_piece(piece_download& download, const bool is_valid)
         handle_corrupt_piece(download);
 
     log(log_event::download, log::priority::high, "received new piece(%i, %s) (%i/%i)",
-        download.piece_index(), is_valid ? "valid" : "corrupt",
-        piece_picker_.num_have_pieces(), info_.num_pieces);
+            download.piece_index(), is_valid ? "valid" : "corrupt",
+            piece_picker_.num_have_pieces(), info_.num_pieces);
 
     const auto it = std::find_if(downloads_.begin(), downloads_.end(),
-        [&download](const auto& d) { return d->piece_index() == download.piece_index(); });
-    // If we could not find this piece download it means that it was a parole/unique
-    // download, i.e. `peer_session` didn't put it in downloads_ because it wanted
-    // to test whether peer was the one sending corrupt data, and for this the piece
-    // download was not shared among other `peer_session`s.
+            [&download](const auto& d)
+            { return d->piece_index() == download.piece_index(); });
+    // If we could not find this piece download it means that it was
+    // a parole/unique download, i.e. `peer_session` didn't put it in downloads_
+    // because it wanted to test whether peer was the one sending corrupt data,
+    // and for this the piece download was not shared among other
+    // `peer_session`s.
     if(it != downloads_.end()) { downloads_.erase(it); }
 
 #ifdef TIDE_ENABLE_DEBUGGING
@@ -1328,7 +1336,7 @@ inline void torrent::handle_valid_piece(piece_download& download)
     for(file_index_t i = files.begin; i < files.end; ++i)
     {
         const auto slice = storage_.get_file_slice(i,
-            block_info(download.piece_index(), 0, piece_length));
+                block_info(download.piece_index(), 0, piece_length));
         info_.files[i].downloaded_length += slice.length;
         if(info_.files[i].downloaded_length == info_.files[i].length)
         {
@@ -1368,8 +1376,8 @@ inline void torrent::handle_corrupt_piece(piece_download& download)
         // find its matching `peer_session` and if it's disconnected because of the
         // bad piece, erase it.
         auto it = std::find_if(peer_sessions_.begin(), peer_sessions_.end(),
-            [peer_id = download.peers()[0].id](const auto& session)
-            { return session->remote_endpoint() == peer_id; });
+                [peer_id = download.peers()[0].id](const auto& session)
+                { return session->remote_endpoint() == peer_id; });
         assert(it != peer_sessions_.end());
         auto& session = *it;
         // `session` may not be stopped as it may be exempt from the usual parole rules.
@@ -1416,7 +1424,7 @@ void torrent::log(const log_event event, const char* format, Args&&... args) con
 
 template<typename... Args>
 void torrent::log(const log_event event, const log::priority priority,
-    const char* format, Args&&... args) const
+        const char* format, Args&&... args) const
 {
 #ifdef TIDE_ENABLE_LOGGING
     const auto header = [event]() -> std::string
@@ -1434,7 +1442,7 @@ void torrent::log(const log_event event, const log::priority priority,
         }
     }();
     log::log_torrent(id(), std::move(header),
-        util::format(format, std::forward<Args>(args)...), priority);
+            util::format(format, std::forward<Args>(args)...), priority);
 #endif // TIDE_ENABLE_LOGGING
 }
 

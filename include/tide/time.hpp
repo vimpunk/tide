@@ -57,7 +57,7 @@ int64_t to_int(const duration& d)
 template<typename Unit>
 int64_t to_int(const time_point& t)
 {
-    return duration_cast<Unit>(t).count();
+    return duration_cast<Unit>(t.time_since_epoch()).count();
 }
 
 inline duration elapsed_since(const time_point& t)

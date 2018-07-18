@@ -456,7 +456,7 @@ void peer_session::announce_new_piece(const piece_index_t piece)
         // (torrent should post hash results first, then announce to peers).
         if(torrent_.piece_picker().has_all_pieces() && !downloads_.empty())
         {
-            // FIXME this branch executed (shouldn't).
+            // FIXME this branch executed when it shouldn't have.
             std::string s;
             for(const auto& d : downloads_)
             {

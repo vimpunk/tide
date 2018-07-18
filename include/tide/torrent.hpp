@@ -9,6 +9,7 @@
 #include "piece_picker.hpp"
 #include "torrent_args.hpp"
 #include "string_view.hpp"
+#include "error_code.hpp"
 #include "interval.hpp"
 #include "tracker.hpp"
 #include "bdecode.hpp"
@@ -33,144 +34,152 @@ struct settings;
 struct engine_info;
 
 /**
- * This class represents a torrent download/upload. It manages all peer connections
- * associated with a torrent. This is an internal class, user may only interact with
- * torrent indirectly via a `torrent_handle`.
+ * This class represents a torrent download/upload. It manages all peer
+ * connections associated with a torrent. This is an internal class, user may
+ * only interact with torrent indirectly via a `torrent_handle`.
  *
- * `torrent` is NOT thread-safe, i.e. the user thread must never call any of its methods
- * directly (this means `engine` must not call `torrent` methods within methods invoked on
- * the user thread). For this, `torrent_handle` has been devised, which is a thread-safe 
- * interface for `torrent`.
+ * `torrent` is NOT thread-safe, i.e. the user thread must never call any of its
+ * methods directly (this means `engine` must not call `torrent` methods within
+ * methods invoked on the user thread). For this, `torrent_handle` has been
+ * devised, which is a thread-safe interface for `torrent`.
  *
  * NOTE: `torrent` must be stored in a `std::shared_ptr` because it uses
- * `std::enable_shared_from_this` to pass a `std::shared_ptr` to itself to `disk_io` for
- * async disk operations so as to ensure that async operations not completed before
- * shutting down don't refer to invalid memory.
+ * `std::enable_shared_from_this` to pass a `std::shared_ptr` to itself to
+ * `disk_io` for async disk operations so as to ensure that async operations not
+ * completed before shutting down don't refer to invalid memory.
  */
 class torrent : public std::enable_shared_from_this<torrent>
 {
     friend class torrent_frontend;
     friend class torrent_handle;
 
-    // This is main network `io_context` that runs everything network related. It's used
-    // to instantiate `peer_session`s.
+    // This is main network `io_context` that runs everything network related.
+    // It's used to instantiate `peer_session`s.
     asio::io_context& ios_;
 
-    // Torrent only interacts with `disk_io` to allocate itself if it's a new torrent, or
-    // to verify previously downloaded files' integrity, if it's continued. Then, it
-    // periodically saves its resume state to disk, but other than that, a reference is
-    // passed to each `peer_session` through a `torrent_frontend` instance.
+    // Torrent only interacts with `disk_io` to allocate itself if it's a new
+    // torrent, or to verify previously downloaded files' integrity, if it's
+    // continued. Then, it periodically saves its resume state to disk, but
+    // other than that, a reference is passed to each `peer_session` through
+    // a `torrent_frontend` instance.
     disk_io& disk_io_;
 
     // `global_rate_limiter_` is `engine` wide and neither `torrent` nor its
-    // `peer_session`s refer to it directly. Instead, `local_rate_limiter_` acts as a
-    // frontend to `global_rate_limiter_` and applies torrent specific rate limits.
+    // `peer_session`s refer to it directly. Instead, `local_rate_limiter_` acts
+    // as a frontend to `global_rate_limiter_` and applies torrent specific rate
+    // limits.
     rate_limiter& global_rate_limiter_;
     torrent_rate_limiter local_rate_limiter_;
 
-    // These are the global settings that are passed to each `peer_session`. Torrent's
-    // settings, however, are in info_ (for settings related to a torrent may be
-    // customized for each torrent but session settings and individual peer settings
-    // are global).
+    // These are the global settings that are passed to each `peer_session`.
+    // Torrent's settings, however, are in info_ (for settings related to
+    // a torrent may be customized for each torrent but session settings and
+    // individual peer settings are global).
     const settings& global_settings_;
 
-    // Engine related stats and info may be accessed via this reference. It contains a
-    // few important bits, such as the global maximum number of connections, which may
-    // never be exceeded even if a `torrent` has space for more connections.
-    // TODO since we're only using engine_info::num_connections, just take a reference
-    // to that value, and not the entire info as we don't need it.
+    // Engine related stats and info may be accessed via this reference. It
+    // contains a few important bits, such as the global maximum number of
+    // connections, which may never be exceeded even if a `torrent` has space
+    // for more connections.  TODO since we're only using
+    // engine_info::num_connections, just take a reference to that value, and
+    // not the entire info as we don't need it.
     engine_info& global_info_;
 
-    // User may decide to block certain IPs or ports, and may decide have various
-    // policies regarding local networks (TODO), so before registering the availability
-    // of a peer, it first must be passed to this filter to see if we can connect to it.
+    // User may decide to block certain IPs or ports, and may decide have
+    // various policies regarding local networks (TODO), so before registering
+    // the availability of a peer, it first must be passed to this filter to see
+    // if we can connect to it.
     endpoint_filter& endpoint_filter_;
 
     // Alerts to user are sent via this.
     alert_queue& alert_queue_;
 
-    // Some storage specific operations are done directly via torrent's storage, but
-    // the actual disk interaction is done indirectly through `disk_io_`.
+    // Some storage specific operations are done directly via torrent's storage,
+    // but the actual disk interaction is done indirectly through `disk_io_`.
     torrent_storage_handle storage_;
 
     // These are all the connected peers. The first min(peer_sessions_.size(),
-    // settings::max_upload_slots) number of peers are ordered according to the choke 
-    // algorithm's rating.
+    // settings::max_upload_slots) number of peers are ordered according to the
+    // choke algorithm's rating.
     std::vector<std::shared_ptr<peer_session>> peer_sessions_;
 
-    // If torrent is stopped, `peer_session`s are not erased, but put here, as we might be
-    // able to reconnect them.
+    // If torrent is stopped, `peer_session`s are not erased, but put here, as
+    // we might be able to reconnect them.
     //std::vector<std::shared_ptr<peer_session>> stopped_peer_sessions_;
 
-    // Trackers are ordered the same way as they were specified in the metainfo file,
-    // i.e. the first tracker has the highest priority and is always used unless an
-    // error occurs, in which case we try the next. If metainfo didn't have an
-    // announce-list, this is a single tracker.
-    // Note that the tiers (list of list of trackers) has been flattened into a single
-    // list for better memory layout.
+    // Trackers are ordered the same way as they were specified in the metainfo
+    // file, i.e. the first tracker has the highest priority and is always used
+    // unless an error occurs, in which case we try the next. If metainfo didn't
+    // have an announce-list, this is a single tracker.
+    // Note that the tiers (list of list of trackers) has been flattened into
+    // a single list for better memory layout.
     std::vector<tracker_entry> trackers_;
 
-    // All peer endpoints returned in a tracker announce response are stored here.
-    // When we need to connect to peers, we first check whether there are any available
-    // here, and if not, only then do we request more from the tracker. As soon as a
-    // connection is being established to peer, its endpoint is removed from this
-    // list and a corresponding `peer_session` is added to `peer_sessions_`.
+    // All peer endpoints returned in a tracker announce response are stored
+    // here.  When we need to connect to peers, we first check whether there are
+    // any available here, and if not, only then do we request more from the
+    // tracker. As soon as a connection is being established to peer, its
+    // endpoint is removed from this list and a corresponding `peer_session` is
+    // added to `peer_sessions_`.
     std::vector<tcp::endpoint> available_peers_;
 
-    // Passed to every `peer_session`, tracks the availability of every piece in the swarm
-    // and decides, using this knowledge, which piece to pick next (which by default is
-    // the rarest piece in the swarm, unless sequential download is set).
+    // Passed to every `peer_session`, tracks the availability of every piece in
+    // the swarm and decides, using this knowledge, which piece to pick next
+    // (which by default is the rarest piece in the swarm, unless sequential
+    // download is set).
     piece_picker piece_picker_;
 
-    // This is where all current active piece downloads (from any peer in torrent)
-    // can be accessed, thus this is passed to every `peer_session` so that thay may help
-    // others to complete their piece download and add their own. When this torrent
-    // becomes a seeder, the memory for this is released for optimization as at that
-    // point it's no longer needed.
+    // This is where all current active piece downloads (from any peer in
+    // torrent) can be accessed, thus this is passed to every `peer_session` so
+    // that thay may help others to complete their piece download and add their
+    // own. When this torrent becomes a seeder, the memory for this is released
+    // for optimization as at that point it's no longer needed.
     std::vector<std::shared_ptr<piece_download>> downloads_;
 
-    // This is used for internal stats and state bookkeeping, and is passed to each
-    // `peer_session`, each of which updates the network and disk related fields, so
-    // torrent doesn't have to periodically loop over each `peer_session` to collect
-    // stats. This way stats collection is relatively inexpensive.
+    // This is used for internal stats and state bookkeeping, and is passed to
+    // each `peer_session`, each of which updates the network and disk related
+    // fields, so torrent doesn't have to periodically loop over each
+    // `peer_session` to collect stats. This way stats collection is relatively
+    // inexpensive.
     torrent_info info_;
 
-    // Since torrent is exposed to user through `torrent_handle` and since torrent runs on
-    // a different thread than where these query functions are likely to be called, it's 
-    // public query methods need to enforce mutual exclusion on their data. So as not to
-    // lock a mutex every time a `peer_session` or torrent's internals work with info_,
-    // a copy of info_ is kept, and thus acquiring a mutex is only necessary while
-    // handling this copy. Moreover, it need only be updated on demand, further
-    // decreasing the use of mutexes.
+    // Since torrent is exposed to user through `torrent_handle` and since
+    // torrent runs on a different thread than where these query functions are
+    // likely to be called, it's public query methods need to enforce mutual
+    // exclusion on their data. So as not to lock a mutex every time
+    // a `peer_session` or torrent's internals work with info_, a copy of info_
+    // is kept, and thus acquiring a mutex is only necessary while handling this
+    // copy. Moreover, it need only be updated on demand, further decreasing the
+    // use of mutexes.
     torrent_info ts_info_;
     mutable std::mutex ts_info_mutex_;
 
-    // The update cycle runs every second, cleans up finished `peer_session`s, connects
-    // to new peers, if necessary, makes tracker annoucnes, and does general housekeeping.
-    // Also, every ten seconds it invokes the choking algorithm, which reorders the peers
-    // according to the choke algorithms peer score and unchokes the top
-    // `max_upload_slots` number of peers, and chokes the rest, but every thirty seconds
-    // the `optimistic_unchoke` algorithm is run.
-    // It runs even when we have no peers, because we still need to update statistics
-    // (seed/leech time, throughput rates and other).
+    // The update cycle runs every second, cleans up finished `peer_session`s,
+    // connects to new peers, if necessary, makes tracker annoucnes, and does
+    // general housekeeping.  Also, every ten seconds it invokes the choking
+    // algorithm, which reorders the peers according to the choke algorithms
+    // peer score and unchokes the top `max_upload_slots` number of peers, and
+    // chokes the rest, but every thirty seconds the `optimistic_unchoke`
+    // algorithm is run.  It runs even when we have no peers, because we still
+    // need to update statistics (seed/leech time, throughput rates and other).
     // This is stopped when torrent is stopped.
     deadline_timer update_timer_;
 
-    // A function that returns true if the first `peer_session` is favored over the second
-    // is used to sort a torrent's peer list such that the peers that we want to unchoke
-    // are placed in the front of the list.
+    // A function that returns true if the first `peer_session` is favored over
+    // the second is used to sort a torrent's peer list such that the peers that
+    // we want to unchoke are placed in the front of the list.
     using unchoke_comparator = bool (*)(const peer_session&, const peer_session&);
 
-    // Depending on user set choking algorithm and the torrent state, we have different
-    // criteria for picking peers to unchoke, e.g. when we're downloading, the
-    // traditional (and default) criterion is a peer's upload capacity in the last 20
-    // seconds, while when torrent is seeding, peers that have better download capacity
-    // are preferred.
+    // Depending on user set choking algorithm and the torrent state, we have
+    // different criteria for picking peers to unchoke, e.g. when we're
+    // downloading, the traditional (and default) criterion is a peer's upload
+    // capacity in the last 20 seconds, while when torrent is seeding, peers
+    // that have better download capacity are preferred.
     unchoke_comparator unchoke_comparator_;
 
-    // This is set to true as soon as any change occurs in state/statistics since the
-    // last time torrent's state was saved to disk, which means that we need to persist
-    // torrent state to disk.
+    // This is set to true as soon as any change occurs in state/statistics
+    // since the last time torrent's state was saved to disk, which means that
+    // we need to persist torrent state to disk.
     // The events that set this flag:
     // * new piece downloaded
     // * recurring 30 second timeout
@@ -182,11 +191,11 @@ class torrent : public std::enable_shared_from_this<torrent>
 
 public:
     /**
-     * This is called for new torrents. It applies `args` and sets the `piece_picker`
-     * strategy.
+     * This is called for new torrents. It applies `args` and sets the
+     * `piece_picker` strategy.
      *
-     * NOTE: at this point of execution args is assumed to be checked, file paths
-     * sanitized etc, so it is crucial that `engine` do this.
+     * NOTE: at this point of execution args is assumed to be checked, file
+     * paths sanitized etc, so it is crucial that `engine` do this.
      */
     torrent(torrent_id_t id,
             asio::io_context& ios,
@@ -200,9 +209,10 @@ public:
             torrent_args args);
 
     /**
-     * This is called for continued torrents. `engine` retrieves the resume state data and
-     * constructs just enough information to instantiate the torrent, but the rest of
-     * the work is done by torrent, albeit only after invoking `start`.
+     * This is called for continued torrents. `engine` retrieves the resume
+     * state data and constructs just enough information to instantiate the
+     * torrent, but the rest of the work is done by torrent, albeit only after
+     * invoking `start`.
      */
     torrent(torrent_id_t id,
             asio::io_context& ios,
@@ -216,55 +226,64 @@ public:
             bmap resume_data);
 
     /**
-     * Since torrent is not exposed to the public directly, users may interact with a
-     * torrent via a `torrent_handle`, which this function returns for this torrent.
+     * Since torrent is not exposed to the public directly, users may interact
+     * with a torrent via a `torrent_handle`, which this function returns for
+     * this torrent.
      *
-     * If torrent could not be set up successfully, the returned handle is invalid.
+     * If torrent could not be set up successfully, the returned handle is
+     * invalid.
      */
     torrent_handle get_handle() noexcept;
     torrent_storage_handle get_storage_handle() noexcept;
 
     /**
-     * The constructor only sets up torrent but does not start it, this has to be done
-     * explicitly; or if torrent has been stopped it can be resumed with this.
+     * The constructor only sets up torrent but does not start it, this has to
+     * be done explicitly; or if torrent has been stopped it can be resumed with
+     * this.
      *
-     * If the torrent is new:
-     * It issues an asynchronous tracker announce to get peers to which we can connect,
-     * then issues an synchronous `disk_io` torrent allocation job that sets up the
-     * download directory strucure and creates an internal torrent entry in `disk_io`.
-     * torrent_args::save_path should at this point be verified, but there could still
-     * be an error in allocating, such as if we have no permission to write to the
-     * destination path or space has run out.
+     * If the torrent is new: It issues an asynchronous tracker announce to get
+     * peers to which we can connect, then issues an synchronous `disk_io`
+     * torrent allocation job that sets up the download directory strucure and
+     * creates an internal torrent entry in `disk_io`.  torrent_args::save_path
+     * should at this point be verified, but there could still be an error in
+     * allocating, such as if we have no permission to write to the destination
+     * path or space has run out.
      *
      * If the torrent is continued:
-     * First, torrent must launch an async disk job to verify the integrity of the
-     * previously established storage structure (directories and files). If storage i
-     * found to be corrupted, torrent halts execution and posts an alert to user for
-     * them to sort this out. Though at the same time an async tracker announce is
-     * started in the assumption that storage is intact (which should be in the majority
-     * of cases) to save time, after which regular execution commences.
+     * First, torrent must launch an async disk job to verify the integrity of
+     * the previously established storage structure (directories and files). If
+     * storage i found to be corrupted, torrent halts execution and posts an
+     * alert to user for them to sort this out. Though at the same time an async
+     * tracker announce is started in the assumption that storage is intact
+     * (which should be in the majority of cases) to save time, after which
+     * regular execution commences.
      */
     void start();
 
     /**
-     * stop should be preferred over abort as it will wait for all current operations
-     * to complete before closing connections (e.g. mid-transmission blocks will be
-     * completed, so will storage checks) and trackers are notified of our leave.
+     * `stop` should be preferred over `abort` as it will wait for all current
+     * operations to complete before closing connections (e.g. mid-transmission
+     * blocks will be completed, so will storage checks) and trackers are
+     * notified of our leave.
      */
     void stop();
     void abort();
 
     /**
-     * It's unknown to which torrent incoming connections belong, so at first they
-     * belong to no torrent until peer's `info_hash` is received. After this, `peer_session`
-     * calls the torrent attacher handler provided by `engine` passing it peer's info_hash,
-     * after which `engine` attempts to match it to an existing torrents' info_hash, and if
-     * found, invokes this function. At this point peer is filtered by `engine`.
+     * It's unknown to which torrent incoming connections belong, so at first
+     * they belong to no torrent until peer's `info_hash` is received. After
+     * this, `peer_session` calls the torrent attacher handler provided by
+     * `engine` passing it peer's info_hash, after which `engine` attempts to
+     * match it to an existing torrents' info_hash, and if found, invokes this
+     * function. At this point peer is filtered by `engine`.
      * TODO this comment is a mess, rewrite.
      */
     void attach_peer_session(std::shared_ptr<peer_session> session);
 
-    /** `file_index` must be the position of the file in the original .torrent metainfo. */
+    /**
+     * `file_index` must be the position of the file in the original .torrent
+     * metainfo.
+     */
     void make_file_top_priority(const int file_index);
     void prioritize_file(const int file_index);
     void deprioritize_file(const int file_index);
@@ -272,10 +291,10 @@ public:
     void deprioritize_piece(const piece_index_t piece);
 
     /**
-     * If torrent is auto managed, it means `engine` will manage its settings (cap
-     * its throughput rates and apply other fields using the global defaults in
-     * `settings::torrent`), whereas if it's not, torrent has its own settings that
-     * override the global defaults.
+     * If torrent is auto managed, it means `engine` will manage its settings
+     * (cap its throughput rates and apply other fields using the global
+     * defaults in `settings::torrent`), whereas if it's not, torrent has its
+     * own settings that override the global defaults.
      */
     bool is_auto_managed() const noexcept;
 
@@ -306,8 +325,8 @@ public:
     int max_connections() const noexcept;
 
     /**
-     * Closes `n` or fewer peer connections and returns the number of connections that
-     * were closed.
+     * Closes `n` or fewer peer connections and returns the number of
+     * connections that were closed.
      */
     int close_n_connections(const int n);
 
@@ -351,16 +370,18 @@ public:
     bool is_seed() const noexcept;
 
     /**
-     * This saves torrent's current state to disk. This is done automatically if a
-     * change to torrent's state occurs, but user may request it manually. It will not
-     * issue a `disk_io` job if torrent's state has not changed since the last save.
+     * This saves torrent's current state to disk. This is done automatically if
+     * a change to torrent's state occurs, but user may request it manually. It
+     * will not issue a `disk_io` job if torrent's state has not changed since
+     * the last save.
      */
     void save_resume_data();
 
     /**
-     * Announces to trackers are usually spaced fixed intervals apart (this is set by
-     * the tracker) and `torrent` tries not to violate this. However user may request an
-     * announce, in which case this will override the tracker timer.
+     * Announces to trackers are usually spaced fixed intervals apart (this is
+     * set by the tracker) and `torrent` tries not to violate this. However user
+     * may request an announce, in which case this will override the tracker
+     * timer.
      */
     void force_tracker_announce();
     void force_tracker_announce(string_view url);
@@ -369,8 +390,8 @@ public:
     void force_resume_data_check();
 
     /**
-     * If torrent is multi-file, the root directory in which the files are stored is
-     * renamed, otherwise nothing happens.
+     * If torrent is multi-file, the root directory in which the files are
+     * stored is renamed, otherwise nothing happens.
      *
      * Upon completing the operation, an alert is posted.
      */
@@ -397,26 +418,27 @@ private:
 
     /**
      * This is the main update cycle that is invoked every second. It removes
-     * `peer_session`s that are finished, connects to peers, if necessary, launches scrape
-     * and announce requests if not enough peers are available, and invokes the choking
-     * algorithm every 10 seconds and so on.
-     * It only runs if there are active or connecting peer sessions available, otherwise
-     * there is nothing to update. If we get from tracker more peers to connect, the
-     * update cycle is reinstated.
+     * `peer_session`s that are finished, connects to peers, if necessary,
+     * launches scrape and announce requests if not enough peers are available,
+     * and invokes the choking algorithm every 10 seconds and so on.
+     * It only runs if there are active or connecting peer sessions available,
+     * otherwise there is nothing to update. If we get from tracker more peers
+     * to connect, the update cycle is reinstated.
      */
-    void update(const std::error_code& error = std::error_code());
+    void update(const error_code& error = error_code());
 
     /**
-     * Copies the parts of info_ into ts_info_ that change (i.e. no redundant copies
-     * of constants structures such as the `info_hash`, files etc are done).
+     * Copies the parts of info_ into ts_info_ that change (i.e. no redundant
+     * copies of constants structures such as the `info_hash`, files etc are
+     * done).
      */
     void update_thread_safe_info();
 
     int num_connectable_peers() const noexcept;
 
     /**
-     * Checks whether the current number of connected peers is such that we need to
-     * connect more peers.
+     * Checks whether the current number of connected peers is such that we need
+     * to connect more peers.
      */
     bool should_connect_peers() const noexcept;
 
@@ -424,22 +446,24 @@ private:
     bool needs_peers() const noexcept;
 
     /**
-     * This is called when all pieces that user wanted to download have been downloaded.
-     * Torrent becomes a seeder now, even if it doesn't have 100% of the torrent.
+     * This is called when all pieces that user wanted to download have been
+     * downloaded.  Torrent becomes a seeder now, even if it doesn't have 100%
+     * of the torrent.
      */
     void on_download_complete();
 
     /**
-     * This is the callback provided for each `peer_session` to call when they finish
-     * downloading and veryfing a piece. If the piece was good, this function notifies
-     * all our connected peers that we have a new piece available for download.
-     * Otherwise the piece is unreserved from the picker to be downloaded again.
+     * This is the callback provided for each `peer_session` to call when they
+     * finish downloading and veryfing a piece. If the piece was good, this
+     * function notifies all our connected peers that we have a new piece
+     * available for download.  Otherwise the piece is unreserved from the
+     * picker to be downloaded again.
      *
-     * Note that the piece_download instance needs to be passed to this handler as a
-     * peer may be on parole, which means that it claims a piece_download and does not
-     * put it in downloads_, so torrent would have no way of finding it, which
-     * it needs to do to post the hash result through piece_download to the peers that 
-     * participated in the downloaded.
+     * Note that the piece_download instance needs to be passed to this handler
+     * as a peer may be on parole, which means that it claims a piece_download
+     * and does not put it in downloads_, so torrent would have no way of
+     * finding it, which it needs to do to post the hash result through
+     * piece_download to the peers that participated in the downloaded.
      */
     void on_new_piece(piece_download& download, const bool is_valid);
     void handle_valid_piece(piece_download& download);
@@ -447,9 +471,9 @@ private:
     void ban_peer(peer_session& peer);
 
     /**
-     * `peer_session`s that are finished (connection is closed with no intentions of
-     * restarting) mark themselves as such, and when we want to work with
-     * `peer_sessions_` we first have to remove the dead entries.
+     * `peer_session`s that are finished (connection is closed with no
+     * intentions of restarting) mark themselves as such, and when we want to
+     * work with `peer_sessions_` we first have to remove the dead entries.
      *
      * TODO updated
      */
@@ -470,39 +494,40 @@ private:
     // -------
 
     /**
-     * If event is `none` or `started`, we announe to a single most suitable tracker,
-     * otherwise (event is `completed` or `stopped`) we announce to all trackers to
-     * which torrent we've announced in the past.
+     * If event is `none` or `started`, we announe to a single most suitable
+     * tracker, otherwise (event is `completed` or `stopped`) we announce to all
+     * trackers to which torrent we've announced in the past.
      */
     void announce(const int event = tracker_request::none, const bool force = false);
 
     tracker_request prepare_tracker_request(const int event) const noexcept;
     int calculate_num_want() const noexcept;
 
-    void on_announce_response(tracker_entry& tracker, const std::error_code& error,
+    void on_announce_response(tracker_entry& tracker, const error_code& error,
             tracker_response response, const int event);
     void on_announce_error(tracker_entry& tracker,
-            const std::error_code& error, const int event);
+            const error_code& error, const int event);
 
     /**
-     * Adds a peer returned in an announce response if we're not already connected to
-     * it, if it's not already in available_peers_, if it's not us, and if 
-     * endpoint_filter_ allows it.
+     * Adds a peer returned in an announce response if we're not already
+     * connected to it, if it's not already in available_peers_, if it's not us,
+     * and if endpoint_filter_ allows it.
      */
     void add_peer(tcp::endpoint peer);
 
     /**
-     * Scraping is done when we just want information about a torrent (how many seeders,
-     * leechers, and received 'completed' events). TODO purpose of this?
+     * Scraping is done when we just want information about a torrent (how many
+     * seeders, leechers, and received 'completed' events). TODO purpose of
+     * this?
      */
     void scrape_tracker();
-    void on_scrape_response(const std::error_code& error, scrape_response response);
+    void on_scrape_response(const error_code& error, scrape_response response);
 
     /**
-     * Trackers are ordered in tiers, and the first tracker in the first tier is used
-     * until it times out or results in an error, then we moved onto the next tracker
-     * and so on. If no error occured with any of the trackers so far, this will
-     * always return *trackers_[0].
+     * Trackers are ordered in tiers, and the first tracker in the first tier is
+     * used until it times out or results in an error, then we moved onto the
+     * next tracker and so on. If no error occured with any of the trackers so
+     * far, this will always return *trackers_[0].
      * TODO return an iterator
      */
     tracker_entry* pick_tracker(const bool force);
@@ -513,14 +538,14 @@ private:
     // -- storage --
     // -------------
 
-    void on_torrent_allocated(const std::error_code& error,
+    void on_torrent_allocated(const error_code& error,
             torrent_storage_handle storage);
-    void handle_disk_error(const std::error_code& error);
+    void handle_disk_error(const error_code& error);
     void check_storage_integrity();
-    void on_storage_integrity_checked(const std::error_code& error);
+    void on_storage_integrity_checked(const error_code& error);
 
     bool should_save_resume_data() const noexcept;
-    void on_resume_data_saved(const std::error_code& error);
+    void on_resume_data_saved(const error_code& error);
 
     bmap_encoder create_resume_data() const;
     void restore_resume_data(const bmap& resume_data);
@@ -536,30 +561,32 @@ private:
     int num_to_unchoke(const bool unchoke_optimistically) const noexcept;
 
     /**
-     * For good TCP performance it is crucial that the number of upload slots, i.e.
-     * unchoked peers that may download from us, is capped. We must also avoid choking
-     * and unchoking too quickly (fibrilating), to give peers a chance to prove their
-     * worth. Thus the choking algorithm is run every 10 seconds, and unchokes
-     * min(settings::max_upload_slots, peer_sessions_.size()) number of peers.
+     * For good TCP performance it is crucial that the number of upload slots,
+     * i.e.  unchoked peers that may download from us, is capped. We must also
+     * avoid choking and unchoking too quickly (fibrilating), to give peers
+     * a chance to prove their worth. Thus the choking algorithm is run every 10
+     * seconds, and unchokes min(settings::max_upload_slots,
+     * peer_sessions_.size()) number of peers.
      */
     void unchoke();
 
     /**
-     * In order to potentially find peers that have better upload performance (when
-     * we're leeching), or better download performance (when we're seeding) than our
-     * current unchoked peers, a random peer is picked every 30 seconds (this should
-     * give them sufficient time for us to gauage their performance), however, newly
-     * connected peers are three times more likely to be picked as other peers. This
-     * is to ensure that new peers have something to share and to cultivate a greater
-     * spread of pieces among all peers so more peers can participate in the upload
-     * (otherwise only the four best uploaders would be uploading to each other).
+     * In order to potentially find peers that have better upload performance
+     * (when we're leeching), or better download performance (when we're
+     * seeding) than our current unchoked peers, a random peer is picked every
+     * 30 seconds (this should give them sufficient time for us to gauage their
+     * performance), however, newly connected peers are three times more likely
+     * to be picked as other peers. This is to ensure that new peers have
+     * something to share and to cultivate a greater spread of pieces among all
+     * peers so more peers can participate in the upload (otherwise only the
+     * four best uploaders would be uploading to each other).
      */
     void optimistic_unchoke();
 
     /**
      * These are the currently supported peer score comparators for the choking
-     * algorithm. Before we decide which peers to {un,}choke, peer_sessions_ is sorted
-     * according to unchoke_comparator_, which is one of these functions.
+     * algorithm. Before we decide which peers to {un,}choke, peer_sessions_ is
+     * sorted according to unchoke_comparator_, which is one of these functions.
      *
      * Returns true if a is favored over b, false otherwise.
      */
@@ -590,7 +617,7 @@ private:
     void log(const log_event event, const char* format, Args&&... args) const;
     template<typename... Args>
     void log(const log_event event, const log::priority priority,
-        const char* format, Args&&... args) const;
+            const char* format, Args&&... args) const;
 };
 
 inline bool torrent::is_auto_managed() const noexcept
