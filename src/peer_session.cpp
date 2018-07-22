@@ -113,13 +113,16 @@ peer_session::peer_session(
         tcp::endpoint peer_endpoint,
         torrent_rate_limiter& rate_limiter,
         const peer_session_settings& settings,
+        std::unique_ptr<tcp::socket> socket,
         std::function<torrent_frontend(const sha1_hash&)> torrent_attacher)
     : peer_session(ios, std::move(peer_endpoint), rate_limiter, settings)
 {
     torrent_attacher_ = std::move(torrent_attacher);
+    socket_ = std::move(socket);
     info_.is_outbound = false;
 
     assert(torrent_attacher_);
+    assert(socket_);
 }
 
 peer_session::~peer_session()

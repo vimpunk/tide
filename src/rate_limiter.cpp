@@ -182,4 +182,4 @@ void torrent_rate_limiter::unsubscribe(const token_type token)
     global_rate_limiter.unsubscribe(token);
 }
 
-} // namespace tide
+} // tide

@@ -375,9 +375,7 @@ public:
     /**
      * Instantiate an outbound connection (when connections are made by torrent,
      * i.e. the torrent is known), but does NOT start the session or connect,
-     * that is done by calling start.
-     *
-     * The socket must be initialized, but not opened, nor connected.
+     * that is done by calling `start`.
      */
     peer_session(asio::io_context& ios,
             tcp::endpoint peer_endpoint,
@@ -387,19 +385,18 @@ public:
 
     /**
      * Instantiate an inbound connection, that is, it is not known to which
-     * torrent this peer belongs until the handshake is completed. The socket is
-     * already connected to peer, but the session isn't formally started
-     * (because it needs to use shared_from_this but that is not available in
-     * the ctor), so start has to be called once the `peer_session` is
-     * constructed, after which the session is continued.
+     * torrent this peer belongs until the handshake is completed.
      *
-     * The socket must be initialized, but not opened.
+     * The socket is already connected to peer, but the session isn't formally
+     * started (because it needs to use `shared_from_this` but that is not
+     * available in the ctor), so start has to be called once the `peer_session`
+     * is constructed, after which the session is continued.
      *
-     * The torrent_attacher handler is called after we receive peer's handshake.
+     * The `torrent_attacher` handler is called after we receive peer's handshake.
      * This is used to locate the torrent to which this connection belongs.
      * After this, we have the torrent's info hash so we can send our handshake
      * as well. If this succeeds, the peer is fully connected, but if
-     * torrent_attacher doesn't return a valid torrent_specific_args instance
+     * `torrent_attacher` doesn't return a valid `torrent_specific_args` instance
      * (its fields are nullptr), we know peer didn't send the correct hash so
      * the connection is closed and this `peer_session` may be removed.
      */
@@ -407,6 +404,7 @@ public:
             tcp::endpoint peer_endpoint,
             torrent_rate_limiter& rate_limiter,
             const peer_session_settings& settings,
+            std::unique_ptr<tcp::socket> socket,
             std::function<torrent_frontend(const sha1_hash&)> torrent_attacher);
 
     /**

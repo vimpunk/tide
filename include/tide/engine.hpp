@@ -229,7 +229,8 @@ private:
     void verify(const settings& s) const;
     void verify(const disk_io_settings& s) const;
     void verify(const torrent_settings& s) const;
-    void verify(const peer_session_settings& s, const int write_cache_line_size = 1) const;
+    void verify(const peer_session_settings& s,
+            const int write_cache_line_size = 1) const;
 
     void fill_in_defaults(torrent_args& args);
     void fill_in_defaults(settings& s);

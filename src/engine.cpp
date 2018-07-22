@@ -211,7 +211,8 @@ void engine::verify(const torrent_settings& s) const
             "torrent_settings::max_upload_rate must be unlimited, none or above 0");
 }
 
-void engine::verify(const peer_session_settings& s, const int write_cache_line_size) const
+void engine::verify(const peer_session_settings& s,
+        const int write_cache_line_size) const
 {
     throw_if_below_allow_unlimited(s.max_incoming_request_queue_size, 10,
             "peer_session_settings::max_incoming_request_queue_size must be unlimited,"
@@ -564,7 +565,7 @@ void engine::update(const error_code& error)
     }
 
     // Only run the main update procedure every second, while update is invoked every
-    // tenth second.
+    // tenth of a second.
     if(++info_.update_counter % 10)
     {
         // Refill our bandwidth quota (even if it's unlimited, `rate_limiter_`
