@@ -80,7 +80,7 @@ std::string peer_session_error_category::message(int env) const
         return "Could not identify message";
     case peer_session_errc::no_piece_availability_message:
         return "No piece availability message after handshake";
-    case peer_session_errc::bitfield_not_after_handshake:
+    case peer_session_errc::piece_availability_not_after_handshake:
         return "Piece availability message not after handshake";
     case peer_session_errc::sent_requests_when_choked:
         return "Choked peer sent too many requests";

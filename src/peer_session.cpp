@@ -156,15 +156,16 @@ void peer_session::start()
     }
     else if(is_disconnecting() && socket_->is_open())
     {
-        // If socket is still open, we can continue the session, but we may need to
-        // reinstate the send and receive cycles and deadline timers.
+        // If socket is still open, we can continue the session, but we may need
+        // to reinstate the send and receive cycles and deadline timers.
         info_.state = state::connected;
-        // If we're not receiving, and not writing to disk (in which case the disk write
-        // handler would call receive), we need to resuscitate the receive cycle.
+        // If we're not receiving, and not writing to disk (in which case the
+        // disk write handler would call receive), we need to resuscitate the
+        // receive cycle.
         if(!op_state_[op::receive] && !op_state_[op::disk_write]) { receive(); }
-        // TODO verify; I don't think it's enough to check whether socket is open,
-        // as it may be still connecting, in which case we can't just continue the
-        // session, so stronger guarantees are necessary.
+        // TODO verify; I don't think it's enough to check whether socket is
+        // open, as it may be still connecting, in which case we can't just
+        // continue the session, so stronger guarantees are necessary.
     }
 }
 
@@ -219,7 +220,8 @@ void peer_session::on_connected(const error_code& error)
     if(error || !socket_->is_open())
     {
         // TODO can we disconnect if we haven't even connected?
-        disconnect(error ? error : std::make_error_code(std::errc::bad_file_descriptor));
+        disconnect(error ?
+                error : std::make_error_code(std::errc::bad_file_descriptor));
         return;
     }
 
@@ -234,7 +236,7 @@ void peer_session::on_connected(const error_code& error)
     info_.connection_established_time = cached_clock::now();
     log(log_event::connecting, "connected in %lims",
             to_int<milliseconds>(info_.connection_established_time
-                    - info_.connection_started_time));
+                - info_.connection_started_time));
     info_.local_endpoint = socket_->local_endpoint(ec);
     if(ec)
     {
@@ -443,16 +445,16 @@ void peer_session::suggest_piece(const piece_index_t piece)
 
 void peer_session::announce_new_piece(const piece_index_t piece)
 {
-    // No need to send a have message if we're shutting down, otherwise we're still
-    // connecting or handshaking, in which case we'll send our piece availability after
-    // this stage is done.
+    // No need to send a have message if we're shutting down, otherwise we're
+    // still connecting or handshaking, in which case we'll send our piece
+    // availability after this stage is done.
     if(is_connected())
     {
         // Don't send a have msg if peer already has the piece.
         if(!info_.available_pieces[piece]) { send_have(piece); }
-        // Send_have() is called by torrent when a new piece is received, so recalculate
-        // whether we're interested in this peer, for we may have received the only piece
-        // peer has in which we were interested.
+        // Send_have() is called by torrent when a new piece is received, so
+        // recalculate whether we're interested in this peer, for we may have
+        // received the only piece peer has in which we were interested.
         update_interest();
 #ifdef TIDE_ENABLE_DEBUGGING
         // If we've become a seeder we shouldn't have any downloads left then
@@ -903,7 +905,7 @@ inline void peer_session::handle_messages()
     {
 #define NOT_AFTER_HANDSHAKE(str) do { \
     log(log_event::invalid_message, str " not after handshake"); \
-    disconnect(peer_session_errc::bitfield_not_after_handshake); } while(0)
+    disconnect(peer_session_errc::piece_availability_not_after_handshake); } while(0)
         switch(message_parser_.type()) {
         // standard BitTorrent messages --
         // -- Bitfield messages may only be sent after the handshake.

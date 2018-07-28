@@ -130,8 +130,8 @@ public:
 
 struct tracker_response
 {
-    // If this is not empty, no other fields in response are valid. It contains a
-    // human-readable error message as to why the request was invalid.
+    // If this is not empty, no other fields in response are valid. It contains
+    // a human-readable error message as to why the request was invalid.
     std::string failure_reason;
 
     // Optional. Similar to failure_reason, but the response is still processed.
@@ -143,15 +143,16 @@ struct tracker_response
     // The number of seconds the client should wait before recontacting tracker.
     seconds interval;
 
-    // If present, the client must not reannounce itself before the end of this interval.
+    // If present, the client must not reannounce itself before the end of this
+    // interval.
     seconds min_interval;
 
     int32_t num_seeders;
     int32_t num_leechers;
 
-    // This is only used when tracker includes the peer ids of a peer. However, virtually
-    // all trackers use compact mode nowadays to save bandwidth, so consider phasing this
-    // out.
+    // This is only used when tracker includes the peer ids of a peer. However,
+    // virtually all trackers use compact mode nowadays to save bandwidth, so
+    // consider phasing this out.
     std::vector<peer_entry> peers;
     std::vector<tcp::endpoint> ipv4_peers;
     std::vector<tcp::endpoint> ipv6_peers;
@@ -204,8 +205,8 @@ namespace tide {
 
 /**
  * This is an interface for the two possible trackers: UDP and HTTP/S.
- * In all cases a single tracker instance may be shared among multiple torrents, so all
- * derived instances must be equipped to deal with this.
+ * In all cases a single tracker instance may be shared among multiple torrents,
+ * so all derived instances must be equipped to deal with this.
  */
 class tracker
 {
@@ -236,18 +237,18 @@ public:
     virtual ~tracker() = default;
 
     /**
-     * Starts an asynchronous tracker announcement/request. Network errors are reported
-     * via the error_code, but semantic errors (i.e. invalid fields in the request) are
-     * reported via the tracker_response.failure_reason field (in which case all other
-     * fields in response are empty/invalid.
+     * Starts an asynchronous tracker announcement/request. Network errors are
+     * reported via the error_code, but semantic errors (i.e. invalid fields in
+     * the request) are reported via the tracker_response.failure_reason field
+     * (in which case all other fields in response are empty/invalid.
      */
     virtual void announce(tracker_request parameters,
             std::function<void(const error_code&, tracker_response)> handler) = 0;
 
     /**
-     * A scrape request is used to get data about one, multiple or all torrents tracker
-     * manages. If in the second overload info_hashes is empty, the maximum number of
-     * requestable torrents are scraped that tracker has.
+     * A scrape request is used to get data about one, multiple or all torrents
+     * tracker manages. If in the second overload info_hashes is empty, the
+     * maximum number of requestable torrents are scraped that tracker has.
      */
     //virtual void scrape(const sha1_hash& info_hash,
             //std::function<void(const error_code&, scrape_response)> handler) = 0;
@@ -255,8 +256,8 @@ public:
             std::function<void(const error_code&, scrape_response)> handler) = 0;
 
     /**
-     * This should be called when torrent is shutting down but we don't want to wait
-     * for pending announcements.
+     * This should be called when torrent is shutting down but we don't want to
+     * wait for pending announcements.
      */
     virtual void abort() = 0;
 
@@ -265,9 +266,10 @@ public:
     time_point last_scrape_time() const noexcept { return last_scrape_time_; }
 
     /**
-     * These are used to query if tracker is currently reachable or if it had exhibited
-     * any protocol errors in its response in the past. The former is set to false after
-     * we timed out and set to true again if we could reach tracker.
+     * These are used to query if tracker is currently reachable or if it had
+     * exhibited any protocol errors in its response in the past. The former is
+     * set to false after we timed out and set to true again if we could reach
+     * tracker.
      */
     bool is_reachable() const noexcept { return is_reachable_; }
     bool had_protocol_error() const noexcept { return had_protocol_error_; }
@@ -291,11 +293,13 @@ protected:
 };
 
 /**
- * There may only be a single outstanding request (which may be a regular one or a
- * scrape) to tracker. However, since multiple torrents may be associated with one
- * tracker, if there is an outstanding request while one or more new requests are
- * issued, they are enqueued and executed, in the order they were enqueued, once the
- * outstanding request has been served.
+ * There may only be a single outstanding request (which may be a regular one or
+ * a scrape) to tracker. However, since multiple torrents may be associated with
+ * one tracker, if there is an outstanding request while one or more new
+ * requests are issued, they are enqueued and executed in the order they were
+ * enqueued, once the outstanding request has been served.
+ *
+ * NOTE: it is NOT thread-safe!
  */
 class http_tracker final : public tracker
 {
@@ -305,12 +309,12 @@ class http_tracker final : public tracker
     // This is responsible for timing out a request.
     deadline_timer timeout_timer_;
 
-    // Since there may only be a single outstanding request at any given time, a single
-    // request and response objects are used for all operations.
+    // Since there may only be a single outstanding request at any given time,
+    // a single request and response objects are used for all operations.
     //http::request<http::string_body> request_;
     http::response<http::string_body> response_;
 
-    // Holds the raw response data, which response_ interprets.
+    // Holds the raw response data, which `response_` interprets.
     http::flat_buffer response_buffer_;
 
     tcp::endpoint endpoint_;
@@ -319,8 +323,8 @@ class http_tracker final : public tracker
     {
         http::request<http::string_body> payload;
 
-        // Even though HTTPS over TCP is reliable, we still allow more than a single
-        // attempt to contact tracker. This limit is set by user.
+        // Even though HTTPS over TCP is reliable, we still allow more than
+        // a single attempt to contact tracker. This limit is set by user.
         int num_retries = 0;
 
         virtual ~request() = default;
@@ -341,18 +345,19 @@ class http_tracker final : public tracker
         void on_error(const error_code& error) override { handler(error, {}); }
     };
 
-    // All requests are enqueued at the back of this queue, and requests are popped from
-    // the bottom of the queue and executed one at a time. A request is only removed
-    // once it was served by tracker and its completion handler was invoked. This means
-    // that the request currently executed (if any) is always at the front of the queue.
+    // All requests are enqueued at the back of this queue, and requests are
+    // popped from the bottom of the queue and executed one at a time. A request
+    // is only removed once it was served by tracker and its completion handler
+    // was invoked. This means that the request currently executed (if any) is
+    // always at the front of the queue.
     std::deque<std::unique_ptr<request>> requests_;
 
-    // This is set to signal that there is an outstanding request operation, to block
-    // other attempts.
+    // This is set to signal that there is an outstanding request operation, to
+    // block other attempts.
     bool is_requesting_ = false;
 
-    // The first request launches an async host resolution, during which no other
-    // request may be launched, so execution must halt if this is false.
+    // The first request launches an async host resolution, during which no
+    // other request may be launched, so execution must halt if this is false.
     bool is_resolved_ = false;
 
 public:
@@ -418,25 +423,27 @@ class udp_tracker final : public tracker
     };
 
     /**
-     * Multiple torrents may be associated with the same tracker so we need to separate
-     * each torrent's announce/scrape request. This means each request that torrent
-     * makes to tracker needs to have its own send buffer, expected action in response
-     * etc, but still use tracker's socket and receive buffer for communicating.
+     * Multiple torrents may be associated with the same tracker so we need to
+     * separate each torrent's announce/scrape request. This means each request
+     * that torrent makes to tracker needs to have its own send buffer, expected
+     * action in response etc, but still use tracker's socket and receive buffer
+     * for communicating.
      */
     struct request
     {
-        // This is the state in which request currently is, i.e. which message we're
-        // expecting next from tracker (response may be action::error, however).
+        // This is the state in which request currently is, i.e. which message
+        // we're expecting next from tracker (response may be action::error,
+        // however).
         enum action action = action::connect;
 
-        // Each request has its own transaction id so tracker responses can be properly
-        // routed to a specific request. 0 means it is uninitialized.
+        // Each request has its own transaction id so tracker responses can be
+        // properly routed to a specific request. 0 means it is uninitialized.
         int32_t transaction_id = 0;
 
-        // Since UDP is an unreliable protocol we need to take care of lost or erroneous
-        // packets. If a response is not received after 15 * 2 ^ n seconds, we
-        // retransmit the request, where n starts at 0 and is increased up to 3 (120
-        // seconds), after every retransmission. 
+        // Since UDP is an unreliable protocol we need to take care of lost or
+        // erroneous packets. If a response is not received after 15
+        // * 2 ^ n seconds, we retransmit the request, where n starts at 0 and
+        // is increased up to 3 (120 seconds), after every retransmission. 
         int num_retries = 0;
 
         // This is responsible for timing out a request.
@@ -457,11 +464,11 @@ class udp_tracker final : public tracker
         // This is the callback to be invoked once our request is served.
         std::function<void(const error_code&, tracker_response)> handler;
 
-        // There is only ever one outstanding datagram, which is stored here until it's
-        // confirmed that it has been sent.
-        // The size is fixed at 98 bytes because that's the largest message we'll ever
-        // send (announce), and also the most common, so might as well save ourselves
-        // the allocation churn.
+        // There is only ever one outstanding datagram, which is stored here
+        // until it's confirmed that it has been sent.
+        // The size is fixed at 98 bytes because that's the largest message
+        // we'll ever send (announce), and also the most common, so might as
+        // well save ourselves the allocation churn.
         fixed_payload<98> payload;
 
         announce_request(asio::io_context& ios, int32_t tid, tracker_request p,
@@ -472,15 +479,15 @@ class udp_tracker final : public tracker
 
     struct scrape_request final : public request
     {
-        // These are the torrents we want info about. It may be empty, in which case we
-        // request info about all torrents tracker has.
+        // These are the torrents we want info about. It may be empty, in which
+        // case we request info about all torrents tracker has.
         std::vector<sha1_hash> info_hashes;
 
         // This is the callback to be invoked once our request is served.
         std::function<void(const error_code&, scrape_response)> handler;
 
-        // There is only ever one outstanding datagram, which is stored here until it's
-        // confirmed that it has been sent.
+        // There is only ever one outstanding datagram, which is stored here
+        // until it's confirmed that it has been sent.
         // Size cannot be fixed because info_hashes is of variable size.
         struct payload payload;
 
@@ -493,33 +500,36 @@ class udp_tracker final : public tracker
     // Pending requests are mapped to their transaction ids.
     std::unordered_map<int32_t, std::unique_ptr<request>> requests_;
 
-    // While we may have many requests sent "at the same time", we may only receive and
-    // process a single datagram at a time. The buffer is fixed at 1500 bytes which is
-    // the limit of Ethernet v2 MTU, so this is about the upper limit to avoid
-    // fragmentation. This buffer is lazily allocated on the first use.
+    // While we may have many requests sent "at the same time", we may only
+    // receive and process a single datagram at a time. The buffer is fixed at
+    // 1500 bytes which is the limit of Ethernet v2 MTU, so this is about the
+    // upper limit to avoid fragmentation. This buffer is lazily allocated on
+    // the first use.
     std::unique_ptr<std::array<char, 1500>> receive_buffer_;
 
-    // A single UDP socket is used for all tracker connections. That is, if multiple
-    // torrents are assigned the same tracker, they all make their requests/announcements
-    // via this socket.
+    // A single UDP socket is used for all tracker connections. That is, if
+    // multiple torrents are assigned the same tracker, they all make their
+    // requests/announcements via this socket.
     udp::socket socket_;
     udp::resolver resolver_;
 
-    // After establishing a connection with tracker and receiving a connection_id, the
-    // connection is alive for one minute. This saves some bandwidth and unnecessary
-    // round trip times.
+    // After establishing a connection with tracker and receiving
+    // a connection_id, the connection is alive for one minute. This saves some
+    // bandwidth and unnecessary round trip times.
     time_point last_connect_time_;
 
-    // This value we receive from tracker in response to our connect message, which we
-    // then have to include in every subsequent message to prove it's still us
-    // interacting with tracker. We can use it for one minute after receiving it.
+    // This value we receive from tracker in response to our connect message,
+    // which we then have to include in every subsequent message to prove it's
+    // still us interacting with tracker. We can use it for one minute after
+    // receiving it.
     int64_t connection_id_;
 
     /**
-     * After establishing a connection with tracker, we remain connected for a minute,
-     * after which the connection is considered disconnected and we must reconnect.
-     * Note that this is purely conceptual as UDP is a stateless protocol--this just
-     * means that we have to renegotiate a new connection id every minute.
+     * After establishing a connection with tracker, we remain connected for
+     * a minute, after which the connection is considered disconnected and we
+     * must reconnect.  Note that this is purely conceptual as UDP is
+     * a stateless protocol--this just means that we have to renegotiate a new
+     * connection id every minute.
      */
     enum class state : uint8_t
     {
@@ -531,20 +541,21 @@ class udp_tracker final : public tracker
     enum state state_ = state::disconnected;
 
     // This is set to signal that we're receiving into receive_buffer_, which is
-    // necessary because we may only receive a single datagram at any given time, i.e.
-    // only serve a single request.
+    // necessary because we may only receive a single datagram at any given
+    // time, i.e.  only serve a single request.
     bool is_receiving_ = false;
 
-    // The first request launches an async host resolution, during which no other
-    // request may be launched, so execution must halt if this is false.
+    // The first request launches an async host resolution, during which no
+    // other request may be launched, so execution must halt if this is false.
     bool is_resolved_ = false;
 
 public:
     /**
-     * url may or may not include the "udp://" protocol identifier, but it must include
-     * the port number.
+     * `url` may or may not include the "udp://" protocol identifier, but it
+     * must include the port number.
      */
-    udp_tracker(asio::io_context& ios, const std::string& url, const settings& settings);
+    udp_tracker(asio::io_context& ios, const std::string& url,
+            const settings& settings);
     ~udp_tracker();
 
     void abort() override;

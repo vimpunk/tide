@@ -160,90 +160,101 @@ private:
             std::function<void(const std::error_code&)> save_handler;
 
             block(disk_buffer buffer_, int offset_, 
-                std::function<void(const std::error_code&)> save_handler_);
+                    std::function<void(const std::error_code&)> save_handler_);
         };
 
-        // buffer is used to buffer blocks so that they may be written to disk in
-        // batches. The batch size varies, for in the optimal case we try to wait for
-        // disk_io_settings::write_cache_line_size contiguous, or even better, hashable
-        // (which means contiguous and follows the last hashed block) blocks, but if
-        // this is not fulfilled, blocks are buffered until the buffer size reaches
-        // disk_io_settings::write_buffer_capacity blocks, after which the entire
-        // buffer is flushed.
-        // work_buffer is used to hold blocks that are being processed by a worker
-        // thread.
+        // `buffer` is used to buffer blocks so that they may be written to disk
+        // in batches. The batch size varies, for in the optimal case we try to
+        // wait for `disk_io_settings::write_cache_line_size` contiguous, or even
+        // better, hashable (which means contiguous and follows the last hashed
+        // block) blocks, but if this is not fulfilled, blocks are buffered
+        // until the buffer size reaches `disk_io_settings::write_buffer_capacity`
+        // blocks, after which the entire buffer is flushed.
+        // `work_buffer` is used to hold blocks that are being processed by
+        // a worker thread.
         //
-        // In the case of disk errors, blocks that we couldn't save are put back into 
-        // buffer and kept there until successfully saved to disk.
+        // In the case of disk errors, blocks that we couldn't save are put back
+        // into buffer and kept there until successfully saved to disk.
         //
-        // Blocks in both buffer and processing_buffer are ordered by their offsets.
+        // Blocks in both `buffer` and `work_buffer` are ordered by their
+        // offsets.
         //
-        // To avoid race conditions and mutual exclusion, network thread only handles
-        // buffer, and when we want to flush its blocks, before launching the async
-        // operation (i.e. still on the network thread) the to-be-flushed blocks are 
-        // transferred to work_buffer. This may only be done while is_busy is not set, 
-        // because the worker thread does access work_buffer.
+        // To avoid race conditions and mutual exclusion, network thread only
+        // handles buffer, and when we want to flush its blocks, before
+        // launching the async operation (i.e. still on the network thread) the
+        // to-be-flushed blocks are transferred to `work_buffer`. This may only be
+        // done while `is_busy` is not set, because the worker thread does access
+        // `work_buffer`.
         std::vector<block> buffer;
         std::vector<block> work_buffer;
 
-        // Blocks may be saved to disk without being hashed, so unhashed_offset is not
-        // sufficient to determine how many blocks we have. Thus each block that was
-        // saved is marked as 'true'. The vector is preallocated to the number of blocks.
+        // Blocks may be saved to disk without being hashed, so `unhashed_offset`
+        // is not sufficient to determine how many blocks we have. Thus each
+        // block that was saved is marked as `true`. The vector is preallocated
+        // to the number of blocks.
         //
         // Only handled on the network thread.
         std::vector<bool> save_progress;
 
-        // Only one thread may process a partial_piece at a time, so this is set before
-        // such a thread is launched, and unset on the network thread as well, once
-        // thread calls the completion handler (i.e. it need not be atomic since it's
-        // only accessed from the network thread).
+        // Only one thread may process a `partial_piece` at a time, so this is set
+        // before such a thread is launched, and unset on the network thread as
+        // well, once thread calls the completion handler (i.e. it need not be
+        // atomic since it's only accessed from the network thread).
         //
         // Only handled on the network thread.
         bool is_busy = false;
 
-        // A cached value of the number of true bits in blocks_saved_.
+        // A cached value of the number of true bits in `blocks_saved_`.
         int num_saved_blocks = 0;
 
-        // This is always the first byte of the first unhashed block (that is, one past
-        // the last hashed block's last byte). It's used to check if we can hash blocks
-        // since they must be passed to hasher_.update() in order.
+        // This is always the first byte of the first unhashed block (that is,
+        // one past the last hashed block's last byte). It's used to check if we
+        // can hash blocks since they must be passed to `hasher_.update()` in
+        // order.
         //
-        // It's handled on both network and worker threads, but never at the same time.
-        // This is done by synchronizing using the is_busy field, i.e. if piece is busy,
-        // we don't bother this field (and piece in general), so while this flag is set
-        // worker thread may freely update this field without further syncing.
+        // It's handled on both network and worker threads, but never at the
+        // same time.
+        // This is done by synchronizing using the `is_busy` field, i.e. if piece
+        // is busy, we don't bother this field (and piece in general), so while
+        // this flag is set worker thread may freely update this field without
+        // further syncing.
         int unhashed_offset = 0;
 
         const piece_index_t index;
         // The length of this piece in bytes.
         const int length;
 
-        // This is invoked once the piece has been hashed, which means that the piece
-        // may not have been written to disk by the time of the invocation.
+        // This is invoked once the piece has been hashed, which means that the
+        // piece may not have been written to disk by the time of the
+        // invocation.
         //
         // Only used by the network thread.
         std::function<void(bool)> completion_handler;
 
-        // This contains the sha1_context that holds the current hashing progress and is
-        // used to incrementally hash blocks.
+        // This contains the `sha1_context` that holds the current hashing
+        // progress and is used to incrementally hash blocks.
         //
         // NOTE: blocks may only be hashed in order.
         //
         // Only used by the worker threads.
         sha1_hasher hasher;
 
-        // This enforces an upper bound on how long blocks may stay in memory. This is
-        // to avoid lingering blocks, which may occur if the client started downloading
-        // a piece from the only peer that has it, then disconnected.
+        // This enforces an upper bound on how long blocks may stay in memory.
+        // This is to avoid lingering blocks, which may occur if the client
+        // started downloading a piece from the only peer that has it, then
+        // disconnected.
         deadline_timer buffer_expiry_timer;
 
-        /** Initializes the const fields, buffer_expiry_timer and calculates num_blocks. */
+        /**
+         * Initializes the const fields, `buffer_expiry_timer` and calculates
+         * `num_blocks`.
+         */
         partial_piece(piece_index_t index_, int length_, int max_write_buffer_size,
             std::function<void(bool)> completion_handler, asio::io_context& ios);
 
         /**
-         * Determines whether all blocks have been received, regardless if they are 
-         * already hashed and saved to disk or are still in blocks buffer.
+         * Determines whether all blocks have been received, regardless if they
+         * are already hashed and saved to disk or are still in blocks buffer.
          */
         bool is_complete() const noexcept;
 
@@ -251,15 +262,15 @@ private:
         int num_blocks() const noexcept;
 
         /**
-         * We can only hash the blocks that are in order and have no gaps. If there is
-         * no gap, it returns a pair of indices denoting the range in buffer that
-         * constitutes the hashable blocks.
+         * We can only hash the blocks that are in order and have no gaps. If
+         * there is no gap, it returns a pair of indices denoting the range in
+         * buffer that constitutes the hashable blocks.
          */
         interval hashable_range() const noexcept;
 
         /**
-         * Returns a left-inclusive interval that represents the range of the largest
-         * contiguous block sequence within buffer.
+         * Returns a left-inclusive interval that represents the range of the
+         * largest contiguous block sequence within buffer.
          */
         interval largest_contiguous_range() const noexcept;
 
@@ -278,22 +289,24 @@ private:
     {
         const torrent_id_t id;
 
-        // Each torrent is associated with a torrent_storage instance which encapsulates
-        // the implementation of instantiating the storage, saving and loading blocks
-        // from disk, renaming/moving/deleting files etc. Higher level logic, like
-        // buffering writes or executing these functions concurrently is done in
-        // disk_io, as torrent_storage only takes care of the low level functions.
+        // Each torrent is associated with a `torrent_storage` instance which
+        // encapsulates the implementation of instantiating the storage, saving
+        // and loading blocks from disk, renaming/moving/deleting files etc.
+        // Higher level logic, like buffering writes or executing these
+        // functions concurrently is done in `disk_io`, as `torrent_storage` only
+        // takes care of the low level functions.
         torrent_storage storage;
 
-        // Received blocks are not immediately written to disk, but are buffered in this
-        // list until the number of blocks reach disk_io_settings::write_cache_line_size
-        // or the piece is finished, after which the blocks are hashed and written to
-        // disk. This defers write jobs as much as possible so as to batch them together
-        // to increase the amount of work performed within a context switch.
+        // Received blocks are not immediately written to disk, but are buffered
+        // in this list until the number of blocks reach
+        // disk_io_settings::write_cache_line_size or the piece is finished,
+        // after which the blocks are hashed and written to disk. This defers
+        // write jobs as much as possible so as to batch them together to
+        // increase the amount of work performed within a context switch.
         //
-        // unique_ptr is used to ensure that a thread referring to a piece does not
-        // end up accessing invalid memory when write_buffer is reallocated upon adding
-        // new entires from the network thread.
+        // `unique_ptr` is used to ensure that a thread referring to a piece does
+        // not end up accessing invalid memory when write_buffer is reallocated
+        // upon adding new entries from the network thread.
         std::vector<std::unique_ptr<partial_piece>> write_buffer;
 
         struct fetch_subscriber
@@ -302,32 +315,34 @@ private:
             int requested_offset;
         };
 
-        // Each time a block fetch is issued, which usually pulls in more blocks or,
-        // if the piece is not too large, the entire piece, it is registered here, so
-        // that if other requests for the same block or for any of the blocks that are
-        // pulled in with the first one (if read ahead is not disabled), which is common
-        // when a peer sends us a request queue, they don't launch their own fetch ops,
-        // but instead wait for the first operation to finish and notify them of their
-        // block. The fetch_subscriber list has to be ordered by the requested
-        // offset.
+        // Each time a block fetch is issued, which usually pulls in more blocks
+        // or, if the piece is not too large, the entire piece, it is registered
+        // here, so that if other requests for the same block or for any of the
+        // blocks that are pulled in with the first one (if read ahead is not
+        // disabled), which is common when a peer sends us a request queue, they
+        // don't launch their own fetch ops, but instead wait for the first
+        // operation to finish and notify them of their block. The
+        // `fetch_subscriber` list has to be ordered by the requested offset.
         //
-        // After the operation is finished and all waiting requests are served, the
-        // entry is removed from this map.
+        // After the operation is finished and all waiting requests are served,
+        // the entry is removed from this map.
         //
-        // Thus only the first block fetch request is recorded here, the rest are
-        // attached to the subscriber queue.
+        // Thus only the first block fetch request is recorded here, the rest
+        // are attached to the subscriber queue.
         //
-        // The original request handler is not stored in the subscriber list (so if only
-        // a single request is issued for this block, we don't have to allocate torrent).
+        // The original request handler is not stored in the subscriber list (so
+        // if only a single request is issued for this block, we don't have to
+        // allocate torrent).
         std::vector<std::pair<block_info, std::vector<fetch_subscriber>>> block_fetches;
 
-        // Every time a thread is launched to do some operation on torrent_entry, this
-        // counter is incremented, and when the operation finished, it's decreased. It
-        // is used to keep torrent_entry alive until the last async operation.
+        // Every time a thread is launched to do some operation on
+        // `torrent_entry`, this counter is incremented, and when the operation
+        // finished, it's decreased. It is used to keep `torrent_entry` alive
+        // until the last async operation.
         std::atomic<int> num_pending_ops{0};
 
         torrent_entry(const torrent_info& info,
-            string_view piece_hashes, path resume_data_path);
+                string_view piece_hashes, path resume_data_path);
 
         bool is_block_valid(const block_info& block);
     };
@@ -363,7 +378,7 @@ public:
     void set_resume_data_path(const path& path);
 
     void read_metainfo(const path& path,
-        std::function<void(const std::error_code&, metainfo)> handler);
+            std::function<void(const std::error_code&, metainfo)> handler);
 
     /**
      * As opposed to most other operations, allocating a torrent is not done on
@@ -376,26 +391,26 @@ public:
      * torrent_storage_handle is returned.
      */
     torrent_storage_handle allocate_torrent(const torrent_info& info,
-        std::string piece_hashes, std::error_code& error);
+            std::string piece_hashes, std::error_code& error);
     void move_torrent(const torrent_id_t id, std::string new_path,
-        std::function<void(const std::error_code&)> handler);
+            std::function<void(const std::error_code&)> handler);
     void rename_torrent(const torrent_id_t id, std::string name,
-        std::function<void(const std::error_code&)> handler);
+            std::function<void(const std::error_code&)> handler);
 
     /** Completely removes the torrent (files + metadata). */
     void erase_torrent_files(const torrent_id_t id,
-        std::function<void(const std::error_code&)> handler);
+            std::function<void(const std::error_code&)> handler);
 
     /**
      * Only erases the torrent's resume data, which is useful when user no longer wants
      * to seed it but wishes to retain the file.
      */
     void erase_torrent_resume_data(const torrent_id_t id,
-        std::function<void(const std::error_code&)> handler);
+            std::function<void(const std::error_code&)> handler);
     void save_torrent_resume_data(const torrent_id_t id, bmap_encoder resume_data,
-        std::function<void(const std::error_code&)> handler);
+            std::function<void(const std::error_code&)> handler);
     void load_torrent_resume_data(const torrent_id_t id,
-        std::function<void(const std::error_code&, bmap)> handler);
+            std::function<void(const std::error_code&, bmap)> handler);
 
     /**
      * Reads the state of every torrent whose state was saved to disk and returns a list
@@ -403,14 +418,14 @@ public:
      * application.
      */
     void load_all_torrent_resume_data(
-        std::function<void(const std::error_code&, std::vector<bmap>)> handler);
+            std::function<void(const std::error_code&, std::vector<bmap>)> handler);
 
     /**
      * Verifies that all pieces downloaded in torrent exist and are valid by hashing
      * each piece in the downloaded files and comparing them to their expected values.
      */
     void check_storage_integrity(const torrent_id_t id, bitfield pieces,
-        std::function<void(const std::error_code&, bitfield)> handler);
+            std::function<void(const std::error_code&, bitfield)> handler);
 
     /**
      * This can be used to hash any generic data, but for hashing pieces/blocks, use
@@ -418,7 +433,7 @@ public:
      * The lifetime of data must be ensured until the invocation of the handler.
      */
     void create_sha1_digest(const_view<uint8_t> data,
-        std::function<void(sha1_hash)> handler);
+            std::function<void(sha1_hash)> handler);
 
     /**
      * This creates a page aligend disk buffer into which peer_session can receive or
@@ -460,9 +475,9 @@ public:
      * supplied with the first block in piece that was saved.
      */
     void save_block(const torrent_id_t id,
-        const block_info& block_info, disk_buffer block_data,
-        std::function<void(const std::error_code&)> save_handler,
-        std::function<void(bool)> piece_completion_handler);
+            const block_info& block_info, disk_buffer block_data,
+            std::function<void(const std::error_code&)> save_handler,
+            std::function<void(bool)> piece_completion_handler);
 
     /**
      * Requests are queued up and those that ask for pieces that are cached are served
@@ -472,7 +487,7 @@ public:
      * piece is available.
      */
     void fetch_block(const torrent_id_t id, const block_info& block_info,
-        std::function<void(const std::error_code&, block_source)> handler);
+            std::function<void(const std::error_code&, block_source)> handler);
 
 private:
 
