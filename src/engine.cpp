@@ -347,9 +347,9 @@ void engine::apply_settings(settings s)
         // We don't want to just assign `s` to `settings_` as the specializations of
         // `apply_settings_*` copy their respective settings, so we'd copy twice, some
         // of them potentially expensive (heap alloc).
-#define COPY_FIELD(f)                                                                    \
-    do {                                                                                 \
-        settings_.f = s.f;                                                               \
+#define COPY_FIELD(f)      \
+    do {                   \
+        settings_.f = s.f; \
     } while(0)
         // TODO find a less error-prone way to copy the rest of the settings
         COPY_FIELD(enqueue_new_torrents_at_top);

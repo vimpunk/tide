@@ -10,10 +10,10 @@ namespace tide {
 namespace log {
 namespace detail {
 
-#define TIDE_FLUSH(f)                                                                    \
-    do                                                                                   \
-        if(f.is_open())                                                                  \
-            f.flush();                                                                   \
+#define TIDE_FLUSH(f)   \
+    do                  \
+        if(f.is_open()) \
+            f.flush();  \
     while(0)
 
 class engine_logger
@@ -98,27 +98,24 @@ std::string make_log_path(const String& name)
 }
 
 #ifdef TIDE_ENABLE_LOGGING
-
-#define TIDE_PRIORITY_CHAR(p)                                                            \
+# define TIDE_PRIORITY_CHAR(p) \
     char(p == priority::low ? 'l' : p == priority::normal ? 'n' : 'h')
-
-#define TIDE_LOG(priority, stream, header, log)                                          \
+# define TIDE_LOG(priority, stream, header, log) \
     stream << '[' << TIDE_PRIORITY_CHAR(priority) << '|' << header << "] " << log << '\n';
-
-#ifdef TIDE_ENABLE_STREAM_DEBUGGING
-#define TIDE_STREAM std::clog
-#define TIDE_CLOG(priority, file, header, log)                                           \
-    do {                                                                                 \
-        assert(file.is_open());                                                          \
-        TIDE_LOG(priority, file, header, log);                                           \
-        TIDE_LOG(priority, TIDE_STREAM, header, log);                                    \
+# ifdef TIDE_ENABLE_STREAM_DEBUGGING
+#  define TIDE_STREAM std::clog
+#  define TIDE_CLOG(priority, file, header, log)        \
+    do {                                              \
+        assert(file.is_open());                       \
+        TIDE_LOG(priority, file, header, log);        \
+        TIDE_LOG(priority, TIDE_STREAM, header, log); \
     } while(0)
-#else // TIDE_ENABLE_STREAM_DEBUGGING
-#define TIDE_CLOG(p, f, h, l) TIDE_LOG(p, f, h, l)
-#endif // TIDE_ENABLE_STREAM_DEBUGGING
-
+# else // TIDE_ENABLE_STREAM_DEBUGGING
+#  define TIDE_CLOG(p, f, h, l) TIDE_LOG(p, f, h, l)
+# endif // TIDE_ENABLE_STREAM_DEBUGGING
 #endif // TIDE_ENABLE_LOGGING
 
+// FIXME does not work
 void engine_logger::log(
         const std::string& header, const std::string& log, const priority priority)
 {

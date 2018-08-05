@@ -133,6 +133,7 @@ void http_tracker::abort() {}
 void http_tracker::announce(tracker_request parameters,
         std::function<void(const error_code&, tracker_response)> handler)
 {
+    std::printf("http announce request dammit");
     execute_request<announce_request>(std::move(parameters), std::move(handler));
 }
 
@@ -159,17 +160,16 @@ void http_tracker::execute_request(Parameters parameters, Handler handler)
     requests_.emplace_back(std::move(r));
 
     if(!is_resolved_) {
+        std::printf("resolving host");
         resolver_.async_resolve(
                 tcp::resolver::query(tcp::v4(), util::extract_host(url_), ""),
                 [this](const error_code& error, tcp::resolver::iterator it) {
                     on_host_resolved(error, it);
                 });
-        const auto host = util::extract_host(url_);
-        std::printf("host: %s\n", host.c_str());
-        return;
+    } else {
+        std::printf("no need to resolve host");
+        try_execute_one_request();
     }
-
-    execute_one_request();
 }
 
 void http_tracker::on_host_resolved(const error_code& error, tcp::resolver::iterator it)
@@ -192,10 +192,10 @@ void http_tracker::on_host_resolved(const error_code& error, tcp::resolver::iter
     log(log_event::connecting, "tracker (%s) resolved to: %s:%i", url_.c_str(),
             endpoint_.address().to_string().c_str(), endpoint_.port());
 
-    execute_one_request();
+    try_execute_one_request();
 }
 
-void http_tracker::execute_one_request()
+void http_tracker::try_execute_one_request()
 {
     if(is_requesting_ || requests_.empty()) {
         return;
@@ -203,6 +203,7 @@ void http_tracker::execute_one_request()
 
     // We may need to reopen socket if the previous HTTP connection closed it.
     if(!socket_.is_open()) {
+        std::printf("reconnecting socket");
         error_code error;
         // Connect also opens socket.
         socket_.connect(endpoint_, error);
@@ -214,6 +215,7 @@ void http_tracker::execute_one_request()
         }
     }
 
+    std::printf("get here?");
     is_requesting_ = true;
     auto& request = current_request();
     if(dynamic_cast<announce_request*>(&request)) {
@@ -235,14 +237,17 @@ void http_tracker::execute_one_request()
                     on_scrape_response(error, num_bytes_received);
                 });
     }
+    std::printf("get here then?");
     start_timeout();
 }
 
 inline void http_tracker::start_timeout()
 {
-    start_timer(timeout_timer_,
-            current_request().num_retries == 0 ? seconds(15) : settings_.tracker_timeout,
-            [this](const auto& error) { on_timeout(error); });
+    seconds timeout = current_request().num_retries == 0 ? seconds(15)
+                                                         : settings_.tracker_timeout;
+    std::printf("tracker timeout: %llis", timeout.count());
+    start_timer(
+            timeout_timer_, timeout, [this](const auto& error) { on_timeout(error); });
 }
 
 inline void http_tracker::on_timeout(const error_code& error)
@@ -271,7 +276,7 @@ inline void http_tracker::on_timeout(const error_code& error)
         requests_.pop_front();
     }
     // Try to execute either this request again or another one.
-    execute_one_request();
+    try_execute_one_request();
 }
 
 inline void http_tracker::on_message_sent(
@@ -291,7 +296,6 @@ inline void http_tracker::on_announce_response(
     ec.clear();
     // We reached EoS, i.e. the connection died, so we must close the socket.
     if(error == http::error::end_of_stream) {
-        std::printf("EOF in announce response\n");
         socket_.shutdown(tcp::socket::shutdown_both, ec);
         socket_.close(ec);
         ec.clear();
@@ -312,9 +316,7 @@ inline void http_tracker::on_announce_response(
     request.handler(ec, parse_announce_response(ec));
     requests_.pop_front();
 
-    if(!requests_.empty()) {
-        execute_one_request();
-    }
+    try_execute_one_request();
 }
 
 tracker_response http_tracker::parse_announce_response(error_code& error)
@@ -328,9 +330,8 @@ tracker_response http_tracker::parse_announce_response(error_code& error)
     }
 
     tracker_response response;
-    if(resp_map.try_find_string("failure reason", response.failure_reason)) {
-        // noop (when the failure reason field is set, no other field may be set)
-    } else {
+    if(!resp_map.try_find_string("failure reason", response.failure_reason)) {
+        // When the failure reason field is set, no other field may be set.
         resp_map.try_find_string("warning message", response.warning_message);
         resp_map.try_find_string("tracker id", response.tracker_id);
         int64_t buffer = 0;

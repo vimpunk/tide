@@ -126,9 +126,9 @@ struct torrent_settings
     int max_upload_rate = values::none;
 };
 
-#define TIDE_EARLY_ALPHA_CLIENT_ID                                                       \
-    {                                                                                    \
-        't', 'i', 'd', 'e', '-', 'e', 'a', 'r', 'l', 'y', '-', 'a', 'l', 'p', 'h', 'a'   \
+#define TIDE_EARLY_ALPHA_CLIENT_ID                                                     \
+    {                                                                                  \
+        't', 'i', 'd', 'e', '-', 'e', 'a', 'r', 'l', 'y', '-', 'a', 'l', 'p', 'h', 'a' \
     }
 
 /** These are settings for every peer connection. */

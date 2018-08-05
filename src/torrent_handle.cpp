@@ -91,15 +91,15 @@ torrent_info torrent_handle::info() const
     }
 }
 
-#define TRY_RETURN_INFO_FIELD(field)                                                     \
-    do {                                                                                 \
-        auto t = torrent_.lock();                                                        \
-        if(t) {                                                                          \
-            std::unique_lock<std::mutex> _(t->ts_info_mutex_);                           \
-            return t->ts_info_.field;                                                    \
-        } else {                                                                         \
-            return {};                                                                   \
-        }                                                                                \
+#define TRY_RETURN_INFO_FIELD(field)                           \
+    do {                                                       \
+        auto t = torrent_.lock();                              \
+        if(t) {                                                \
+            std::unique_lock<std::mutex> _(t->ts_info_mutex_); \
+            return t->ts_info_.field;                          \
+        } else {                                               \
+            return {};                                         \
+        }                                                      \
     } while(0)
 
 int torrent_handle::max_upload_slots() const noexcept

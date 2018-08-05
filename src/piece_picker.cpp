@@ -315,11 +315,11 @@ void piece_picker::clear_priority(interval pieces) {}
 
 std::string piece_picker::to_string() const
 {
-#define PRINT_PIECE(piece)                                                               \
-    do                                                                                   \
-        ss << "p(" << piece.index << "|" << piece.frequency << "|"                       \
-           << (piece.is_reserved ? 'R' : '0') << "|" << piece_pos_map_[piece.index]      \
-           << ") ";                                                                      \
+#define PRINT_PIECE(piece)                                                          \
+    do                                                                              \
+        ss << "p(" << piece.index << "|" << piece.frequency << "|"                  \
+           << (piece.is_reserved ? 'R' : '0') << "|" << piece_pos_map_[piece.index] \
+           << ") ";                                                                 \
     while(0)
     std::ostringstream ss;
     if(priority_groups_.empty()) {

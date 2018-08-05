@@ -869,10 +869,10 @@ inline void peer_session::handle_messages()
     }
     while(!is_disconnected() && message_parser_.has_message()
             && send_buffer_.size() <= settings_.max_send_buffer_size) {
-#define NOT_AFTER_HANDSHAKE(str)                                                         \
-    do {                                                                                 \
-        log(log_event::invalid_message, str " not after handshake");                     \
-        disconnect(peer_session_errc::piece_availability_not_after_handshake);           \
+#define NOT_AFTER_HANDSHAKE(str)                                               \
+    do {                                                                       \
+        log(log_event::invalid_message, str " not after handshake");           \
+        disconnect(peer_session_errc::piece_availability_not_after_handshake); \
     } while(0)
         switch(message_parser_.type()) {
         // standard BitTorrent messages --

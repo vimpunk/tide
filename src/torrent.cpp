@@ -668,8 +668,8 @@ void torrent::announce(const int event, const bool force)
             // Don't send the `stopped` and `completed` events more than once,
             // or if we haven't contacted tracker at all (haven't sent
             // a `started` event).
-            if((entry.has_sent_completed && (event == tracker_request::completed))
-                    || (entry.has_sent_stopped && (event == tracker_request::stopped))) {
+            if((entry.has_sent_completed && event == tracker_request::completed)
+                    || (entry.has_sent_stopped && event == tracker_request::stopped)) {
                 continue;
             } else if(entry.has_sent_started && entry.tracker->is_reachable()) {
                 log(log_event::tracker, log::priority::high,
@@ -745,6 +745,7 @@ inline int torrent::calculate_num_want() const noexcept
     return std::max(10, std::min(available, num_desired));
 }
 
+// TODO return an iterator instead of a pointer
 inline tracker_entry* torrent::pick_tracker(const bool force)
 {
     // Even if we're forcing the reannounce, first try to see if we can find a tracker
@@ -775,7 +776,9 @@ inline bool torrent::can_announce_to(const tracker_entry& t) const noexcept
 
 inline bool torrent::can_force_announce_to(const tracker_entry& t) const noexcept
 {
-    return t.tracker->is_reachable() && !t.tracker->had_protocol_error()
+    return t.tracker->is_reachable()
+            && !t.tracker->had_protocol_error()
+            // TODO consider removing the time check
             && cached_clock::now() - t.last_force_time >= seconds(10);
 }
 
@@ -788,14 +791,23 @@ void torrent::on_announce_response(tracker_entry& tracker, const error_code& err
         return;
     }
 
-    log(log_event::tracker, log::priority::high,
-            "received announce response from %s (peers: %i; "
-            "interval: %i; seeders: %i; leechers: %i; tracker_id: %s)",
-            tracker.tracker->url().c_str(),
-            response.peers.size() + response.ipv4_peers.size()
-                    + response.ipv6_peers.size(),
-            response.interval, response.num_seeders, response.num_leechers,
-            response.tracker_id.c_str());
+    if(!response.failure_reason.empty()) {
+        log(log_event::tracker, log::priority::high,
+                "received failed announce response from %s (failure reason: %s)",
+                tracker.tracker->url().c_str(), response.failure_reason.c_str());
+        // TODO send alert
+        on_announce_error(tracker, {}, event);
+        return;
+    } else {
+        log(log_event::tracker, log::priority::high,
+                "received announce response from %s (peers: %i; "
+                "interval: %i; seeders: %i; leechers: %i; tracker_id: %s)",
+                tracker.tracker->url().c_str(),
+                response.peers.size() + response.ipv4_peers.size()
+                        + response.ipv6_peers.size(),
+                response.interval, response.num_seeders, response.num_leechers,
+                response.tracker_id.c_str());
+    }
     // alert_queue_.emplace<announce_response_alert>(tracker.tracker.url(),
     // response.interval, response.num_seeders, response.num_leechers);
 
@@ -844,9 +856,15 @@ inline void torrent::on_announce_error(
         log(log_event::tracker, "network down, can't reach tracker, stopping torrent");
         stop();
     } else {
-        const auto reason = error.message();
-        log(log_event::tracker, "error contacting tracker: %s", reason.c_str());
+        // Error may not be a system error--it could be that tracker set the
+        // failure reason field in the response, which (since it can be
+        // anything) is not translated into an error code.
+        if(error) {
+            const auto reason = error.message();
+            log(log_event::tracker, "error contacting tracker: %s", reason.c_str());
+        }
         // If this tracker failed too much, we won't bother in the future, remove it.
+        // TODO don't hard code this value
         if(++tracker.num_fails > 100) {
             trackers_.erase(std::find_if(trackers_.begin(), trackers_.end(),
                     [&tracker](const auto& t) { return &t == &tracker; }));

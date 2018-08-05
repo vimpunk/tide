@@ -322,6 +322,7 @@ class http_tracker final : public tracker
 
     tcp::endpoint endpoint_;
 
+    // TODO migrate to std::variant + enum to elide heap alloc + vtable
     struct request
     {
         http::request<http::string_body> payload;
@@ -398,7 +399,7 @@ private:
      * If there are pending requests in requests_, selects the current one and
      * executes it.
      */
-    void execute_one_request();
+    void try_execute_one_request();
 
     /** Returns the current pending request. See requests_ comment. */
     request& current_request() noexcept;
@@ -637,8 +638,8 @@ private:
     void handle_error_response(request& request, const size_t num_bytes_received);
 
     /**
-     * Requests issued during establishing a connection are put on
-     * hold until the other operations finish. This resumes them.
+     * Requests issued during establishing a connection are put on hold until
+     * the connection is established. This resumes any such requests.
      */
     void resume_stalled_requests();
 
