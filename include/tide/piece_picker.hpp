@@ -26,49 +26,51 @@ class piece_picker
         {}
     };
 
-    // These are the pieces that we still need (regardless of frequency) to download.
-    // They are ordered according to priority (highest to lowest) and frequency (lowest
-    // to highest). As soon as we get a piece, it is removed from here.
+    // These are the pieces that we still need (regardless of frequency) to
+    // download.
+    // They are ordered according to priority (highest to lowest) and frequency
+    // (lowest to highest). As soon as we get a piece, it is removed from here.
     std::vector<piece> pieces_;
 
-    // Since pieces_ is ordered by priority and frequency, we need a fast way to
-    // retrieve individual pieces (by their indices). This vector is fully allocated to
-    // num_pieces and stores indices into pieces_, and a piece's position can be
-    // retrieved by piece_pos_map_[piece_index].
-    // While this vector always holds all pieces, pieces that we no longer need to
-    // download are removed from pieces_. Those are mapped to invalid_pos.
+    // An entry in this vector represents a priority group with a [begin, end)
+    // interval that denotes the boundaries of the group.
+    // It is ordered by highest priority to lowest priority, with the default
+    // group always positioned as the last group. However, the default group is
+    // not allocated a slot in this list as it's always the last group. This
+    // allows us to avoid allocating the vector if there are no priority pieces.
+    std::vector<interval> priority_groups_;
+
+    // Since `pieces_` is ordered by priority and frequency, we need a fast way to
+    // retrieve individual pieces (by their indices). This vector is fully
+    // allocated to `num_pieces` and stores indices into `pieces_`, and a piece's
+    // position can be retrieved by `piece_pos_map_[piece_index]`.
+    // While this vector always holds all pieces, pieces that we no longer need
+    // to download are removed from `pieces_`. Those are mapped to `invalid_pos`.
     std::vector<int> piece_pos_map_;
     static constexpr int invalid_pos = -1;
 
-    // An entry in this vector represents a priority group with a [begin, end) interval
-    // that denotes the boundaries of the group.
-    // It is ordered by highest priority to lowest priority, with the default group
-    // always positioned as the last group. However, the default group is not allocated
-    // a slot in this list as it's always the last group. This allows us to avoid
-    // allocating the vector if there are no priority pieces.
-    std::vector<interval> priority_groups_;
-
-    // Keeping pieces_ sorted at all times is an expensive operation, so we only need
-    // to reorder pieces when we actually pick a piece. That is, piece frequency
-    // changes cause this flag to be set, and if this flag is set when picking, we
-    // need to call rebuild_frequency_map() beforehand.
+    // Keeping `pieces_` sorted at all times is an expensive operation, and we
+    // only need to reorder pieces when we actually pick a piece. That is, piece
+    // frequency changes cause this flag to be set, and if this flag is set when
+    // picking, we need to call `rebuild_frequency_map` beforehand.
     bool is_dirty_ = false;
 
 public:
     /** Describes the strategy used for picking pieces. */
     enum class strategy
     {
-        // Random is usually enabled when a torrent is starting out. This is because by
-        // choosing the rarest pieces at the beginning will most likely result in the
-        // slowest ones to download, whereas choosing a popular piece is more likely to
-        // be available from more peers, potentially speeding up the bootsrapping
-        // process. Enabled until the frist few pieces are downloaded.
+        // Random is usually enabled when a torrent is starting out. This is
+        // because by choosing the rarest pieces at the beginning will most
+        // likely result in the slowest ones to download, whereas choosing
+        // a popular piece is more likely to be available from more peers,
+        // potentially speeding up the bootsrapping process. Enabled until the
+        // frist few pieces are downloaded.
         random,
         // This is the mode in which a torrent operates after concluding the initial
         // phase with random, unless set to sequential.
         rarest_first,
-        // If we download sequentially, we can drop a lot of the piece map logic by
-        // always keeping pieces_ ordered by piece indices.
+        // If we download sequentially, we can drop a lot of the piece map logic
+        // by always keeping `pieces_` ordered by piece indices.
         sequential
     };
 

@@ -44,36 +44,40 @@ piece_picker::piece_picker(bitfield downloaded_pieces)
 
 void piece_picker::set_strategy(const enum strategy s) noexcept
 {
+    if(strategy_ == s) {
+        return;
+    }
+
+    strategy_ = s;
     switch(s) {
-    case strategy::random: break; // don't need to do anything
+    case strategy::random:
+        // Should we shuffle `pieces_`?
+        break; 
     case strategy::sequential: {
-        if(strategy_ != s) {
-            // we need to rebuild the piece map to be ordered by piece indices
-            std::sort(pieces_.begin(), pieces_.end(),
-                    [](const piece& a, const piece& b) { return a.index < b.index; });
-            int pos = 0;
-            for(const auto& piece : pieces_) {
-                piece_pos_map_[piece.index] = pos;
-                ++pos;
-            }
+        // We need to rebuild the piece map to be ordered by piece indices.
+        std::sort(pieces_.begin(), pieces_.end(),
+                [](const piece& a, const piece& b) { return a.index < b.index; });
+        int pos = 0;
+        for(const auto& piece : pieces_) {
+            piece_pos_map_[piece.index] = pos;
+            ++pos;
         }
         break;
     }
     case strategy::rarest_first: {
-        // if we're coming from another strategy we'll need to rebuild the frequency map
-        if(strategy_ != s) {
-            rebuild_frequency_map();
-        }
+        // Since we're coming from another strategy, we need to rebuild the
+        // frequency map.
+        rebuild_frequency_map();
         break;
     }
     default: assert(0);
     }
-    strategy_ = s;
 }
 
 bool piece_picker::am_interested_in(const bitfield& available_pieces) const noexcept
 {
-    // we're interested in peer if it has at least one piece that we don't have but want
+    // We're interested in peer if it has at least one piece that we don't have
+    // but want.
     assert(available_pieces.size() == my_pieces_.size());
     for(const auto& piece : pieces_) {
         if(available_pieces[piece.index]) {
@@ -98,10 +102,11 @@ void piece_picker::piece_availability(std::vector<int>& frequency_map) const
     }
     for(auto i = 0; i < num_pieces(); ++i) {
         const auto pos = piece_pos_map_[i];
-        if(pos != invalid_pos)
+        if(pos != invalid_pos) {
             frequency_map[i] = pieces_[pos].frequency;
-        else
-            frequency_map[i] = -1;
+        } else {
+            frequency_map[i] = invalid_pos;
+        }
     }
 }
 
@@ -202,8 +207,8 @@ inline void piece_picker::rebuild_frequency_map() noexcept
 inline void piece_picker::rebuild_group(
         std::vector<piece>::iterator begin, std::vector<piece>::iterator end) noexcept
 {
-    std::sort(begin, end,
-            [](const piece& a, const piece& b) { return a.frequency < b.frequency; });
+    std::sort(begin, end, [](const piece& a, const piece& b)
+            { return a.frequency < b.frequency; });
     while(begin != end) {
         const int pos = begin - pieces_.begin();
         assert(pos >= 0);
@@ -245,15 +250,16 @@ void piece_picker::got(const piece_index_t piece)
     assert(pos < int(pieces_.size()));
     assert(!pieces_.empty());
 
-    // we no longer need to download this piece
+    // We no longer need to download this piece.
     pieces_.erase(pieces_.begin() + pos);
     piece_pos_map_[piece] = invalid_pos;
 
-    // now we need to go through all piece entries that came after the now removed
-    // piece, and decrement their position value in piece_pos_map_ by one to adjust
-    // to the new size
-    // (note that where piece used to be now the next piece resides, so don't add 1 to
+    // Now we need to go through all piece entries that came after the now
+    // removed piece, and decrement their position value in `piece_pos_map_` by
+    // one to adjust to the new size.
+    // (Note that where piece used to be now the next piece resides, so don't add 1 to
     // begin() + pos to get the next piece!)
+    //
     // TODO OPT since we likely pick the rarest pieces most of the time, that is, those
     // that are at the front, it means that we have to iterate a lot here; whereas if
     // rarest pieces started at the back of pieces_, we'd have to iterate very little
@@ -267,15 +273,15 @@ void piece_picker::got(const piece_index_t piece)
         return;
     }
 
-    // we need to adjust the group boundaries
+    // We need to adjust the group boundaries.
     const auto group = std::find_if(priority_groups_.begin(), priority_groups_.end(),
             [pos](const auto& group) { return group.end > pos; });
     for(auto it = group; it != priority_groups_.end(); ++it) {
         it->end -= 1;
     }
 
-    // this piece may have completed a few groups (a single piece may be in multiple
-    // priority groups if the piece overlaps files)
+    // This piece may have completed a few groups (a single piece may be in
+    // multiple priority groups if the piece overlaps files).
     const auto empty_group = std::find_if(group, priority_groups_.end(),
             [pos](const auto& group) { return group.empty(); });
     if(empty_group != priority_groups_.end()) {
@@ -292,7 +298,7 @@ void piece_picker::lost(const piece_index_t piece)
 
     my_pieces_[piece] = false;
     const int pos = piece_pos_map_[piece];
-    // we need to download this piece again
+    // We need to download this piece again.
     if(pos != invalid_pos) {
         pieces_.emplace_back(piece);
         piece_pos_map_[piece] = pieces_.size() - 1;
