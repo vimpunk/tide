@@ -1,0 +1,132 @@
+[
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/bdecode.cpp.o -c /home/mandreyel/code/bt/src/bdecode.cpp",
+  "file": "/home/mandreyel/code/bt/src/bdecode.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/bencode.cpp.o -c /home/mandreyel/code/bt/src/bencode.cpp",
+  "file": "/home/mandreyel/code/bt/src/bencode.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/disk_io.cpp.o -c /home/mandreyel/code/bt/src/disk_io.cpp",
+  "file": "/home/mandreyel/code/bt/src/disk_io.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/disk_io_error.cpp.o -c /home/mandreyel/code/bt/src/disk_io_error.cpp",
+  "file": "/home/mandreyel/code/bt/src/disk_io_error.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/engine.cpp.o -c /home/mandreyel/code/bt/src/engine.cpp",
+  "file": "/home/mandreyel/code/bt/src/engine.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/file.cpp.o -c /home/mandreyel/code/bt/src/file.cpp",
+  "file": "/home/mandreyel/code/bt/src/file.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/log.cpp.o -c /home/mandreyel/code/bt/src/log.cpp",
+  "file": "/home/mandreyel/code/bt/src/log.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/message_parser.cpp.o -c /home/mandreyel/code/bt/src/message_parser.cpp",
+  "file": "/home/mandreyel/code/bt/src/message_parser.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/metainfo.cpp.o -c /home/mandreyel/code/bt/src/metainfo.cpp",
+  "file": "/home/mandreyel/code/bt/src/metainfo.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/path_sanitizer.cpp.o -c /home/mandreyel/code/bt/src/path_sanitizer.cpp",
+  "file": "/home/mandreyel/code/bt/src/path_sanitizer.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/peer_session.cpp.o -c /home/mandreyel/code/bt/src/peer_session.cpp",
+  "file": "/home/mandreyel/code/bt/src/peer_session.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/peer_session_error.cpp.o -c /home/mandreyel/code/bt/src/peer_session_error.cpp",
+  "file": "/home/mandreyel/code/bt/src/peer_session_error.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/piece_download.cpp.o -c /home/mandreyel/code/bt/src/piece_download.cpp",
+  "file": "/home/mandreyel/code/bt/src/piece_download.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/piece_picker.cpp.o -c /home/mandreyel/code/bt/src/piece_picker.cpp",
+  "file": "/home/mandreyel/code/bt/src/piece_picker.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/random.cpp.o -c /home/mandreyel/code/bt/src/random.cpp",
+  "file": "/home/mandreyel/code/bt/src/random.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/rate_limiter.cpp.o -c /home/mandreyel/code/bt/src/rate_limiter.cpp",
+  "file": "/home/mandreyel/code/bt/src/rate_limiter.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/send_buffer.cpp.o -c /home/mandreyel/code/bt/src/send_buffer.cpp",
+  "file": "/home/mandreyel/code/bt/src/send_buffer.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/sha1_hasher.cpp.o -c /home/mandreyel/code/bt/src/sha1_hasher.cpp",
+  "file": "/home/mandreyel/code/bt/src/sha1_hasher.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/system.cpp.o -c /home/mandreyel/code/bt/src/system.cpp",
+  "file": "/home/mandreyel/code/bt/src/system.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/thread_pool.cpp.o -c /home/mandreyel/code/bt/src/thread_pool.cpp",
+  "file": "/home/mandreyel/code/bt/src/thread_pool.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/time.cpp.o -c /home/mandreyel/code/bt/src/time.cpp",
+  "file": "/home/mandreyel/code/bt/src/time.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/torrent.cpp.o -c /home/mandreyel/code/bt/src/torrent.cpp",
+  "file": "/home/mandreyel/code/bt/src/torrent.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/torrent_frontend.cpp.o -c /home/mandreyel/code/bt/src/torrent_frontend.cpp",
+  "file": "/home/mandreyel/code/bt/src/torrent_frontend.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/torrent_handle.cpp.o -c /home/mandreyel/code/bt/src/torrent_handle.cpp",
+  "file": "/home/mandreyel/code/bt/src/torrent_handle.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/torrent_storage.cpp.o -c /home/mandreyel/code/bt/src/torrent_storage.cpp",
+  "file": "/home/mandreyel/code/bt/src/torrent_storage.cpp"
+},
+{
+  "directory": "/home/mandreyel/code/bt",
+  "command": "/usr/bin/c++  -Dtide_EXPORTS -I/home/mandreyel/code/bt/include/tide -I/home/mandreyel/code/bt/include -I/home/mandreyel/code/bt/lib/mio/include -I/home/mandreyel/code/bt/lib/beast-standalone/include  -fPIC   -pthread -std=gnu++1z -o CMakeFiles/tide.dir/src/tracker.cpp.o -c /home/mandreyel/code/bt/src/tracker.cpp",
+  "file": "/home/mandreyel/code/bt/src/tracker.cpp"
+}
+]
