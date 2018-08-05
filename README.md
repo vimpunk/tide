@@ -6,8 +6,8 @@ For now, though usable, it is unstable. Features are added, bugs fixed, and API 
 
 ## NOTE
 
-You can test Tide by executing the following steps:
-- install Asio (the standalone version) and Boost,
+Although it doesn't currently work, you can run Tide by executing the following steps:
+- install Asio (the standalone version) and Boost (though I'm aiming to remove this dependency),
 - cd to the `build` directory,
 - execute
 ```
