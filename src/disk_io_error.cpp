@@ -4,8 +4,7 @@ namespace tide {
 
 std::string disk_io_error_category::message(int env) const
 {
-    switch(static_cast<disk_io_errc>(env))
-    {
+    switch(static_cast<disk_io_errc>(env)) {
     case disk_io_errc::unknown: return "Unknown";
     case disk_io_errc::block_dropped: return "Block dropped due to insufficient space";
     case disk_io_errc::duplicate_block: return "Duplicate block";
@@ -16,13 +15,11 @@ std::string disk_io_error_category::message(int env) const
     }
 }
 
-std::error_condition
-disk_io_error_category::default_error_condition(int ev) const noexcept
+std::error_condition disk_io_error_category::default_error_condition(int ev) const
+        noexcept
 {
-    switch(static_cast<disk_io_errc>(ev))
-    {
-    default:
-        return std::error_condition(ev, *this);
+    switch(static_cast<disk_io_errc>(ev)) {
+    default: return std::error_condition(ev, *this);
     }
 }
 

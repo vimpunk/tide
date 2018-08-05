@@ -20,10 +20,7 @@ struct file_info
     bool is_wanted = true;
 
     file_info() = default;
-    file_info(std::filesystem::path p, int64_t l)
-        : path(std::move(p))
-        , length(l)
-    {}
+    file_info(std::filesystem::path p, int64_t l) : path(std::move(p)), length(l) {}
 };
 
 } // namespace tide

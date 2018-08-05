@@ -1,26 +1,26 @@
 #ifndef TIDE_TRACKER_HEADER
 #define TIDE_TRACKER_HEADER
 
-#include "string_view.hpp"
-#include "peer_entry.hpp"
 #include "error_code.hpp"
-#include "settings.hpp"
-#include "payload.hpp"
-#include "socket.hpp"
-#include "types.hpp"
-#include "time.hpp"
 #include "http.hpp"
 #include "log.hpp"
+#include "payload.hpp"
+#include "peer_entry.hpp"
+#include "settings.hpp"
+#include "socket.hpp"
+#include "string_view.hpp"
+#include "time.hpp"
+#include "types.hpp"
 
-#include <unordered_map>
-#include <type_traits> // true_type
-#include <functional>
-#include <utility>
-#include <string>
-#include <memory>
-#include <vector>
 #include <array>
 #include <deque>
+#include <functional>
+#include <memory>
+#include <string>
+#include <type_traits> // true_type
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include <asio/io_context.hpp>
 
@@ -33,14 +33,14 @@ struct tracker_request
     {
         // This is used by udp_tracker because an event field is always included so we
         // must differentiate it from the other three events.
-        none      = 0,
+        none = 0,
         // Must be sent to the tracker when the client becomes a seeder. Must not be
         // present if the client started as a seeder.
         completed = 1,
         // The first request to tracker must include this value.
-        started   = 2,
+        started = 2,
         // Must be sent to tracker if the client is shutting down gracefully.
-        stopped   = 3,
+        stopped = 3,
     };
 
     // --------------
@@ -197,8 +197,9 @@ error_condition make_error_condition(tracker_errc e);
 } // namespace tide
 
 namespace TIDE_ERROR_CODE_NS {
-template<>
-struct is_error_code_enum<tide::tracker_errc> : public std::true_type {};
+template <>
+struct is_error_code_enum<tide::tracker_errc> : public std::true_type
+{};
 }
 
 namespace tide {
@@ -243,17 +244,19 @@ public:
      * (in which case all other fields in response are empty/invalid.
      */
     virtual void announce(tracker_request parameters,
-            std::function<void(const error_code&, tracker_response)> handler) = 0;
+            std::function<void(const error_code&, tracker_response)> handler)
+            = 0;
 
     /**
      * A scrape request is used to get data about one, multiple or all torrents
      * tracker manages. If in the second overload info_hashes is empty, the
      * maximum number of requestable torrents are scraped that tracker has.
      */
-    //virtual void scrape(const sha1_hash& info_hash,
-            //std::function<void(const error_code&, scrape_response)> handler) = 0;
+    // virtual void scrape(const sha1_hash& info_hash,
+    // std::function<void(const error_code&, scrape_response)> handler) = 0;
     virtual void scrape(std::vector<sha1_hash> info_hashes,
-            std::function<void(const error_code&, scrape_response)> handler) = 0;
+            std::function<void(const error_code&, scrape_response)> handler)
+            = 0;
 
     /**
      * This should be called when torrent is shutting down but we don't want to
@@ -285,11 +288,11 @@ protected:
         timeout
     };
 
-    template<typename... Args>
+    template <typename... Args>
     void log(const log_event event, const char* format, Args&&... args) const;
-    template<typename... Args>
-    void log(const log_event event, const log::priority priority,
-            const char* format, Args&&... args) const;
+    template <typename... Args>
+    void log(const log_event event, const log::priority priority, const char* format,
+            Args&&... args) const;
 };
 
 /**
@@ -311,7 +314,7 @@ class http_tracker final : public tracker
 
     // Since there may only be a single outstanding request at any given time,
     // a single request and response objects are used for all operations.
-    //http::request<http::string_body> request_;
+    // http::request<http::string_body> request_;
     http::response<http::string_body> response_;
 
     // Holds the raw response data, which `response_` interprets.
@@ -376,7 +379,7 @@ private:
      * set up procedure, so it is templatized and both are taken care of by this
      * function.
      */
-    template<typename Request, typename Parameters, typename Handler>
+    template <typename Request, typename Parameters, typename Handler>
     void execute_request(Parameters parameters, Handler handler);
 
     /** Creates a HTTP target string from a tracker_request or announce request. */
@@ -416,10 +419,10 @@ class udp_tracker final : public tracker
     /** Each exchanged message has an action field specifying the message's intent. */
     enum action : uint8_t
     {
-        connect   = 0,
+        connect = 0,
         announce_ = 1,
-        scrape_   = 2,
-        error     = 3
+        scrape_ = 2,
+        error = 3
     };
 
     /**
@@ -443,7 +446,7 @@ class udp_tracker final : public tracker
         // Since UDP is an unreliable protocol we need to take care of lost or
         // erroneous packets. If a response is not received after 15
         // * 2 ^ n seconds, we retransmit the request, where n starts at 0 and
-        // is increased up to 3 (120 seconds), after every retransmission. 
+        // is increased up to 3 (120 seconds), after every retransmission.
         int num_retries = 0;
 
         // This is responsible for timing out a request.
@@ -554,8 +557,7 @@ public:
      * `url` may or may not include the "udp://" protocol identifier, but it
      * must include the port number.
      */
-    udp_tracker(asio::io_context& ios, const std::string& url,
-            const settings& settings);
+    udp_tracker(asio::io_context& ios, const std::string& url, const settings& settings);
     ~udp_tracker();
 
     void abort() override;
@@ -575,7 +577,7 @@ private:
      * Creates an entry and places it in requests_, and return a reference to it.
      * Request must be either announce_request or scrape_request.
      */
-    template<typename Request, typename Parameters, typename Handler>
+    template <typename Request, typename Parameters, typename Handler>
     Request& create_request_entry(Parameters parameters, Handler handler);
 
     /**
@@ -583,7 +585,7 @@ private:
      * issuing the request, so this function takes care of those tasks. f must be either
      * send_announce_request or send_scrape_request.
      */
-    template<typename Request, typename Function>
+    template <typename Request, typename Function>
     void execute_request(Request& request, Function f);
 
     /** Creates a random transaction id. */
@@ -597,17 +599,17 @@ private:
      * connectionless protocol) by sending them a transaction_id, receiving a
      * connection_id, which is then sent back for verification.
      */
-    template<typename Request>
+    template <typename Request>
     void send_connect_request(Request& request);
     void send_announce_request(announce_request& request);
     void send_scrape_request(scrape_request& request);
-    
-    template<typename Request>
+
+    template <typename Request>
     void send_message(Request& request, const size_t num_bytes_to_send);
 
     /** Checks errors and makes sure the entire send buffer was transmitted. */
-    void on_message_sent(request& request, const error_code& error,
-            const size_t num_bytes_sent);
+    void on_message_sent(
+            request& request, const error_code& error, const size_t num_bytes_sent);
 
     void receive_message();
 
@@ -629,10 +631,9 @@ private:
      * requests are located and continued here.
      */
     void handle_connect_response(request& request, const size_t num_bytes_received);
-    void handle_announce_response(announce_request& request,
-            const size_t num_bytes_received);
-    void handle_scrape_response(scrape_request& request,
-            const size_t num_bytes_received);
+    void handle_announce_response(
+            announce_request& request, const size_t num_bytes_received);
+    void handle_scrape_response(scrape_request& request, const size_t num_bytes_received);
     void handle_error_response(request& request, const size_t num_bytes_received);
 
     /**

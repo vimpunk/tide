@@ -3,10 +3,10 @@
 
 #include "string_view.hpp"
 
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
-#include <map>
 
 namespace tide {
 

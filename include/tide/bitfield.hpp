@@ -1,14 +1,14 @@
 #ifndef TIDE_BITFIELD_HEADER
 #define TIDE_BITFIELD_HEADER
 
-#include <type_traits>
-#include <stdexcept>
-#include <iterator>
 #include <cassert>
-#include <string>
-#include <vector>
-#include <limits>
 #include <cmath>
+#include <iterator>
+#include <limits>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
+#include <vector>
 
 namespace tide {
 
@@ -36,12 +36,10 @@ struct bitfield
     using block_type = uint8_t;
 
 private:
-
     std::vector<block_type> blocks_;
     size_type num_bits_;
 
 public:
-
     bitfield() = default;
 
     explicit bitfield(size_type num_bits, value_type initial_val = false)
@@ -57,22 +55,18 @@ public:
      * is not met, an invalid_argument exception is thrown. This way it is easy to verify
      * whether peer has sent us a valid bitfield.
      */
-    template<
-        typename Bytes,
-        typename = decltype(std::declval<Bytes>().begin())
-    > explicit bitfield(const Bytes& bytes, size_type num_bits)
-        : blocks_(bytes.begin(), bytes.end())
-        , num_bits_(num_bits)
+    template <typename Bytes, typename = decltype(std::declval<Bytes>().begin())>
+    explicit bitfield(const Bytes& bytes, size_type num_bits)
+        : blocks_(bytes.begin(), bytes.end()), num_bits_(num_bits)
     {
-        if(!is_raw_bitfield_valid(bytes, num_bits))
-        {
-            throw std::invalid_argument(
-                "byte sequence does not match the requested number of bits in bitfield");
+        if(!is_raw_bitfield_valid(bytes, num_bits)) {
+            throw std::invalid_argument("byte sequence does not match the requested "
+                                        "number of bits in bitfield");
         }
         clear_unused_bits();
     }
 
-    friend void swap(bitfield& a , bitfield& b);
+    friend void swap(bitfield& a, bitfield& b);
 
     /**
      * Verifies whether the raw byte sequence is a valid bitfield. This should be used to
@@ -80,37 +74,30 @@ public:
      * To pass the test, the length of the sequence must be equal to the blocks necessary
      * to store num_bits, and the excess bits, if any, must be zero.
      */
-    template<
-        typename Bytes,
-        typename = decltype(std::declval<Bytes>().data())
-    > static bool is_raw_bitfield_valid(const Bytes& bytes, size_type num_bits) noexcept
+    template <typename Bytes, typename = decltype(std::declval<Bytes>().data())>
+    static bool is_raw_bitfield_valid(const Bytes& bytes, size_type num_bits) noexcept
     {
-        if(num_blocks_for(num_bits) != size_type(bytes.size()))
-        {
+        if(num_blocks_for(num_bits) != size_type(bytes.size())) {
             return false;
         }
         // need to check the last block separately because of the zeroed out excess bits
-        const block_type last_block_mask = ~block_type(0) << num_excess_bits(bytes, num_bits);
+        const block_type last_block_mask = ~block_type(0)
+                << num_excess_bits(bytes, num_bits);
         return (bytes.back() & last_block_mask) == bytes.back();
         // or, shift last block right (TODO test which is more optimal)
-        // return (block_type(bytes.back()) << (bits_per_block - num_excess_bits(bytes, num_bits))) == 0;
+        // return (block_type(bytes.back()) << (bits_per_block - num_excess_bits(bytes,
+        // num_bits))) == 0;
     }
 
     /** Returns the underlying byte sequence. */
-    const std::vector<block_type>& data() const noexcept
-    {
-        return blocks_;
-    }
+    const std::vector<block_type>& data() const noexcept { return blocks_; }
 
     /**
      * Returns the same number of bits that was supplied in the ctor (and not
      * data().size(), which returns the number of bytes necessary to represent the
      * bitfield).
      */
-    size_type size() const noexcept
-    {
-        return num_bits_;
-    }
+    size_type size() const noexcept { return num_bits_; }
 
     bitfield& set(const size_type bit) noexcept
     {
@@ -120,7 +107,9 @@ public:
 
     bitfield& set(const std::initializer_list<size_type> bits) noexcept
     {
-        for(const auto b : bits) { set(b); }
+        for(const auto b : bits) {
+            set(b);
+        }
         return *this;
     }
 
@@ -139,7 +128,9 @@ public:
 
     bitfield& reset(const std::initializer_list<size_type> bits) noexcept
     {
-        for(const auto b : bits) { reset(b); }
+        for(const auto b : bits) {
+            reset(b);
+        }
         return *this;
     }
 
@@ -157,8 +148,7 @@ public:
 
     bitfield& flip_all() noexcept
     {
-        for(auto& block : blocks_)
-        {
+        for(auto& block : blocks_) {
             block = ~block;
         }
         clear_unused_bits();
@@ -169,25 +159,24 @@ public:
     {
         static constexpr auto all_set = std::numeric_limits<block_type>::max();
         const size_type last_block = blocks_.size() - 1;
-        for(size_type i = 0; i < last_block; ++i)
-        {
-            if(blocks_[i] != all_set) { return false; }
+        for(size_type i = 0; i < last_block; ++i) {
+            if(blocks_[i] != all_set) {
+                return false;
+            }
         }
         // need to check the last block separately because of the zerod out excess bits
         const block_type last_block_mask = ~block_type(0) << num_excess_bits();
         return blocks_[last_block] == last_block_mask;
     }
 
-    bool are_any_set() const noexcept
-    {
-        return !are_none_set();
-    }
+    bool are_any_set() const noexcept { return !are_none_set(); }
 
     bool are_none_set() const noexcept
     {
-        for(const auto& block : blocks_)
-        {
-            if(block != 0) { return false; }
+        for(const auto& block : blocks_) {
+            if(block != 0) {
+                return false;
+            }
         }
         return true;
     }
@@ -204,8 +193,7 @@ public:
 
     reference at(const size_type bit)
     {
-        if((bit < 0) || (bit >= num_bits_))
-        {
+        if((bit < 0) || (bit >= num_bits_)) {
             throw std::out_of_range("bitfield element ouf of range");
         }
         return operator[](bit);
@@ -213,8 +201,7 @@ public:
 
     const_reference at(const size_type bit) const
     {
-        if((bit < 0) || (bit >= num_bits_))
-        {
+        if((bit < 0) || (bit >= num_bits_)) {
             throw std::out_of_range("bitfield element ouf of range");
         }
         return operator[](bit);
@@ -229,9 +216,10 @@ public:
     size_type count() const
     {
         size_type n = 0;
-        for(size_type i = 0; i < size(); ++i)
-        {
-            if((*this)[i]) { ++n; }
+        for(size_type i = 0; i < size(); ++i) {
+            if((*this)[i]) {
+                ++n;
+            }
         }
         return n;
     }
@@ -239,10 +227,8 @@ public:
     std::string to_string() const
     {
         std::string s(size(), '0');
-        for(size_type i = 0; i < size(); ++i)
-        {
-            if((*this)[i])
-            {
+        for(size_type i = 0; i < size(); ++i) {
+            if((*this)[i]) {
                 s[i] = '1';
             }
         }
@@ -259,8 +245,7 @@ public:
     bitfield& operator&=(const bitfield& other)
     {
         const size_type end = std::min(blocks_.size(), other.blocks_.size());
-        for(size_type i = 0; i < end; ++i)
-        {
+        for(size_type i = 0; i < end; ++i) {
             blocks_[i] &= other.blocks_[i];
         }
         return *this;
@@ -269,8 +254,7 @@ public:
     bitfield& operator|=(const bitfield& other)
     {
         const size_type end = std::min(blocks_.size(), other.blocks_.size());
-        for(size_type i = 0; i < end; ++i)
-        {
+        for(size_type i = 0; i < end; ++i) {
             blocks_[i] |= other.blocks_[i];
         }
         return *this;
@@ -279,8 +263,7 @@ public:
     bitfield& operator^=(const bitfield& other)
     {
         const size_type end = std::min(blocks_.size(), other.blocks_.size());
-        for(size_type i = 0; i < end; ++i)
-        {
+        for(size_type i = 0; i < end; ++i) {
             blocks_[i] ^= other.blocks_[i];
         }
         return *this;
@@ -289,8 +272,7 @@ public:
     bitfield& operator-=(const bitfield& other)
     {
         const size_type end = std::min(blocks_.size(), other.blocks_.size());
-        for(size_type i = 0; i < end; ++i)
-        {
+        for(size_type i = 0; i < end; ++i) {
             blocks_[i] = ~other.blocks_[i];
         }
         return *this;
@@ -339,7 +321,6 @@ public:
     }
 
 private:
-
     static constexpr size_type num_blocks_for(const size_type num_bits) noexcept
     {
         return std::ceil(double(num_bits) / bits_per_block());
@@ -378,8 +359,7 @@ private:
     void clear_unused_bits() noexcept
     {
         const auto num_excess = num_excess_bits();
-        if(num_excess > 0)
-        {
+        if(num_excess > 0) {
             blocks_.back() &= ~block_type(0) << num_excess;
         }
     }
@@ -389,10 +369,9 @@ private:
         return num_excess_bits(blocks_, num_bits_);
     }
 
-    template<
-        typename Bytes,
-        typename = decltype(std::declval<Bytes>().data())
-    > static block_type num_excess_bits(const Bytes& bytes, const size_type num_bits) noexcept
+    template <typename Bytes, typename = decltype(std::declval<Bytes>().data())>
+    static block_type num_excess_bits(
+            const Bytes& bytes, const size_type num_bits) noexcept
     {
         return bits_per_block() * bytes.size() - num_bits;
     }
@@ -401,12 +380,11 @@ private:
     {
         // TODO check if this is sufficient (can't think of a popular architecture
         // that doesn't use 8-bit bytes), if not, use:
-        //return std::numeric_limits<block_type>::digits;
+        // return std::numeric_limits<block_type>::digits;
         return sizeof(block_type) * 8;
     }
 
 public:
-
     class reference
     {
         friend class bitfield;
@@ -414,23 +392,16 @@ public:
         block_type& block_;
         const size_type mask_;
 
-        reference(block_type& block, size_type mask)
-            : block_(block)
-            , mask_(mask)
-        {}
+        reference(block_type& block, size_type mask) : block_(block), mask_(mask) {}
 
     public:
-
         reference& flip() noexcept
         {
             block_ ^= mask_;
             return *this;
         }
 
-        operator bool() const noexcept
-        {
-            return (block_ & mask_) != 0;
-        }
+        operator bool() const noexcept { return (block_ & mask_) != 0; }
 
         reference& operator=(bool x) noexcept
         {
@@ -448,25 +419,29 @@ public:
 
         reference& operator|=(bool x) noexcept
         {
-            if(x) block_ |= mask_;
+            if(x)
+                block_ |= mask_;
             return *this;
         }
 
         reference& operator&=(bool x) noexcept
         {
-            if(x) block_ &= mask_;
+            if(x)
+                block_ &= mask_;
             return *this;
         }
 
         reference& operator^=(bool x) noexcept
         {
-            if(x) block_ ^= mask_;
+            if(x)
+                block_ ^= mask_;
             return *this;
         }
 
         reference& operator-=(bool x) noexcept
         {
-            if(x) block_ &= ~mask_;
+            if(x)
+                block_ &= ~mask_;
             return *this;
         }
 
@@ -487,18 +462,13 @@ public:
         size_type bit_;
 
     public:
-
         using iterator_category = std::random_access_iterator_tag;
 
         const_iterator(const bitfield& bitfield, size_type bit = 0)
-            : bitfield_(&bitfield)
-            , bit_(bit)
+            : bitfield_(&bitfield), bit_(bit)
         {}
 
-        const_reference operator*()
-        {
-            return (*bitfield_)[bit_];
-        }
+        const_reference operator*() { return (*bitfield_)[bit_]; }
 
         const_iterator& operator++()
         {
@@ -569,7 +539,7 @@ public:
     };
 };
 
-inline void swap(bitfield& a , bitfield& b)
+inline void swap(bitfield& a, bitfield& b)
 {
     using std::swap;
     swap(a.blocks_, b.blocks_);

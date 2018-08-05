@@ -27,23 +27,23 @@ struct message
     enum type
     {
         // -- standard BitTorrent messages --
-        choke          = 0,
-        unchoke        = 1,
-        interested     = 2,
+        choke = 0,
+        unchoke = 1,
+        interested = 2,
         not_interested = 3,
-        have           = 4,
-        bitfield       = 5,
-        request        = 6,
-        block          = 7,
-        cancel         = 8,
+        have = 4,
+        bitfield = 5,
+        request = 6,
+        block = 7,
+        cancel = 8,
         // -- DHT extension messages --
-        port           = 9,
+        port = 9,
         // -- Fast extension messages --
-        suggest_piece  = 13,
-        have_all       = 14,
-        have_none      = 15,
+        suggest_piece = 13,
+        have_all = 14,
+        have_none = 15,
         reject_request = 16,
-        allowed_fast   = 17,
+        allowed_fast = 17,
     };
 
     int type;

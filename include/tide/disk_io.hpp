@@ -1,31 +1,31 @@
 #ifndef TIDE_DISK_IO_HEADER
 #define TIDE_DISK_IO_HEADER
 
-#include "torrent_storage_handle.hpp"
-#include "exponential_backoff.hpp"
 #include "average_counter.hpp"
-#include "torrent_storage.hpp"
-#include "disk_io_error.hpp"
+#include "bdecode.hpp"
+#include "bitfield.hpp"
+#include "block_cache.hpp"
 #include "block_source.hpp"
 #include "disk_buffer.hpp"
-#include "thread_pool.hpp"
-#include "string_view.hpp"
-#include "sha1_hasher.hpp"
-#include "block_cache.hpp"
-#include "bitfield.hpp"
+#include "disk_io_error.hpp"
+#include "exponential_backoff.hpp"
 #include "interval.hpp"
-#include "bdecode.hpp"
-#include "time.hpp"
-#include "path.hpp"
 #include "log.hpp"
+#include "path.hpp"
+#include "sha1_hasher.hpp"
+#include "string_view.hpp"
+#include "thread_pool.hpp"
+#include "time.hpp"
+#include "torrent_storage.hpp"
+#include "torrent_storage_handle.hpp"
 
-#include <system_error>
-#include <functional>
-#include <utility> // pair
-#include <memory>
 #include <atomic>
-#include <vector>
+#include <functional>
 #include <map>
+#include <memory>
+#include <system_error>
+#include <utility> // pair
+#include <vector>
 
 #include <asio/io_context.hpp>
 
@@ -43,7 +43,6 @@ struct disk_io_settings;
 class disk_io
 {
 public:
-
     struct stats
     {
         int num_blocks_written = 0;
@@ -55,39 +54,38 @@ public:
         int read_cache_capacity = 0;
         int read_cache_size = 0;
 
-        //int write_queue_size = 0;
-        //int read_queue_size = 0;
-        //int peak_write_queue_size = 0;
-        //int peak_read_queue_size = 0;
+        // int write_queue_size = 0;
+        // int read_queue_size = 0;
+        // int peak_write_queue_size = 0;
+        // int peak_read_queue_size = 0;
 
         // How many of each jobs are currently being performed by threads.
         // TODO since we merge hashing and writing in some cases, this would not be
         // representative of the number of working threads
-        //int num_hashing_threads = 0;
-        //int num_writing_threads = 0;
-        //int num_reading_threads = 0;
+        // int num_hashing_threads = 0;
+        // int num_writing_threads = 0;
+        // int num_reading_threads = 0;
 
-        //int num_threads = 0;
+        // int num_threads = 0;
 
         // The number of in-progress pieces and blocks buffered in disk_io.
         int num_partial_pieces = 0;
         int num_buffered_blocks = 0;
 
-        // The average number of milliseconds a job is queued up (is waiting to be 
+        // The average number of milliseconds a job is queued up (is waiting to be
         // executed).
-        //milliseconds avg_wait_time{0};
-        //milliseconds avg_write_time{0};
-        //milliseconds avg_read_time{0};
-        //milliseconds avg_hash_time{0};
+        // milliseconds avg_wait_time{0};
+        // milliseconds avg_write_time{0};
+        // milliseconds avg_read_time{0};
+        // milliseconds avg_hash_time{0};
 
-        //milliseconds total_job_time{0};
-        //milliseconds total_write_time{0};
-        //milliseconds total_read_time{0};
-        //milliseconds total_hash_time{0};
+        // milliseconds total_job_time{0};
+        // milliseconds total_write_time{0};
+        // milliseconds total_read_time{0};
+        // milliseconds total_hash_time{0};
     };
 
 private:
-
     // This is the io_context that runs the network thread. It is used to post handlers
     // on the network thread so that no syncing is required between the two threads, as
     // io_context is thread-safe.
@@ -111,15 +109,15 @@ private:
 
     /**
      * This class represents an in-progress piece. It is used to store the hash context
-     * (blocks are incrementally hashed) and to buffer blocks so that they may be 
+     * (blocks are incrementally hashed) and to buffer blocks so that they may be
      * processed (hashed and written to disk) in batches.
      *
      * For optimal performance, blocks should be supplied in contiguous batches (need
      * not be in order within the batch) of settings::write_cache_line_size, following
-     * the last such batch, so that they may be hashed and written to disk by a single 
+     * the last such batch, so that they may be hashed and written to disk by a single
      * thread. However, this is the optimum, otherwise  at most
-     * write_buffer_capacity blocks are kept in memory, after which they are flushed to 
-     * disk, hashed or not. This means that most of them (unless some follow the last 
+     * write_buffer_capacity blocks are kept in memory, after which they are flushed to
+     * disk, hashed or not. This means that most of them (unless some follow the last
      * hashed block) won't be hashed and thus need to be pulled back for hashing later,
      * when the missing blocks have been downloaded.
      *
@@ -128,8 +126,8 @@ private:
      * If an error occurs while trying to write to disk, i.e. blocks could not be saved,
      * they are placed back into piece's buffer for future reattempt.
      *
-     * Once the piece is completed, its hashing is finished, and the resulting hash is 
-     * compared to the piece's expected hash, and this result is passed along to 
+     * Once the piece is completed, its hashing is finished, and the resulting hash is
+     * compared to the piece's expected hash, and this result is passed along to
      * completion_handler. If the hash test was passed, the remaining blocks are written
      * to disk. (If the piece is large, that is, it has to be written to disk in several
      * settings::write_cache_line_size chunks, it means that even if a piece turns out
@@ -138,11 +136,11 @@ private:
      *
      * Note, however, that while a thread is hashing and saving the current write buffer,
      * the network thread might fill up blocks with another batch ready to be hashed,
-     * but since unhashed_offset is only updated once the hasher thread is finished, the 
+     * but since unhashed_offset is only updated once the hasher thread is finished, the
      * network thread will not initiate another hash job (since it assumes that there is
      * a gap in blocks, due to the mismatch between blocks[0].offset and unhashed_offset,
-     * (which is the desired behaviour)). 
-     * Therefore, once the current hasher finishes, it must check whether another batch 
+     * (which is the desired behaviour)).
+     * Therefore, once the current hasher finishes, it must check whether another batch
      * needs hashing.
      TODO decide if you want this or we should introduce atomic variables for this
      */
@@ -159,7 +157,7 @@ private:
             // Invoked once the block could be saved to disk.
             std::function<void(const std::error_code&)> save_handler;
 
-            block(disk_buffer buffer_, int offset_, 
+            block(disk_buffer buffer_, int offset_,
                     std::function<void(const std::error_code&)> save_handler_);
         };
 
@@ -250,7 +248,7 @@ private:
          * `num_blocks`.
          */
         partial_piece(piece_index_t index_, int length_, int max_write_buffer_size,
-            std::function<void(bool)> completion_handler, asio::io_context& ios);
+                std::function<void(bool)> completion_handler, asio::io_context& ios);
 
         /**
          * Determines whether all blocks have been received, regardless if they
@@ -341,8 +339,8 @@ private:
         // until the last async operation.
         std::atomic<int> num_pending_ops{0};
 
-        torrent_entry(const torrent_info& info,
-                string_view piece_hashes, path resume_data_path);
+        torrent_entry(const torrent_info& info, string_view piece_hashes,
+                path resume_data_path);
 
         bool is_block_valid(const block_info& block);
     };
@@ -365,7 +363,6 @@ private:
     exponential_backoff<120> retry_delay_;
 
 public:
-
     disk_io(asio::io_context& network_ios, const disk_io_settings& settings);
     ~disk_io();
 
@@ -390,23 +387,23 @@ public:
      * If the operation results in an error, error is set and an invalid
      * torrent_storage_handle is returned.
      */
-    torrent_storage_handle allocate_torrent(const torrent_info& info,
-            std::string piece_hashes, std::error_code& error);
+    torrent_storage_handle allocate_torrent(
+            const torrent_info& info, std::string piece_hashes, std::error_code& error);
     void move_torrent(const torrent_id_t id, std::string new_path,
             std::function<void(const std::error_code&)> handler);
     void rename_torrent(const torrent_id_t id, std::string name,
             std::function<void(const std::error_code&)> handler);
 
     /** Completely removes the torrent (files + metadata). */
-    void erase_torrent_files(const torrent_id_t id,
-            std::function<void(const std::error_code&)> handler);
+    void erase_torrent_files(
+            const torrent_id_t id, std::function<void(const std::error_code&)> handler);
 
     /**
      * Only erases the torrent's resume data, which is useful when user no longer wants
      * to seed it but wishes to retain the file.
      */
-    void erase_torrent_resume_data(const torrent_id_t id,
-            std::function<void(const std::error_code&)> handler);
+    void erase_torrent_resume_data(
+            const torrent_id_t id, std::function<void(const std::error_code&)> handler);
     void save_torrent_resume_data(const torrent_id_t id, bmap_encoder resume_data,
             std::function<void(const std::error_code&)> handler);
     void load_torrent_resume_data(const torrent_id_t id,
@@ -432,8 +429,8 @@ public:
      * save_block which incrementally hashes a piece with each additional block.
      * The lifetime of data must be ensured until the invocation of the handler.
      */
-    void create_sha1_digest(const_view<uint8_t> data,
-            std::function<void(sha1_hash)> handler);
+    void create_sha1_digest(
+            const_view<uint8_t> data, std::function<void(sha1_hash)> handler);
 
     /**
      * This creates a page aligend disk buffer into which peer_session can receive or
@@ -474,8 +471,8 @@ public:
      * The piece_completion_handler is only stored once per piece, i.e. the handler
      * supplied with the first block in piece that was saved.
      */
-    void save_block(const torrent_id_t id,
-            const block_info& block_info, disk_buffer block_data,
+    void save_block(const torrent_id_t id, const block_info& block_info,
+            disk_buffer block_data,
             std::function<void(const std::error_code&)> save_handler,
             std::function<void(bool)> piece_completion_handler);
 
@@ -490,7 +487,6 @@ public:
             std::function<void(const std::error_code&, block_source)> handler);
 
 private:
-
     // -------
     // writing
     // -------
@@ -505,22 +501,22 @@ private:
      * This is called when piece has been completed by the most recent block that was
      * issued to be saved to disk. First, it checks whether some blocks have been
      * written to disk without being hashed (this happens when we don't receive blocks
-     * in order, write buffer becomes fragmented, eventually reaching capacity, after 
+     * in order, write buffer becomes fragmented, eventually reaching capacity, after
      * which it needs to be flushed), and if there are any, it reads them back for
-     * hashing. After all blocks have been hashed, it compares the hash result to the 
-     * expected value, then user is notified of the result, and if piece is good, the 
-     * remaining blocks in piece's write buffer are written to disk, after which the 
+     * hashing. After all blocks have been hashed, it compares the hash result to the
+     * expected value, then user is notified of the result, and if piece is good, the
+     * remaining blocks in piece's write buffer are written to disk, after which the
      * save handler is invoked.
      */
     void handle_complete_piece(torrent_entry& torrent, partial_piece& piece);
 
     /**
      * Called by handle_complete_piece, hashes all unhashed blocks in piece, which means
-     * it may need to read back some blocks from disk. blocks in piece.work_buffer need 
+     * it may need to read back some blocks from disk. blocks in piece.work_buffer need
      * not be contiguous.
      */
-    sha1_hash finish_hashing(torrent_entry& torrent, partial_piece& piece,
-        std::error_code& error);
+    sha1_hash finish_hashing(
+            torrent_entry& torrent, partial_piece& piece, std::error_code& error);
 
     /**
      * This is called when piece has settings::write_cache_line_size or more hashable
@@ -533,7 +529,7 @@ private:
     /**
      * This is called when piece is not yet complete (otherwise handle_complete_piece
      * is used) or when piece does not have hashable blocks (then hash_and_save_blocks
-     * would be called), but piece has accrued so many blocks as to necessitate flushing 
+     * would be called), but piece has accrued so many blocks as to necessitate flushing
      * them to disk. Blocks don't have to be contiguous. If some of the blocks in the
      * beginning of blocks are hashable, they are hashed as well, to decrease the amount
      * needed to be read back (if all blocks are hashable, hash_and_save_blocks is used).
@@ -545,26 +541,26 @@ private:
      * or may not be contiguous to disk.
      * The less fragmented the block sequence, the more efficient the operation.
      */
-    void save_maybe_contiguous_blocks(torrent_entry& torrent,
-        partial_piece& piece, std::error_code& error);
+    void save_maybe_contiguous_blocks(
+            torrent_entry& torrent, partial_piece& piece, std::error_code& error);
 
     /** The completion handler for hash_and_save_blocks and flush_buffer. */
-    void on_blocks_saved(const std::error_code& error,
-        torrent_entry& torrent, partial_piece& piece);
+    void on_blocks_saved(
+            const std::error_code& error, torrent_entry& torrent, partial_piece& piece);
 
     /**
      * Saving blocks entails the same plumbing: preparing iovec buffers, the block_info
      * indicating where to save the blocks and calling storage's appropriate function.
      */
     void save_contiguous_blocks(torrent_storage& storage, const piece_index_t piece_index,
-        view<partial_piece::block> blocks, std::error_code& error);
+            view<partial_piece::block> blocks, std::error_code& error);
 
     /**
      * If a piece's buffer could not be flushed in time, it is flushed to avoid lingering
      * blocks in memory (see partial_piece::flush_timer comment).
      */
-    void on_write_buffer_expiry(const std::error_code& error,
-        torrent_entry& torrent, partial_piece& piece);
+    void on_write_buffer_expiry(
+            const std::error_code& error, torrent_entry& torrent, partial_piece& piece);
 
     // -------
     // reading
@@ -574,20 +570,20 @@ private:
      * Depending on the configuration and the number of blocks left in piece starting at
      * the requested block, we either read ahead or just read a single block.
      */
-    void dispatch_read(torrent_entry& torrent, const block_info& info, 
-        std::function<void(const std::error_code&, block_source)> handler);
+    void dispatch_read(torrent_entry& torrent, const block_info& info,
+            std::function<void(const std::error_code&, block_source)> handler);
 
     void read_single_block(torrent_entry& torrent, const block_info& info,
-        std::function<void(const std::error_code&, block_source)> handler);
+            std::function<void(const std::error_code&, block_source)> handler);
 
     void read_ahead(torrent_entry& torrent, const block_info& block_info,
-        std::function<void(const std::error_code&, block_source)> handler);
+            std::function<void(const std::error_code&, block_source)> handler);
 
-    block_info make_mmap_read_ahead_info(torrent_entry &torrent,
-        const block_info& first_block) const noexcept;
+    block_info make_mmap_read_ahead_info(
+            torrent_entry& torrent, const block_info& first_block) const noexcept;
 
     void on_blocks_read_ahead(torrent_entry& torrent, std::vector<block_source> blocks,
-        std::function<void(const std::error_code&, block_source)> handler);
+            std::function<void(const std::error_code&, block_source)> handler);
 
     // -----
     // utils
@@ -598,7 +594,7 @@ private:
      * and returns buffers and the number of bytes as a pair.
      */
     std::pair<std::vector<iovec>, int> prepare_iovec_buffers(
-        view<partial_piece::block> blocks);
+            view<partial_piece::block> blocks);
 
     /** Counts the number of blocks that follow the first block in blocks. */
     static int count_contiguous_blocks(const_view<partial_piece::block> blocks) noexcept;
@@ -624,17 +620,17 @@ private:
         thread_pool
     };
 
-    template<typename... Args>
+    template <typename... Args>
     void log(const log_event event, const char* format, Args&&... args) const;
-    template<typename... Args>
-    void log(const log_event event, const log::priority priority,
-        const char* format, Args&&... args) const;
-    template<typename... Args>
-    void log(const invoked_on thread, const log_event event,
-        const char* format, Args&&... args) const;
-    template<typename... Args>
-    void log(const invoked_on thread, const log_event event,
-        const log::priority priority, const char* format, Args&&... args) const;
+    template <typename... Args>
+    void log(const log_event event, const log::priority priority, const char* format,
+            Args&&... args) const;
+    template <typename... Args>
+    void log(const invoked_on thread, const log_event event, const char* format,
+            Args&&... args) const;
+    template <typename... Args>
+    void log(const invoked_on thread, const log_event event, const log::priority priority,
+            const char* format, Args&&... args) const;
 };
 
 } // namespace tide

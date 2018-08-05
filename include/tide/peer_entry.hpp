@@ -1,8 +1,8 @@
 #ifndef TIDE_PEER_ENTRY_HEADER
 #define TIDE_PEER_ENTRY_HEADER
 
-#include "types.hpp"
 #include "socket.hpp"
+#include "types.hpp"
 
 namespace tide {
 
@@ -12,20 +12,11 @@ struct peer_entry
     peer_id_t id;
     tcp::endpoint endpoint;
 
-    bool operator==(const peer_entry& other) const noexcept
-    {
-        return id == other.id;
-    }
+    bool operator==(const peer_entry& other) const noexcept { return id == other.id; }
 
-    bool operator!=(const peer_entry& other) const noexcept
-    {
-        return id != other.id;
-    }
+    bool operator!=(const peer_entry& other) const noexcept { return id != other.id; }
 
-    bool operator<(const peer_entry& other) const noexcept
-    {
-        return id < other.id;
-    }
+    bool operator<(const peer_entry& other) const noexcept { return id < other.id; }
 };
 
 } // namespace tide

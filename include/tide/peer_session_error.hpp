@@ -3,8 +3,8 @@
 
 #include "error_code.hpp"
 
-#include <type_traits> // true_type
 #include <string>
+#include <type_traits> // true_type
 
 namespace tide {
 
@@ -117,8 +117,9 @@ error_condition make_error_condition(peer_session_errc e);
 } // namespace tide
 
 namespace TIDE_ERROR_CODE_NS {
-    template<>
-    struct is_error_code_enum<tide::peer_session_errc> : public std::true_type {};
+template <>
+struct is_error_code_enum<tide::peer_session_errc> : public std::true_type
+{};
 }
 
 // for more info:

@@ -3,8 +3,8 @@
 
 #include "mmap.hpp"
 
-#include <iterator>
 #include <cassert>
+#include <iterator>
 #include <memory>
 
 #include <boost/pool/pool.hpp>
@@ -43,8 +43,8 @@ struct buffer
 class mmap_source_buffer : public detail::buffer
 {
     mmap_source source_;
-public:
 
+public:
     explicit mmap_source_buffer(mmap_source source) : source_(std::move(source)) {}
 
     size_type size() const noexcept override { return source_.size(); }
@@ -85,32 +85,24 @@ class disk_buffer : public detail::buffer
     size_type size_ = 0;
 
 public:
-
     disk_buffer() = default; // default is invalid buffer
     disk_buffer(pointer data, size_type size, disk_buffer_pool& pool)
-        : data_(data, [&pool](pointer p) { pool.free(p); })
-        , size_(size)
+        : data_(data, [&pool](pointer p) { pool.free(p); }), size_(size)
     {
         assert(size <= 0x4000);
         assert(size > 0);
     }
 
-    disk_buffer(const disk_buffer& other)
-        : data_(other.data_)
-        , size_(other.size_)
-    {}
+    disk_buffer(const disk_buffer& other) : data_(other.data_), size_(other.size_) {}
 
-    disk_buffer(disk_buffer&& other)
-        : data_(std::move(other.data_))
-        , size_((other.size_))
+    disk_buffer(disk_buffer&& other) : data_(std::move(other.data_)), size_((other.size_))
     {
         other.size_ = 0;
     }
 
     disk_buffer& operator=(const disk_buffer& other)
     {
-        if(this != &other)
-        {
+        if(this != &other) {
             data_ = other.data_;
             size_ = other.size_;
         }
@@ -119,8 +111,7 @@ public:
 
     disk_buffer& operator=(disk_buffer&& other)
     {
-        if(this != &other)
-        {
+        if(this != &other) {
             data_ = std::move(other.data_);
             size_ = std::move(other.size_);
             other.size_ = 0;
@@ -128,10 +119,7 @@ public:
         return *this;
     }
 
-    ~disk_buffer()
-    {
-        size_ = 0;
-    }
+    ~disk_buffer() { size_ = 0; }
 
     operator bool() const noexcept { return data_ != nullptr; }
 
@@ -163,7 +151,6 @@ public:
 class source_buffer
 {
 public:
-
     using buffer_type = detail::buffer;
     using value_type = buffer_type::value_type;
     using size_type = buffer_type::size_type;
@@ -178,8 +165,8 @@ public:
 
 private:
     std::shared_ptr<buffer_type> buffer_;
+
 public:
-    
     source_buffer(std::shared_ptr<buffer_type> buffer) : buffer_(std::move(buffer)) {}
 
     operator bool() const noexcept { return buffer_ != nullptr; }

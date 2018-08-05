@@ -1,15 +1,15 @@
 #ifndef TIDE_BLOCK_CACHE_HEADER
 #define TIDE_BLOCK_CACHE_HEADER
 
-#include "frequency_sketch.hpp"
 #include "block_source.hpp"
+#include "frequency_sketch.hpp"
 #include "types.hpp"
 
 #include <algorithm>
-#include <memory>
-#include <vector>
 #include <list>
 #include <map>
+#include <memory>
+#include <vector>
 
 namespace tide {
 
@@ -53,7 +53,6 @@ struct block_cache
     };
 
 private:
-
     enum class cache_t
     {
         window,
@@ -67,11 +66,15 @@ private:
         piece_index_t piece;
 
         friend bool operator==(const piece_key& a, const piece_key& b) noexcept
-        { return (a.torrent == b.torrent) && (a.piece == b.piece); }
+        {
+            return (a.torrent == b.torrent) && (a.piece == b.piece);
+        }
 
         friend bool operator<(const piece_key& a, const piece_key& b) noexcept
         {
-            if(a.torrent == b.torrent) { return a.piece < b.piece; }
+            if(a.torrent == b.torrent) {
+                return a.piece < b.piece;
+            }
             return a.torrent < b.torrent;
         }
     };
@@ -86,9 +89,7 @@ private:
         block_source block;
 
         page(piece_key key_, cache_t cache_type_, block_source block_)
-            : key(key_)
-            , cache_type(cache_type_)
-            , block(std::move(block_))
+            : key(key_), cache_type(cache_type_), block(std::move(block_))
         {}
     };
 
@@ -98,7 +99,6 @@ private:
         int capacity_;
 
     public:
-
         using page_position = std::list<page>::iterator;
         using const_page_position = std::list<page>::const_iterator;
 
@@ -134,17 +134,14 @@ private:
         void erase(page_position page) { lru_.erase(page); }
 
         /** Inserts new page at the MRU position of the cache. */
-        template<typename... Args>
+        template <typename... Args>
         page_position insert(Args&&... args)
         {
             return lru_.emplace(mru_pos(), std::forward<Args>(args)...);
         }
 
         /** Moves page to the MRU position. */
-        void handle_hit(page_position page)
-        {
-            transfer_page_from(page, *this);
-        }
+        void handle_hit(page_position page) { transfer_page_from(page, *this); }
 
         /** Moves page from source to the MRU position of this cache. */
         void transfer_page_from(page_position page, lru& source)
@@ -179,25 +176,19 @@ private:
         lru probationary_;
 
     public:
-
         explicit slru(int capacity) : slru(0.8f * capacity, capacity - 0.8f * capacity)
         {
             // Correct truncation error.
-            if(this->capacity() < capacity)
-            {
+            if(this->capacity() < capacity) {
                 eden_.set_capacity(eden_.capacity() + 1);
             }
         }
 
         slru(int eden_capacity, int probationary_capacity)
-            : eden_(eden_capacity)
-            , probationary_(probationary_capacity)
+            : eden_(eden_capacity), probationary_(probationary_capacity)
         {}
 
-        const int size() const noexcept
-        {
-            return eden_.size() + probationary_.size();
-        }
+        const int size() const noexcept { return eden_.size() + probationary_.size(); }
 
         const int capacity() const noexcept
         {
@@ -240,23 +231,18 @@ private:
          */
         void handle_hit(lru::page_position page)
         {
-            if(page->cache_type == cache_t::probationary)
-            {
+            if(page->cache_type == cache_t::probationary) {
                 promote_to_eden(page);
-                if(eden_.size() > eden_.capacity())
-                {
+                if(eden_.size() > eden_.capacity()) {
                     demote_to_probationary(eden_.lru_pos());
                 }
-            }
-            else
-            {
+            } else {
                 assert(page->cache_type == cache_t::eden); // this shouldn't happen
                 eden_.handle_hit(page);
             }
         }
 
     private:
-
         // Both of the below functions promote to the MRU position.
         void promote_to_eden(lru::page_position page)
         {
@@ -297,22 +283,15 @@ private:
     int num_cache_misses_ = 0;
 
 public:
-
     explicit block_cache(int capacity)
         : filter_(capacity)
         , window_(window_capacity(capacity))
         , main_(capacity - window_.capacity())
     {}
 
-    int size() const noexcept
-    {
-        return window_.size() + main_.size();
-    }
+    int size() const noexcept { return window_.size() + main_.size(); }
 
-    int capacity() const noexcept
-    {
-        return window_.capacity() + main_.capacity();
-    }
+    int capacity() const noexcept { return window_.capacity() + main_.capacity(); }
 
     /**
      * NOTE: after this operation the accuracy of the cache will suffer until enough
@@ -320,14 +299,19 @@ public:
      */
     void set_capacity(const int n)
     {
-        if(n < 0) throw std::invalid_argument("cache capacity must be greater than zero");
+        if(n < 0)
+            throw std::invalid_argument("cache capacity must be greater than zero");
 
         filter_.change_capacity(n);
         window_.set_capacity(window_capacity(n));
         main_.set_capacity(n - window_.capacity());
 
-        while(window_.size() > window_.capacity()) { evict_from(window_); }
-        while(main_.size() > main_.capacity()) { evict_from(main_); }
+        while(window_.size() > window_.capacity()) {
+            evict_from(window_);
+        }
+        while(main_.size() > main_.capacity()) {
+            evict_from(main_);
+        }
     }
 
     int num_cache_hits() const noexcept { return num_cache_hits_; }
@@ -336,11 +320,11 @@ public:
     bool contains(const key& key) const noexcept
     {
         auto it = page_map_.find(to_piece_key(key));
-        if(it != page_map_.end())
-        {
-            for(const auto& page : it->second.blocks)
-            {
-                if(page->block.offset == key.offset) { return true; }
+        if(it != page_map_.end()) {
+            for(const auto& page : it->second.blocks) {
+                if(page->block.offset == key.offset) {
+                    return true;
+                }
             }
         }
         return false;
@@ -350,12 +334,9 @@ public:
     {
         filter_.record_access(key);
         auto it = page_map_.find(to_piece_key(key));
-        if(it != page_map_.end())
-        {
-            for(auto page : it->second.blocks)
-            {
-                if(page->block.offset == key.offset)
-                {
+        if(it != page_map_.end()) {
+            for(auto page : it->second.blocks) {
+                if(page->block.offset == key.offset) {
                     handle_hit(page);
                     return page->block;
                 }
@@ -365,38 +346,32 @@ public:
         return {};
     }
 
-    block_source operator[](const key& key)
-    {
-        return get(key);
-    }
+    block_source operator[](const key& key) { return get(key); }
 
     void insert(const key& key, block_source block)
     {
-        if(window_.size() >= window_.capacity()) { evict(); }
+        if(window_.size() >= window_.capacity()) {
+            evict();
+        }
 
         const auto piece_key = to_piece_key(key);
         auto it = page_map_.find(piece_key);
-        if(it != page_map_.end())
-        {
+        if(it != page_map_.end()) {
             piece& piece = it->second;
             auto pos = std::find_if(piece.blocks.begin(), piece.blocks.end(),
-                [offset = key.offset](const auto& b) { return b->block.offset >= offset; });
-            if((pos != piece.blocks.end()) && ((*pos)->block.offset == block.offset))
-            {
+                    [offset = key.offset](
+                            const auto& b) { return b->block.offset >= offset; });
+            if((pos != piece.blocks.end()) && ((*pos)->block.offset == block.offset)) {
                 // this won't happen, but we should still handle the case correctly
                 (*pos)->block = std::move(block);
+            } else {
+                piece.blocks.emplace(pos,
+                        window_.insert(piece_key, cache_t::window, std::move(block)));
             }
-            else
-            {
-                piece.blocks.emplace(pos, window_.insert(
-                    piece_key, cache_t::window, std::move(block)));
-            }
-        }
-        else
-        {
+        } else {
             piece piece;
-            piece.blocks.emplace_back(window_.insert(
-                piece_key, cache_t::window, std::move(block)));
+            piece.blocks.emplace_back(
+                    window_.insert(piece_key, cache_t::window, std::move(block)));
             page_map_.emplace(piece_key, std::move(piece));
         }
     }
@@ -404,11 +379,9 @@ public:
     void erase(const key& key)
     {
         auto it = page_map_.find(to_piece_key(key));
-        if(it != page_map_.end())
-        {
+        if(it != page_map_.end()) {
             auto& piece = it->second;
-            for(auto& block : piece.blocks)
-            {
+            for(auto& block : piece.blocks) {
                 if(block->cache_type == cache_t::window)
                     window_.erase(block);
                 else
@@ -419,7 +392,6 @@ public:
     }
 
 private:
-
     static int window_capacity(const int total_capacity) noexcept
     {
         return std::max(1, int(std::ceil(0.01f * total_capacity)));
@@ -444,37 +416,28 @@ private:
      */
     void evict()
     {
-        if(size() >= capacity())
-        {
+        if(size() >= capacity()) {
             const int window_victim_freq = filter_.frequency(window_.victim_key());
             const int main_victim_freq = filter_.frequency(main_.victim_key());
-            if(window_victim_freq > main_victim_freq)
-            {
+            if(window_victim_freq > main_victim_freq) {
                 evict_from(main_);
                 main_.transfer_page_from(window_.lru_pos(), window_);
-            }
-            else
-            {
+            } else {
                 evict_from(window_);
             }
-        }
-        else
-        {
+        } else {
             main_.transfer_page_from(window_.lru_pos(), window_);
         }
     }
 
-    template<typename Cache>
+    template <typename Cache>
     void evict_from(Cache& cache)
     {
         page_map_.erase(to_piece_key(cache.victim_key()));
         cache.evict();
     }
 
-    piece_key to_piece_key(const key& k) const noexcept
-    {
-        return {k.torrent, k.piece};
-    }
+    piece_key to_piece_key(const key& k) const noexcept { return {k.torrent, k.piece}; }
 };
 
 } // namespace tide

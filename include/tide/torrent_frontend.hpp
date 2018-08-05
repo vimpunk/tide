@@ -4,8 +4,8 @@
 #include "block_source.hpp"
 #include "disk_buffer.hpp"
 
-#include <memory>
 #include <functional>
+#include <memory>
 #include <system_error>
 
 namespace tide {
@@ -19,7 +19,7 @@ class torrent;
 
 /**
  * This class is used by peer_sessions and it represents the torrent to which a
- * peer_session is attached. It exposes only the limited functionality that a 
+ * peer_session is attached. It exposes only the limited functionality that a
  * peer_session needs from torrent, which allows it to avoid directly referring to it.
  *
  * It is also used to mediate the communication of piece download completions and
@@ -41,14 +41,14 @@ class torrent;
  *        V                     | torrent's completion handler
  * [piece_download]<--.         |             |
  *        |           |         |             |
- * (4) invoke handler |         `-----[torrent_frontend]   
+ * (4) invoke handler |         `-----[torrent_frontend]
  *        |           |                       A
  *        |    (1.0) register blocks          |
  *        |    & completion handler   (1.1) save blocks
  *        |           |                       |
  *        `---->[peer_session]----------------'
  *
- * Thus peer_session need only interact with this class instead of torrent and disk_io. 
+ * Thus peer_session need only interact with this class instead of torrent and disk_io.
  *
  * Moreover, this also safely abstracts away another crucial part: peer_session must
  * not provide any of its methods (thus, a std::shared_ptr to itself) as a piece
@@ -87,15 +87,15 @@ public:
      * piece completion handler, which when invoked, posts the piece's hash result to
      * all the peers attached to piece_download, to which the saved block belongs.
      */
-    void save_block(const block_info& block_info,
-            disk_buffer block_data, piece_download& download,
+    void save_block(const block_info& block_info, disk_buffer block_data,
+            piece_download& download,
             std::function<void(const std::error_code&)> handler);
 
     void fetch_block(const block_info& block_info,
             std::function<void(const std::error_code&, block_source)> handler);
 
     /**
-     * If we're gracefully stopping, which is an async operation, torrent needs to know 
+     * If we're gracefully stopping, which is an async operation, torrent needs to know
      * when peer_session finished the shutdown.
      */
     void on_peer_session_stopped(peer_session& session);

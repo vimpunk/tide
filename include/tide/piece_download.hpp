@@ -3,12 +3,12 @@
 
 #include "block_info.hpp"
 #include "socket.hpp"
-#include "types.hpp"
 #include "time.hpp"
+#include "types.hpp"
 
 #include <functional>
-#include <vector>
 #include <map>
+#include <vector>
 
 namespace tide {
 
@@ -65,7 +65,7 @@ struct piece_download
         std::vector<std::reference_wrapper<block>> blocks;
 
         peer(peer_id_type id, std::function<void(bool, int)> completion_handler,
-            std::function<void(const block_info&)> cancel_handler);
+                std::function<void(const block_info&)> cancel_handler);
 
         void remove_block(const block& block);
         bool is_requesting_block(const block& block) const noexcept;
@@ -89,17 +89,17 @@ private:
     int num_blocks_left_;
 
     // This is decremented with every requested and received block, and incremented once
-    // a block times out and becomes pickable. This means that once the piece is fully 
-    // downloaded this will equal num_blocks_left_. It's used to check if we can make 
+    // a block times out and becomes pickable. This means that once the piece is fully
+    // downloaded this will equal num_blocks_left_. It's used to check if we can make
     // requests for this piece or we should move on to another.
     int num_pickable_blocks_;
 
     // A peer may be disconnected, so it's important not to rely on the current number
     // of participants to determine whether we downloaded the block from a single peer
     // or several peers, even if some were disconnected. (If we download from more than
-    // a single peer, but then all but one are disconnected, and if the remaining peer 
-    // completes the download and the piece turns out to be bad, the remaining peer 
-    // would be marked as the culprit, even though any one of the other peers may have 
+    // a single peer, but then all but one are disconnected, and if the remaining peer
+    // completes the download and the piece turns out to be bad, the remaining peer
+    // would be marked as the culprit, even though any one of the other peers may have
     // sent the corrupt data.)
     int num_downloaders_ = 0;
 
@@ -107,12 +107,12 @@ private:
     // blocks is handled by peer_sessions, not by piece_download itself (because each
     // peer_session tailors the timeout value to its peer's performance). However, we
     // don't always release timed out blocks for other peers to download (when we're not
-    // close to completion, see time_out_request comment), which means that if a block 
-    // that a peer_session has timed out but piece_download didn't release never arrived 
-    // in the end, it would be stuck as `requested` forever, barring other peer_sessions 
-    // from downloading it. Since any number of blocks may behave like this, we must 
-    // enforce an upper bound on the time a block may remain in the `requested` state. 
-    // This is achieved by measuring average request round trip times and deriving the 
+    // close to completion, see time_out_request comment), which means that if a block
+    // that a peer_session has timed out but piece_download didn't release never arrived
+    // in the end, it would be stuck as `requested` forever, barring other peer_sessions
+    // from downloading it. Since any number of blocks may behave like this, we must
+    // enforce an upper bound on the time a block may remain in the `requested` state.
+    // This is achieved by measuring average request round trip times and deriving the
     // upper limit from this value.
     milliseconds avg_request_rtt_{0};
 
@@ -146,7 +146,7 @@ public:
     /**
      * When we have downloaded a block from a peer, we must register it with the
      * piece_download so that the completion handler can be invoked in post_hash_result
-     * (which should be called by torrent when the piece has been verified; this 
+     * (which should be called by torrent when the piece has been verified; this
      * indirection is necessary because it's always a single entity that saves the final
      * block, so it will perform the hashing, so it must propagate the results to other
      * participants of this download). The cancel_handler is invoked when another peer
@@ -158,8 +158,8 @@ public:
      * need to invoke the completion handlers).
      */
     void register_peer(const peer_id_type& id,
-        std::function<void(bool, int)> completion_handler,
-        std::function<void(const block_info&)> cancel_handler);
+            std::function<void(bool, int)> completion_handler,
+            std::function<void(const block_info&)> cancel_handler);
 
     /**
      * A peer may be disconnected before the download finishes, so it must be removed
@@ -190,7 +190,7 @@ public:
      * send that block would defer completion, so the requested block is freed in hopes
      * that it can be downloaded faster from other peers.
      * If on the other hand there are more blocks left, it doesn't make sense to handoff
-     * the request, so wait for the timed out peer's block and let others request 
+     * the request, so wait for the timed out peer's block and let others request
      * different blocks in the piece.
      * Depending on the above, true is returned if peer should consider the request
      * timed out, or false if it has not been timed out.
@@ -209,11 +209,11 @@ public:
     void abort_request(const peer_id_type& id, const block_info& block_info);
 
     /**
-     * Picks a single block to download next. If no blocks could be requested, 
+     * Picks a single block to download next. If no blocks could be requested,
      * invalid_block is returned.
      *
      * If this function is called in quick succession in order to create a request queue
-     * of several blocks, offset_hint can be used to hint at the next block in order to 
+     * of several blocks, offset_hint can be used to hint at the next block in order to
      * avoid looping over all blocks. This should be the next block's offset, that is, a
      * multiple of 0x4000.
      */
@@ -222,7 +222,7 @@ public:
     /** Returns n or less blocks to request. */
     std::vector<block_info> pick_blocks(const peer_id_type& id, const int n);
 
-    template<typename RequestQueue>
+    template <typename RequestQueue>
     int pick_blocks(RequestQueue& queue, const peer_id_type& id, const int n);
 
 private:
@@ -290,18 +290,20 @@ inline milliseconds piece_download::average_request_rtt() const noexcept
     return avg_request_rtt_;
 }
 
-template<typename RequestQueue>
-int piece_download::pick_blocks(RequestQueue& queue,
-    const peer_id_type& id, const int n)
+template <typename RequestQueue>
+int piece_download::pick_blocks(RequestQueue& queue, const peer_id_type& id, const int n)
 {
-    if(num_blocks_left() == 0) { return 0; }
+    if(num_blocks_left() == 0) {
+        return 0;
+    }
     queue.reserve(queue.size() + std::min(n, num_pickable_blocks_));
     auto& peer = find_peer(id);
     int num_picked = 0;
-    for(auto hint = 0; num_picked < n;)
-    {
+    for(auto hint = 0; num_picked < n;) {
         const auto block = pick_block(peer, hint);
-        if(block == invalid_block) { break; }
+        if(block == invalid_block) {
+            break;
+        }
         queue.emplace_back(block);
         hint = block.offset + 0x4000;
         ++num_picked;

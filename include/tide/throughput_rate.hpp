@@ -49,10 +49,7 @@ public:
      * Every time a transfer occured on the link whose throughput rate this object is
      * monitoring, this function should be called with the number of transferred bytes.
      */
-    void update(const int num_bytes) noexcept
-    {
-        update_impl(num_bytes);
-    }
+    void update(const int num_bytes) noexcept { update_impl(num_bytes); }
 
     int rate() const noexcept
     {
@@ -60,8 +57,7 @@ public:
         // transferred on the link, so simulate a throughput of 0 since the last update.
         update_impl(0);
         const int r = rate_;
-        if(r > peak_)
-        {
+        if(r > peak_) {
             peak_ = r;
         }
         return r;
@@ -92,18 +88,15 @@ private:
     {
         // Make sure to round down to seconds as we only care about full second values
         // (see comment below).
-        const milliseconds elapsed_ms = duration_cast<milliseconds>(
-            cached_clock::now() - last_update_time_);
-        if((elapsed_ms >= seconds(1)) && (elapsed_ms < seconds(2)))
-        {
+        const milliseconds elapsed_ms
+                = duration_cast<milliseconds>(cached_clock::now() - last_update_time_);
+        if((elapsed_ms >= seconds(1)) && (elapsed_ms < seconds(2))) {
             // If a full second has elapsed since the last update time, but less than 2,
             // we only have to do one update, and restart accumulation with num_bytes.
             update_rate(accumulator_);
             accumulator_ = num_bytes;
             last_update_time_ += seconds(1);
-        }
-        else if(elapsed_ms == seconds(2))
-        {
+        } else if(elapsed_ms == seconds(2)) {
             // Exactly 2 seconds elapsed, which means we have to update the rate in the
             // first second with's left in `accumulator_`, the second with num_bytes, and
             // reset `accumulator_` to 0.
@@ -111,9 +104,7 @@ private:
             update_rate(num_bytes);
             accumulator_ = 0;
             last_update_time_ += seconds(2);
-        }
-        else if(elapsed_ms > seconds(2))
-        {
+        } else if(elapsed_ms > seconds(2)) {
             // More than 2 seconds elapsed, meaning that there was no throughput for
             // at least elapsed_ms - seconds(1) time, therefore, update the upload rate in
             // the first second of the elapsed time with whatever is left in
@@ -121,16 +112,16 @@ private:
             // seconds.
             const seconds elapsed_s = duration_cast<seconds>(elapsed_ms);
             update_rate(accumulator_);
-            for(auto i = 0; i < elapsed_s.count() - 1; ++i) { update_rate(0); }
+            for(auto i = 0; i < elapsed_s.count() - 1; ++i) {
+                update_rate(0);
+            }
             accumulator_ = num_bytes;
             // Updates happen at full seconds and since the bytes left in `accumulator_`
             // are going added when the next full second is reached, we must keep the
             // update time points aligned at full seconds (relative to our starting
             // point) as well.
             last_update_time_ += elapsed_s;
-        }
-        else
-        {
+        } else {
             accumulator_ += num_bytes;
         }
     }

@@ -1,23 +1,23 @@
 #ifndef TIDE_TORRENT_HEADER
 #define TIDE_TORRENT_HEADER
 
-#include "torrent_storage_handle.hpp"
-#include "torrent_handle.hpp"
-#include "torrent_info.hpp"
-#include "rate_limiter.hpp"
-#include "peer_session.hpp"
-#include "piece_picker.hpp"
-#include "torrent_args.hpp"
-#include "string_view.hpp"
-#include "error_code.hpp"
-#include "interval.hpp"
-#include "tracker.hpp"
 #include "bdecode.hpp"
 #include "bencode.hpp"
-#include "socket.hpp"
-#include "types.hpp"
-#include "time.hpp"
+#include "error_code.hpp"
+#include "interval.hpp"
 #include "log.hpp"
+#include "peer_session.hpp"
+#include "piece_picker.hpp"
+#include "rate_limiter.hpp"
+#include "socket.hpp"
+#include "string_view.hpp"
+#include "time.hpp"
+#include "torrent_args.hpp"
+#include "torrent_handle.hpp"
+#include "torrent_info.hpp"
+#include "torrent_storage_handle.hpp"
+#include "tracker.hpp"
+#include "types.hpp"
 
 #include <memory>
 #include <mutex>
@@ -105,7 +105,7 @@ class torrent : public std::enable_shared_from_this<torrent>
 
     // If torrent is stopped, `peer_session`s are not erased, but put here, as
     // we might be able to reconnect them.
-    //std::vector<std::shared_ptr<peer_session>> stopped_peer_sessions_;
+    // std::vector<std::shared_ptr<peer_session>> stopped_peer_sessions_;
 
     // Trackers are ordered the same way as they were specified in the metainfo
     // file, i.e. the first tracker has the highest priority and is always used
@@ -197,15 +197,10 @@ public:
      * NOTE: at this point of execution args is assumed to be checked, file
      * paths sanitized etc, so it is crucial that `engine` do this.
      */
-    torrent(torrent_id_t id,
-            asio::io_context& ios,
-            disk_io& disk_io,
-            rate_limiter& global_rate_limiter,
-            const settings& global_settings,
-            engine_info& global_info,
-            std::vector<tracker_entry> trackers,
-            endpoint_filter& endpoint_filter,
-            alert_queue& alert_queue,
+    torrent(torrent_id_t id, asio::io_context& ios, disk_io& disk_io,
+            rate_limiter& global_rate_limiter, const settings& global_settings,
+            engine_info& global_info, std::vector<tracker_entry> trackers,
+            endpoint_filter& endpoint_filter, alert_queue& alert_queue,
             torrent_args args);
 
     /**
@@ -214,16 +209,10 @@ public:
      * torrent, but the rest of the work is done by torrent, albeit only after
      * invoking `start`.
      */
-    torrent(torrent_id_t id,
-            asio::io_context& ios,
-            disk_io& disk_io,
-            rate_limiter& global_rate_limiter,
-            const settings& global_settings,
-            engine_info& global_info,
-            std::vector<tracker_entry> trackers,
-            endpoint_filter& endpoint_filter,
-            alert_queue& alert_queue,
-            bmap resume_data);
+    torrent(torrent_id_t id, asio::io_context& ios, disk_io& disk_io,
+            rate_limiter& global_rate_limiter, const settings& global_settings,
+            engine_info& global_info, std::vector<tracker_entry> trackers,
+            endpoint_filter& endpoint_filter, alert_queue& alert_queue, bmap resume_data);
 
     /**
      * Since torrent is not exposed to the public directly, users may interact
@@ -403,16 +392,10 @@ public:
 
 private:
     /** Initializes fields common to both constructors. */
-    torrent(torrent_id_t id,
-            const int num_pieces,
-            asio::io_context& ios,
-            disk_io& disk_io,
-            rate_limiter& rate_limiter,
-            const settings& global_settings,
-            engine_info& engine_info,
-            std::vector<tracker_entry> trackers,
-            endpoint_filter& endpoint_filter,
-            alert_queue& alert_queue);
+    torrent(torrent_id_t id, const int num_pieces, asio::io_context& ios,
+            disk_io& disk_io, rate_limiter& rate_limiter, const settings& global_settings,
+            engine_info& engine_info, std::vector<tracker_entry> trackers,
+            endpoint_filter& endpoint_filter, alert_queue& alert_queue);
 
     void apply_torrent_args(torrent_args& args);
 
@@ -505,8 +488,8 @@ private:
 
     void on_announce_response(tracker_entry& tracker, const error_code& error,
             tracker_response response, const int event);
-    void on_announce_error(tracker_entry& tracker,
-            const error_code& error, const int event);
+    void on_announce_error(
+            tracker_entry& tracker, const error_code& error, const int event);
 
     /**
      * Adds a peer returned in an announce response if we're not already
@@ -538,8 +521,7 @@ private:
     // -- storage --
     // -------------
 
-    void on_torrent_allocated(const error_code& error,
-            torrent_storage_handle storage);
+    void on_torrent_allocated(const error_code& error, torrent_storage_handle storage);
     void handle_disk_error(const error_code& error);
     void check_storage_integrity();
     void on_storage_integrity_checked(const error_code& error);
@@ -613,11 +595,11 @@ private:
         peer
     };
 
-    template<typename... Args>
+    template <typename... Args>
     void log(const log_event event, const char* format, Args&&... args) const;
-    template<typename... Args>
-    void log(const log_event event, const log::priority priority,
-            const char* format, Args&&... args) const;
+    template <typename... Args>
+    void log(const log_event event, const log::priority priority, const char* format,
+            Args&&... args) const;
 };
 
 inline bool torrent::is_auto_managed() const noexcept
@@ -645,13 +627,28 @@ inline int torrent::max_connections() const noexcept
     return info_.settings.max_connections;
 }
 
-inline const torrent_info& torrent::info() const { return info_; }
+inline const torrent_info& torrent::info() const
+{
+    return info_;
+}
 
-inline int torrent::download_rate() const noexcept { return info_.download_rate.rate(); }
-inline int torrent::upload_rate() const noexcept { return info_.upload_rate.rate(); }
+inline int torrent::download_rate() const noexcept
+{
+    return info_.download_rate.rate();
+}
+inline int torrent::upload_rate() const noexcept
+{
+    return info_.upload_rate.rate();
+}
 
-inline torrent_id_t torrent::id() const noexcept { return info_.id; }
-inline const sha1_hash& torrent::info_hash() const noexcept { return info_.info_hash; }
+inline torrent_id_t torrent::id() const noexcept
+{
+    return info_.id;
+}
+inline const sha1_hash& torrent::info_hash() const noexcept
+{
+    return info_.info_hash;
+}
 
 inline seconds torrent::total_seed_time() const noexcept
 {
@@ -671,22 +668,22 @@ inline seconds torrent::total_active_time() const noexcept
 inline bool torrent::has_reached_share_ratio_limit() const noexcept
 {
     return global_settings_.share_ratio_limit != values::none
-        && info_.total_uploaded_piece_bytes / info_.total_downloaded_piece_bytes
-           >= global_settings_.share_ratio_limit;
+            && info_.total_uploaded_piece_bytes / info_.total_downloaded_piece_bytes
+            >= global_settings_.share_ratio_limit;
 }
 
 inline bool torrent::has_reached_share_time_ratio_limit() const noexcept
 {
     return global_settings_.share_time_ratio_limit != values::none
-        && total_seed_time() / total_leech_time()
-           >= global_settings_.share_time_ratio_limit;
+            && total_seed_time() / total_leech_time()
+            >= global_settings_.share_time_ratio_limit;
 }
 
 inline bool torrent::has_reached_seed_time_limit() const noexcept
 {
     // TODO is seconds(0) not a valid seed_time_limit value?
     return global_settings_.seed_time_limit != seconds(0)
-        && total_seed_time() >= global_settings_.seed_time_limit;
+            && total_seed_time() >= global_settings_.seed_time_limit;
 }
 
 inline time_point torrent::download_started_time() const noexcept
@@ -712,8 +709,14 @@ inline int torrent::num_connected_peers() const noexcept
     return num_seeders() + num_leechers();
 }
 
-inline int torrent::num_seeders() const noexcept { return info_.num_seeders; }
-inline int torrent::num_leechers() const noexcept { return info_.num_leechers; }
+inline int torrent::num_seeders() const noexcept
+{
+    return info_.num_seeders;
+}
+inline int torrent::num_leechers() const noexcept
+{
+    return info_.num_leechers;
+}
 
 inline torrent_handle torrent::get_handle() noexcept
 {
@@ -725,21 +728,30 @@ inline torrent_storage_handle torrent::get_storage_handle() noexcept
     return storage_;
 }
 
-inline bool torrent::is_stopped() const noexcept { return !is_running(); }
+inline bool torrent::is_stopped() const noexcept
+{
+    return !is_running();
+}
 
 inline bool torrent::is_running() const noexcept
 {
     return info_.state[torrent_info::active];
 }
 
-inline bool torrent::is_leech() const noexcept { return !is_seed(); }
+inline bool torrent::is_leech() const noexcept
+{
+    return !is_seed();
+}
 
 inline bool torrent::is_seed() const noexcept
 {
     return info_.state[torrent_info::state::seeding];
 }
 
-inline void torrent::force_tracker_announce() { announce(tracker_request::none, true); }
+inline void torrent::force_tracker_announce()
+{
+    announce(tracker_request::none, true);
+}
 
 } // namespace tide
 

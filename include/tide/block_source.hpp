@@ -1,8 +1,8 @@
 #ifndef TIDE_BLOCK_DISK_BUFFER_HEADER
 #define TIDE_BLOCK_DISK_BUFFER_HEADER
 
-#include "disk_buffer.hpp"
 #include "block_info.hpp"
+#include "disk_buffer.hpp"
 
 #include <vector>
 
@@ -27,12 +27,10 @@ struct block_source : public block_info
     block_source() = default;
 
     block_source(block_info info, std::vector<source_buffer> buffers_)
-        : block_info(std::move(info))
-        , buffers(std::move(buffers_))
+        : block_info(std::move(info)), buffers(std::move(buffers_))
     {}
 
-    block_source(block_info info, source_buffer buffer)
-        : block_info(std::move(info))
+    block_source(block_info info, source_buffer buffer) : block_info(std::move(info))
     {
         buffers.emplace_back(std::move(buffer));
     }

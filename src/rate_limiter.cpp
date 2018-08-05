@@ -21,31 +21,23 @@ void rate_limiter::add_quota(const int channel, const int n)
     assert(n == unlimited || n > 0);
     auto& quota = quotas_[channel];
     auto& max_quota = max_quotas_[channel];
-    if(n == unlimited)
-    {
+    if(n == unlimited) {
         quota = unlimited;
         max_quota = unlimited;
-    }
-    else if(quota != unlimited)
-    {
+    } else if(quota != unlimited) {
         quota += n;
-        if((max_quota != unlimited) && (quota > max_quota))
-        {
+        if((max_quota != unlimited) && (quota > max_quota)) {
             quota = max_quota;
         }
     }
     // There may be entities waiting for quota. Since the quota has been increased,
     // distribute it.
     while(!quota_requester_queues_[channel].empty()
-          && ((quota == unlimited) || (quota > 0)))
-    {
+            && ((quota == unlimited) || (quota > 0))) {
         auto& requester = quota_requester_queues_[channel].front();
-        if(quota == unlimited)
-        {
+        if(quota == unlimited) {
             requester.handler(requester.num_desired_bytes);
-        }
-        else
-        {
+        } else {
             const int q = std::min(quota, requester.num_desired_bytes);
             quota -= q;
             requester.handler(q);
@@ -57,8 +49,7 @@ void rate_limiter::add_quota(const int channel, const int n)
 void rate_limiter::subtract_quota(const int channel, const int n)
 {
     assert(n == unlimited || n > 0);
-    if(quotas_[channel] != unlimited)
-    {
+    if(quotas_[channel] != unlimited) {
         if(n == unlimited)
             quotas_[channel] = 0;
         else
@@ -69,40 +60,40 @@ void rate_limiter::subtract_quota(const int channel, const int n)
 int rate_limiter::request_quota(const int channel, const int num_desired_bytes)
 {
     int& quota = quotas_[channel];
-    if(quota == unlimited) { return num_desired_bytes; }
+    if(quota == unlimited) {
+        return num_desired_bytes;
+    }
     const int r = std::min(num_desired_bytes, quota);
     quota -= r;
     return r;
 }
 
 void rate_limiter::subscribe_for_quota(const int channel, const token_type token,
-    const int num_desired_bytes, std::function<void(int)> handler)
+        const int num_desired_bytes, std::function<void(int)> handler)
 {
     auto& requester_queue = quota_requester_queues_[channel];
     // TODO maybe switch to a map based structure for the requester queues
     auto requester = std::find_if(requester_queue.begin(), requester_queue.end(),
-        [&token](const auto& r) { return r.token == token; });
-    if(requester == requester_queue.end())
-    {
+            [&token](const auto& r) { return r.token == token; });
+    if(requester == requester_queue.end()) {
         quota_requester requester;
         requester.token = token;
         requester.num_desired_bytes = num_desired_bytes;
         requester.handler = std::move(handler);
         requester_queue.emplace_back(std::move(requester));
-    }
-    else
-    {
+    } else {
         requester->num_desired_bytes = num_desired_bytes;
     }
 }
 
 void rate_limiter::unsubscribe(const token_type token)
 {
-    for(auto& queue : quota_requester_queues_)
-    {
+    for(auto& queue : quota_requester_queues_) {
         auto it = std::find_if(queue.begin(), queue.end(),
-            [&token](const auto& r) { return r.token == token; });
-        if(it != queue.end()) { queue.erase(it); }
+                [&token](const auto& r) { return r.token == token; });
+        if(it != queue.end()) {
+            queue.erase(it);
+        }
     }
 }
 
@@ -110,32 +101,44 @@ void rate_limiter::unsubscribe(const token_type token)
 
 void torrent_rate_limiter::add_download_quota(const int quota)
 {
-    if(is_detached_) { rate_limiter::add_download_quota(quota); }
+    if(is_detached_) {
+        rate_limiter::add_download_quota(quota);
+    }
 }
 
 void torrent_rate_limiter::add_upload_quota(const int quota)
 {
-    if(is_detached_) { rate_limiter::add_upload_quota(quota); }
+    if(is_detached_) {
+        rate_limiter::add_upload_quota(quota);
+    }
 }
 
 void torrent_rate_limiter::subtract_download_quota(const int quota)
 {
-    if(is_detached_) { rate_limiter::subtract_download_quota(quota); }
+    if(is_detached_) {
+        rate_limiter::subtract_download_quota(quota);
+    }
 }
 
 void torrent_rate_limiter::subtract_upload_quota(const int quota)
 {
-    if(is_detached_) { rate_limiter::subtract_upload_quota(quota); }
+    if(is_detached_) {
+        rate_limiter::subtract_upload_quota(quota);
+    }
 }
 
 void torrent_rate_limiter::set_max_download_rate(const int max)
 {
-    if(is_detached_) { rate_limiter::set_max_download_rate(max); }
+    if(is_detached_) {
+        rate_limiter::set_max_download_rate(max);
+    }
 }
 
 void torrent_rate_limiter::set_max_upload_rate(const int max)
 {
-    if(is_detached_) { rate_limiter::set_max_upload_rate(max); }
+    if(is_detached_) {
+        rate_limiter::set_max_upload_rate(max);
+    }
 }
 
 int torrent_rate_limiter::request_download_quota(const int num_desired_bytes)
@@ -155,25 +158,25 @@ int torrent_rate_limiter::request_upload_quota(const int num_desired_bytes)
 }
 
 void torrent_rate_limiter::subscribe_for_download_quota(const token_type token,
-    const int num_desired_bytes, std::function<void(int)> handler)
+        const int num_desired_bytes, std::function<void(int)> handler)
 {
     if(is_detached_)
         rate_limiter::subscribe_for_download_quota(
-            token, num_desired_bytes, std::move(handler));
+                token, num_desired_bytes, std::move(handler));
     else
         global_rate_limiter.subscribe_for_download_quota(
-            token, num_desired_bytes, std::move(handler));
+                token, num_desired_bytes, std::move(handler));
 }
 
 void torrent_rate_limiter::subscribe_for_upload_quota(const token_type token,
-    const int num_desired_bytes, std::function<void(int)> handler)
+        const int num_desired_bytes, std::function<void(int)> handler)
 {
     if(is_detached_)
         rate_limiter::subscribe_for_upload_quota(
-            token, num_desired_bytes, std::move(handler));
+                token, num_desired_bytes, std::move(handler));
     else
         global_rate_limiter.subscribe_for_upload_quota(
-            token, num_desired_bytes, std::move(handler));
+                token, num_desired_bytes, std::move(handler));
 }
 
 void torrent_rate_limiter::unsubscribe(const token_type token)

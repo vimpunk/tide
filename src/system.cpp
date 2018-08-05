@@ -1,7 +1,7 @@
 #include "system.hpp"
 
 #ifndef _WIN32
-# include <sys/sysinfo.h>
+#include <sys/sysinfo.h>
 #endif
 
 namespace tide {
@@ -24,8 +24,7 @@ ram ram_status(std::error_code& error)
 #ifdef _WIN32
     MEMORYSTATUSEX ms;
     ms.dwLength = sizeof ms;
-    if(GlobalMemoryStatusEx(&ms) == 0)
-    {
+    if(GlobalMemoryStatusEx(&ms) == 0) {
         error = last_error();
         return {};
     }
@@ -35,14 +34,13 @@ ram ram_status(std::error_code& error)
     ram.virtual_free_space = ms.ullAvailVirtual;
 #else
     struct sysinfo si;
-    if(sysinfo(&si) != 0)
-    {
+    if(sysinfo(&si) != 0) {
         error = last_error();
         return {};
     }
     ram.physical_size = si.totalram;
     ram.physical_free_space = si.freeram;
-    //ram.shared = si.sharedram;
+    // ram.shared = si.sharedram;
     ram.virtual_size = si.totalswap;
     ram.virtual_free_space = si.totalswap;
 #endif

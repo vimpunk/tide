@@ -13,16 +13,15 @@ namespace tide {
 struct string_view : public const_view<std::string::value_type>
 {
     string_view() = default;
-    template<typename T> string_view(view<T> v) : view(v) {}
+    template <typename T>
+    string_view(view<T> v) : view(v)
+    {}
     string_view(pointer str, size_type length) : view(str, length) {}
     string_view(pointer begin, pointer end) : view(begin, end) {}
     string_view(const char* s) : string_view(std::string(s)) {}
     string_view(const std::string& s) : string_view(s.c_str(), s.length()) {}
 
-    operator std::string() const
-    {
-        return std::string(begin(), end());
-    }
+    operator std::string() const { return std::string(begin(), end()); }
 };
 
 constexpr bool operator==(const string_view& a, const string_view& b) noexcept
@@ -37,13 +36,17 @@ constexpr bool operator!=(const string_view& a, const string_view& b) noexcept
 
 constexpr bool operator<(const string_view& a, const string_view& b) noexcept
 {
-    if(a.data() == b.data()) { return a.size() < b.size(); }
+    if(a.data() == b.data()) {
+        return a.size() < b.size();
+    }
     return a.data() < b.data();
 }
 
 constexpr bool operator>(const string_view& a, const string_view& b) noexcept
 {
-    if(a.data() == b.data()) { return a.size() > b.size(); }
+    if(a.data() == b.data()) {
+        return a.size() > b.size();
+    }
     return a.data() > b.data();
 }
 
@@ -81,25 +84,25 @@ inline bool operator!=(const std::string& s, const string_view& v) noexcept
 
 // const char[] operators
 
-template<size_t N>
+template <size_t N>
 bool operator==(const string_view& v, const char (&s)[N]) noexcept
 {
     return std::equal(v.cbegin(), v.cend(), s, s + N);
 }
 
-template<size_t N>
+template <size_t N>
 bool operator==(const char (&s)[N], const string_view& v) noexcept
 {
     return v == s;
 }
 
-template<size_t N>
+template <size_t N>
 bool operator!=(const string_view& v, const char (&s)[N]) noexcept
 {
     return !(v == s);
 }
 
-template<size_t N>
+template <size_t N>
 bool operator!=(const char (&s)[N], const string_view& v) noexcept
 {
     return !(v == s);

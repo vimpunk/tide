@@ -1,8 +1,8 @@
 #ifndef TIDE_HTTP_HEADER
 #define TIDE_HTTP_HEADER
 
-#include <beast/http.hpp>
 #include <beast/core/flat_buffer.hpp>
+#include <beast/http.hpp>
 
 namespace tide {
 namespace http {

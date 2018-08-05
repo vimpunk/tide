@@ -22,9 +22,7 @@ class piece_picker
 
         piece() = default;
         piece(piece_index_t i, uint16_t f = 0, bool r = false)
-            : index(i)
-            , frequency(f)
-            , is_reserved(r)
+            : index(i), frequency(f), is_reserved(r)
         {}
     };
 
@@ -34,10 +32,10 @@ class piece_picker
     std::vector<piece> pieces_;
 
     // Since pieces_ is ordered by priority and frequency, we need a fast way to
-    // retrieve individual pieces (by their indices). This vector is fully allocated to 
+    // retrieve individual pieces (by their indices). This vector is fully allocated to
     // num_pieces and stores indices into pieces_, and a piece's position can be
     // retrieved by piece_pos_map_[piece_index].
-    // While this vector always holds all pieces, pieces that we no longer need to 
+    // While this vector always holds all pieces, pieces that we no longer need to
     // download are removed from pieces_. Those are mapped to invalid_pos.
     std::vector<int> piece_pos_map_;
     static constexpr int invalid_pos = -1;
@@ -57,7 +55,6 @@ class piece_picker
     bool is_dirty_ = false;
 
 public:
-
     /** Describes the strategy used for picking pieces. */
     enum class strategy
     {
@@ -76,11 +73,9 @@ public:
     };
 
 private:
-
     strategy strategy_ = strategy::rarest_first;
 
 public:
-
     explicit piece_picker(int num_pieces);
     explicit piece_picker(bitfield downloaded_pieces);
 
@@ -103,7 +98,6 @@ public:
 
     enum strategy strategy() const noexcept;
     void set_strategy(const enum strategy s) noexcept;
-
 
     /**
      * The availability of a piece is mapped to the position in frequency_map
@@ -198,10 +192,9 @@ public:
     std::string to_string() const;
 
 private:
-
-   void rebuild_frequency_map() noexcept; 
-   void rebuild_group(std::vector<piece>::iterator begin,
-       std::vector<piece>::iterator end) noexcept; 
+    void rebuild_frequency_map() noexcept;
+    void rebuild_group(std::vector<piece>::iterator begin,
+            std::vector<piece>::iterator end) noexcept;
 };
 
 inline int piece_picker::num_pieces() const noexcept
@@ -219,20 +212,20 @@ inline int piece_picker::num_pieces_left() const noexcept
     return pieces_.size();
 }
 
-inline
-void piece_picker::make_top_priority(const piece_index_t begin, const piece_index_t end)
+inline void piece_picker::make_top_priority(
+        const piece_index_t begin, const piece_index_t end)
 {
     make_top_priority(interval(begin, end));
 }
 
-inline
-void piece_picker::make_priority(const piece_index_t begin, const piece_index_t end)
+inline void piece_picker::make_priority(
+        const piece_index_t begin, const piece_index_t end)
 {
     make_priority(interval(begin, end));
 }
 
-inline
-void piece_picker::clear_priority(const piece_index_t begin, const piece_index_t end)
+inline void piece_picker::clear_priority(
+        const piece_index_t begin, const piece_index_t end)
 {
     clear_priority(interval(begin, end));
 }

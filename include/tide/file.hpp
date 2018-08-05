@@ -3,28 +3,28 @@
 
 #include "error_code.hpp"
 #include "flag_set.hpp"
-#include "system.hpp"
 #include "iovec.hpp"
-#include "view.hpp"
-#include "time.hpp"
-#include "path.hpp"
 #include "mmap.hpp"
+#include "path.hpp"
+#include "system.hpp"
+#include "time.hpp"
+#include "view.hpp"
 
 #include <cstdint>
 #include <type_traits> // true_type
 
 #ifdef _WIN32
-# ifndef WIN32_LEAN_AND_MEAN
-#  define WIN32_LEAN_AND_MEAN
-# endif // WIN32_LEAN_AND_MEAN
-# include <windows.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif // WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #else // _WIN32
-# include <fcntl.h>
-# include <unistd.h>
-# include <sys/mman.h>
-# include <sys/stat.h>
-# include <sys/uio.h>
-# define INVALID_HANDLE_VALUE -1 // this is the macro used on Windows
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/uio.h>
+#include <unistd.h>
+#define INVALID_HANDLE_VALUE -1 // this is the macro used on Windows
 #endif // _WIN32
 
 namespace tide {
@@ -182,10 +182,10 @@ public:
      * errors are reported via error. In both cases the returned mmap object is invalid/
      * uninitialized.
      */
-    mmap_source create_mmap_source(const size_type file_offset,
-            const size_type length, error_code& error);
-    mmap_sink create_mmap_sink(const size_type file_offset,
-            const size_type length, error_code& error);
+    mmap_source create_mmap_source(
+            const size_type file_offset, const size_type length, error_code& error);
+    mmap_sink create_mmap_sink(
+            const size_type file_offset, const size_type length, error_code& error);
 
     /**
      * Reads or writes a single buffer and returns the number of bytes read/written, or
@@ -205,9 +205,9 @@ public:
      * be provided which are treated as a single contiguous buffer.
      *
      * The number of bytes transferred to or from disk is guaranteed to be
-     * min(num_bytes_in_buffers, file.length() - file_offset), as the syscalls the 
-     * implementation uses don't usually guarantee the transfer of the requested number 
-     * of bytes, but these operations are repeated until succeeding or until an error 
+     * min(num_bytes_in_buffers, file.length() - file_offset), as the syscalls the
+     * implementation uses don't usually guarantee the transfer of the requested number
+     * of bytes, but these operations are repeated until succeeding or until an error
      * occurs.
      *
      * The number of bytes that were successfully read/written are returned, or 0 if no
@@ -215,7 +215,7 @@ public:
      * details can be retrieved from error).
      *
      * For writing, if the open_mode_t::no_disk_cache flag is set, changes are
-     * immediately written to disk, that is, the OS is instructed to flush the file's 
+     * immediately written to disk, that is, the OS is instructed to flush the file's
      * contents from its page cache to disk. Otherwise this should be done manually with
      * sync_with_disk in order to guarantee that changes are written to disk.
      *
@@ -228,23 +228,20 @@ public:
      * NOTE: the number of bytes that have been read/written are trimmed from the iovec
      * buffers view. It's effectively used as a byte pointer/cursor that is advanced
      * by the number of bytes transferred, which can be useful when buffers is meant to
-     * be written to/filled with by the contents of several consecutive files, so when 
+     * be written to/filled with by the contents of several consecutive files, so when
      * these functions return, the buffers view can just be passed to the next file.
      */
-    size_type read(view<iovec>& buffers,
-            const size_type file_offset, error_code& error);
-    size_type write(view<iovec>& buffers,
-            const size_type file_offset, error_code& error);
+    size_type read(view<iovec>& buffers, const size_type file_offset, error_code& error);
+    size_type write(view<iovec>& buffers, const size_type file_offset, error_code& error);
 
     /** If we're in write mode, syncs the file buffer in the OS page cache with disk. */
     void sync_with_disk(error_code& error);
 
 private:
-
-    void before_mapping_source(const size_type file_offset,
-            const size_type length, error_code& error) const noexcept;
-    void before_mapping_sink(const size_type file_offset,
-            const size_type length, error_code& error) const noexcept;
+    void before_mapping_source(const size_type file_offset, const size_type length,
+            error_code& error) const noexcept;
+    void before_mapping_sink(const size_type file_offset, const size_type length,
+            error_code& error) const noexcept;
     void before_reading(const size_type file_offset, error_code& error) const noexcept;
     void before_writing(const size_type file_offset, error_code& error) const noexcept;
     void verify_handle(error_code& error) const;
@@ -259,9 +256,9 @@ private:
      * size_type fn(void* buffer, size_type length, size_type file_offset);
      * where the return value is the number of bytes that were transferred.
      */
-    template<typename PIOFunction>
-    size_type single_buffer_io(iovec buffer, size_type file_offset,
-            error_code& error, PIOFunction fn);
+    template <typename PIOFunction>
+    size_type single_buffer_io(
+            iovec buffer, size_type file_offset, error_code& error, PIOFunction fn);
 
     /**
      * Abstracts away scatter-gather IO by repeatedly calling the supplied pread or
@@ -275,7 +272,7 @@ private:
      * Note that unlike preadv/pwritev, this is not atomic, so other processes may be
      * able to write to a file between calls to fn.
      */
-    template<typename PIOFunction>
+    template <typename PIOFunction>
     size_type repeated_positional_io(view<iovec>& buffers, size_type file_offset,
             error_code& error, PIOFunction fn);
 
@@ -291,7 +288,7 @@ private:
      * size_type vpo_fn(view<iovec>& buffers, size_type file_offset);
      * where the return value is the number of bytes transferred.
      */
-    template<typename PVIOFunction>
+    template <typename PVIOFunction>
     size_type positional_vector_io(view<iovec>& buffers, size_type file_offset,
             error_code& error, PVIOFunction pvio_fn);
 };
@@ -360,9 +357,10 @@ inline bool file::is_allocated() const noexcept
 
 } // namespace tide
 
-namespace TIDE_ERROR_CODE_NS
-{
-    template<> struct is_error_code_enum<tide::file_errc> : public std::true_type {};
+namespace TIDE_ERROR_CODE_NS {
+template <>
+struct is_error_code_enum<tide::file_errc> : public std::true_type
+{};
 }
 
 #endif // TIDE_FILE_HEADER

@@ -4,23 +4,23 @@
 #include "path.hpp"
 #include "time.hpp"
 
-#include <system_error>
-#include <filesystem>
 #include <cstdint>
+#include <filesystem>
+#include <system_error>
 
 #include <mio/page.hpp>
 
 #ifdef _WIN32
-# ifndef WIN32_LEAN_AND_MEAN
-#  define WIN32_LEAN_AND_MEAN
-# endif // WIN32_LEAN_AND_MEAN
-# include <windows.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif // WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #else // _WIN32
-# include <fcntl.h>
-# include <unistd.h>
-# include <sys/stat.h>
-# include <sys/uio.h>
-# define INVALID_HANDLE_VALUE -1 // This is the macro used on Windows.
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/uio.h>
+#include <unistd.h>
+#define INVALID_HANDLE_VALUE -1 // This is the macro used on Windows.
 #endif // _WIN32
 
 namespace tide {
@@ -30,11 +30,11 @@ using namespace std::filesystem;
 
 using file_handle_type =
 #ifdef _WIN32
-    HANDLE
+        HANDLE
 #else
-    int
+        int
 #endif
-;
+        ;
 
 /**
  * Returns the operating system's page granularity. Since this value is not expected
@@ -50,7 +50,7 @@ struct ram
 {
     int64_t physical_size;
     int64_t physical_free_space;
-    //int64_t shared;
+    // int64_t shared;
     int64_t virtual_size;
     int64_t virtual_free_space;
 };

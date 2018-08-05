@@ -1,28 +1,28 @@
 #ifndef TIDE_PEER_SESSION_HEADER
 #define TIDE_PEER_SESSION_HEADER
 
-#include "peer_session_error.hpp"
-#include "per_round_counter.hpp"
-#include "torrent_frontend.hpp"
-#include "throughput_rate.hpp"
-#include "sliding_average.hpp"
-#include "message_parser.hpp"
-#include "block_source.hpp"
-#include "send_buffer.hpp"
-#include "disk_buffer.hpp"
+#include "bitfield.hpp"
 #include "block_info.hpp"
+#include "block_source.hpp"
+#include "disk_buffer.hpp"
 #include "error_code.hpp"
 #include "extensions.hpp"
 #include "flag_set.hpp"
-#include "bitfield.hpp"
-#include "socket.hpp"
-#include "types.hpp"
-#include "stats.hpp"
-#include "time.hpp"
 #include "log.hpp"
+#include "message_parser.hpp"
+#include "peer_session_error.hpp"
+#include "per_round_counter.hpp"
+#include "send_buffer.hpp"
+#include "sliding_average.hpp"
+#include "socket.hpp"
+#include "stats.hpp"
+#include "throughput_rate.hpp"
+#include "time.hpp"
+#include "torrent_frontend.hpp"
+#include "types.hpp"
 
-#include <vector>
 #include <memory>
+#include <vector>
 
 #include <asio/io_context.hpp>
 
@@ -258,7 +258,7 @@ private:
         // we don't accidentally start the session as inbound when reconnecting.
         // TODO this is cludgey, find a nicer solution
         bool was_started_before = false;
-        //bool is_rc4_encrypted;
+        // bool is_rc4_encrypted;
 
         // The number of bytes this peer is allowed to send and receive until it
         // is allotted more or requests more if it runs out.
@@ -377,10 +377,8 @@ public:
      * i.e. the torrent is known), but does NOT start the session or connect,
      * that is done by calling `start`.
      */
-    peer_session(asio::io_context& ios,
-            tcp::endpoint peer_endpoint,
-            torrent_rate_limiter& rate_limiter,
-            const peer_session_settings& settings,
+    peer_session(asio::io_context& ios, tcp::endpoint peer_endpoint,
+            torrent_rate_limiter& rate_limiter, const peer_session_settings& settings,
             torrent_frontend torrent);
 
     /**
@@ -400,10 +398,8 @@ public:
      * (its fields are nullptr), we know peer didn't send the correct hash so
      * the connection is closed and this `peer_session` may be removed.
      */
-    peer_session(asio::io_context& ios,
-            tcp::endpoint peer_endpoint,
-            torrent_rate_limiter& rate_limiter,
-            const peer_session_settings& settings,
+    peer_session(asio::io_context& ios, tcp::endpoint peer_endpoint,
+            torrent_rate_limiter& rate_limiter, const peer_session_settings& settings,
             std::unique_ptr<tcp::socket> socket,
             std::function<torrent_frontend(const sha1_hash&)> torrent_attacher);
 
@@ -558,10 +554,8 @@ public:
 
 private:
     /** Initializes fields common to both constructors. */
-    peer_session(asio::io_context& ios,
-            tcp::endpoint peer_endpoint,
-            torrent_rate_limiter& rate_limiter,
-            const peer_session_settings& settings);
+    peer_session(asio::io_context& ios, tcp::endpoint peer_endpoint,
+            torrent_rate_limiter& rate_limiter, const peer_session_settings& settings);
 
     /**
      * If our interest changes, sends the corresponding send_{un,}interested
@@ -592,7 +586,7 @@ private:
      * Just a convenience function that returns true if we are disconnecting or
      * have disconnected or if error is operation_aborted. This is used by
      * handlers passed to async operations to check if the connection has been
-     * or is being torn down. 
+     * or is being torn down.
      */
     bool should_abort(const error_code& error = error_code()) const noexcept;
 
@@ -762,7 +756,6 @@ private:
 
     void handle_unknown_message();
 
-
     /**
      * If we're expecting a block and message parser has half finished messages,
      * we test whether it's a block, and if it is, try to extract information
@@ -774,10 +767,10 @@ private:
     // disk
     // ----
 
-    void save_block(const block_info& block_info,
-            disk_buffer block_data, piece_download& piece_download);
-    void on_block_saved(const error_code& error,
-            const block_info& block, const time_point start_time);
+    void save_block(const block_info& block_info, disk_buffer block_data,
+            piece_download& piece_download);
+    void on_block_saved(const error_code& error, const block_info& block,
+            const time_point start_time);
     void on_block_fetched(const error_code& error, const block_source& block);
 
     /**
@@ -786,8 +779,8 @@ private:
      * mode is handled as well as the piece_download corresponding to piece is
      * removed from downloads_.
      */
-    void on_piece_hashed(const piece_download& download,
-            const bool is_piece_good, const int num_bytes_downloaded);
+    void on_piece_hashed(const piece_download& download, const bool is_piece_good,
+            const int num_bytes_downloaded);
 
     /**
      * Once a piece has been downloaded and hashed, torrent processes it and
@@ -961,11 +954,11 @@ private:
         info
     };
 
-    template<typename... Args>
+    template <typename... Args>
     void log(const log_event event, const char* format, Args&&... args) const;
-    template<typename... Args>
-    void log(const log_event event, const log::priority priority,
-            const char* format, Args&&... args) const;
+    template <typename... Args>
+    void log(const log_event event, const log::priority priority, const char* format,
+            Args&&... args) const;
 
     /** Tries to detect client's software from its peer_id in its handshake. */
     void try_identify_client();
@@ -1078,7 +1071,8 @@ inline time_point peer_session::connection_established_time() const noexcept
 
 inline seconds peer_session::connection_duration() const noexcept
 {
-    if(connection_established_time() == time_point()) return seconds(0);
+    if(connection_established_time() == time_point())
+        return seconds(0);
     return duration_cast<seconds>(cached_clock::now() - connection_established_time());
 }
 
@@ -1126,8 +1120,7 @@ inline int peer_session::upload_rate() const noexcept
 inline bool operator==(const pending_block& a, const pending_block& b) noexcept
 {
     return static_cast<const block_info&>(a) == static_cast<const block_info&>(b)
-        && a.request_time == b.request_time
-        && a.has_timed_out == b.has_timed_out;
+            && a.request_time == b.request_time && a.has_timed_out == b.has_timed_out;
 }
 
 inline bool operator==(const pending_block& a, const block_info& b) noexcept
@@ -1159,14 +1152,15 @@ inline bool operator!=(const block_info& b, const pending_block& a) noexcept
 
 namespace std {
 
-template<> struct hash<tide::pending_block>
+template <>
+struct hash<tide::pending_block>
 {
     size_t operator()(const tide::pending_block& b) const noexcept
     {
         return std::hash<tide::block_info>()(static_cast<const tide::block_info&>(b))
-             + std::hash<tide::time_point::rep>()(tide::to_int<tide::milliseconds>(
-                    b.request_time.time_since_epoch()))
-             + std::hash<bool>()(b.has_timed_out);
+                + std::hash<tide::time_point::rep>()(tide::to_int<tide::milliseconds>(
+                          b.request_time.time_since_epoch()))
+                + std::hash<bool>()(b.has_timed_out);
     }
 };
 

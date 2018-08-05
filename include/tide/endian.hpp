@@ -1,8 +1,8 @@
 #ifndef TIDE_ENDIAN_HEADER
 #define TIDE_ENDIAN_HEADER
 
-#include <cstdint>
 #include <boost/detail/endian.hpp>
+#include <cstdint>
 
 namespace tide {
 namespace endian {
@@ -33,14 +33,14 @@ constexpr uint32_t swap_u32(uint32_t n) noexcept
 
 constexpr uint64_t swap_u64(uint64_t n) noexcept
 {
-    n = ((n << 8)  & 0xFF00FF00FF00FF00ULL) | ((n >> 8)  & 0x00FF00FF00FF00FFULL);
+    n = ((n << 8) & 0xFF00FF00FF00FF00ULL) | ((n >> 8) & 0x00FF00FF00FF00FFULL);
     n = ((n << 16) & 0xFFFF0000FFFF0000ULL) | ((n >> 16) & 0x0000FFFF0000FFFFULL);
     return (n << 32) | (n >> 32);
 }
 
 constexpr int64_t swap_i64(int64_t n) noexcept
 {
-    n = ((n << 8)  & 0xFF00FF00FF00FF00ULL) | ((n >> 8)  & 0x00FF00FF00FF00FFULL);
+    n = ((n << 8) & 0xFF00FF00FF00FF00ULL) | ((n >> 8) & 0x00FF00FF00FF00FFULL);
     n = ((n << 16) & 0xFFFF0000FFFF0000ULL) | ((n >> 16) & 0x0000FFFF0000FFFFULL);
     return (n << 32) | ((n >> 32) & 0xFFFFFFFFULL);
 }
@@ -136,12 +136,11 @@ constexpr uint64_t host_to_network_u64(const uint64_t h) noexcept
  * Network Byte Order to Host Byte Order. The byte sequence must have at least sizeof(T)
  * bytes.
  */
-template<typename T, typename InputIt>
+template <typename T, typename InputIt>
 constexpr T parse(InputIt it) noexcept
 {
     T h = 0;
-    for(auto i = 0; i < int(sizeof h); ++i)
-    {
+    for(auto i = 0; i < int(sizeof h); ++i) {
         h <<= 8;
         h |= static_cast<uint8_t>(*it++);
     }
@@ -153,11 +152,10 @@ constexpr T parse(InputIt it) noexcept
  * Host Byte Order to Network Byte Order. The byte sequence must have space for sizeof(T)
  * bytes.
  */
-template<typename T, typename OutputIt>
+template <typename T, typename OutputIt>
 constexpr void write(T h, OutputIt it) noexcept
 {
-    for(int shift = 8 * (int(sizeof h) - 1); shift >= 0; shift -= 8)
-    {
+    for(int shift = 8 * (int(sizeof h) - 1); shift >= 0; shift -= 8) {
         *it++ = static_cast<uint8_t>((h >> shift) & 0xff);
     }
 }

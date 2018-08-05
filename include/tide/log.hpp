@@ -1,14 +1,14 @@
 #ifndef TIDE_LOG_HEADER
 #define TIDE_LOG_HEADER
 
+#include "path.hpp"
 #include "socket.hpp"
 #include "types.hpp"
-#include "path.hpp"
 
 #include <fstream>
-#include <string>
-#include <mutex>
 #include <map>
+#include <mutex>
+#include <string>
 
 namespace tide {
 namespace log {

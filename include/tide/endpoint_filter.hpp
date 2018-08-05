@@ -9,7 +9,6 @@ namespace tide {
 class endpoint_filter
 {
 public:
-
     bool is_allowed(const tcp::endpoint& ep)
     {
         // TODO

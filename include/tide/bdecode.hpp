@@ -1,18 +1,18 @@
 #ifndef TIDE_BDECODE_HEADER
 #define TIDE_BDECODE_HEADER
 
-#include "string_view.hpp"
 #include "error_code.hpp"
+#include "string_view.hpp"
 
-#include <stdexcept>
-#include <optional>
-#include <iterator>
-#include <sstream>
-#include <cstdlib> // atoi
-#include <cstdint>
 #include <cassert>
-#include <string>
+#include <cstdint>
+#include <cstdlib> // atoi
+#include <iterator>
 #include <memory>
+#include <optional>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 // TODO move as much as possible to source
@@ -49,9 +49,10 @@ error_condition make_error_condition(bencode_errc e);
 
 } // namespace tide
 
-namespace std
-{
-    template<> struct is_error_code_enum<tide::bencode_errc> : public true_type {};
+namespace std {
+template <>
+struct is_error_code_enum<tide::bencode_errc> : public true_type
+{};
 }
 
 namespace tide {
@@ -104,12 +105,9 @@ struct btoken
 
     btoken() = default;
 
-    btoken(btype t, int o)
-        : type(t)
-        , offset(o)
+    btoken(btype t, int o) : type(t), offset(o)
     {
-        if((type == btype::list) || (type == btype::map))
-        {
+        if((type == btype::list) || (type == btype::map)) {
             // container type belements' next element is the first element not contained
             // by them, so this must always be at least one
             next_item_array_offset = 1;
@@ -168,16 +166,11 @@ protected:
      * only the fields in bcontainer, so slicing the derived containers is OK).
      */
     bcontainer(const bcontainer& b, const btoken* head)
-        : tokens_(b.tokens_)
-        , encoded_(b.encoded_)
-        , head_(head)
+        : tokens_(b.tokens_), encoded_(b.encoded_), head_(head)
     {}
 
     /** Returns the head of this container. */
-    const btoken* head() const noexcept
-    {
-        return head_;
-    }
+    const btoken* head() const noexcept { return head_; }
 
     /**
      * Returns one past the last element of this container. If this is a nested
@@ -191,9 +184,7 @@ protected:
 
 public:
     bcontainer(const bcontainer& other)
-        : tokens_(other.tokens_)
-        , encoded_(other.encoded_)
-        , head_(other.head_)
+        : tokens_(other.tokens_), encoded_(other.encoded_), head_(other.head_)
     {}
 
     bcontainer(bcontainer&& other)
@@ -206,8 +197,7 @@ public:
 
     bcontainer& operator=(const bcontainer& other)
     {
-        if(this != &other)
-        {
+        if(this != &other) {
             tokens_ = other.tokens_;
             encoded_ = other.encoded_;
             head_ = other.head_;
@@ -217,8 +207,7 @@ public:
 
     bcontainer& operator=(bcontainer&& other)
     {
-        if(this != &other)
-        {
+        if(this != &other) {
             tokens_ = std::move(other.tokens_);
             encoded_ = std::move(other.encoded_);
             head_ = std::move(other.head_);
@@ -227,21 +216,12 @@ public:
         return *this;
     }
 
-    int size() const noexcept
-    {
-        return head_ ? head_->length : 0;
-    }
+    int size() const noexcept { return head_ ? head_->length : 0; }
 
-    bool empty() const noexcept
-    {
-        return size() == 0;
-    }
+    bool empty() const noexcept { return size() == 0; }
 
     /** Returns a refernce to the raw bencoded string of the entire container. */
-    const std::string& source() const noexcept
-    {
-        return *encoded_;
-    }
+    const std::string& source() const noexcept { return *encoded_; }
 
     /**
      * Returns a substring (view) of the portion of the source string that is the
@@ -267,8 +247,7 @@ inline string_view make_string_view_from_token(
     return string_view(encoded.c_str() + str_start, str_length);
 }
 
-inline
-std::string make_string_from_token(const std::string& encoded, const btoken& token)
+inline std::string make_string_from_token(const std::string& encoded, const btoken& token)
 {
     return make_string_view_from_token(encoded, token);
 }
@@ -306,17 +285,18 @@ struct belement
  * number.
  */
 
-namespace detail
+namespace detail {
+template <typename T, btype Type>
+class bprimitive : public belement
 {
-    template<typename T, btype Type> class bprimitive : public belement
-    {
-        T data_;
-    public:
-        bprimitive() = default;
-        bprimitive(T t) : data_(t) {}
-        btype type() const noexcept override { return Type; }
-        operator T() const noexcept { return data_; }
-    };
+    T data_;
+
+public:
+    bprimitive() = default;
+    bprimitive(T t) : data_(t) {}
+    btype type() const noexcept override { return Type; }
+    operator T() const noexcept { return data_; }
+};
 }
 
 struct bnumber final : public detail::bprimitive<int64_t, btype::number>
@@ -355,7 +335,8 @@ class bmap;
 
 class blist final : public detail::bcontainer, public belement
 {
-    template<typename BType, btype TokenType> class list_proxy;
+    template <typename BType, btype TokenType>
+    class list_proxy;
 
 public:
     using numbers = list_proxy<int64_t, btype::number>;
@@ -370,26 +351,15 @@ public:
         : bcontainer(std::move(tokens), std::move(encoded))
     {}
 
-    blist(const bcontainer& b, const btoken* list_head)
-        : bcontainer(b, list_head)
-    {}
+    blist(const bcontainer& b, const btoken* list_head) : bcontainer(b, list_head) {}
 
-    btype type() const noexcept override
-    {
-        return btype::list;
-    }
+    btype type() const noexcept override { return btype::list; }
 
     /** Returns a lazy iterable range of all numbers in this list. */
-    numbers all_numbers() const
-    {
-        return numbers(*this);
-    }
+    numbers all_numbers() const { return numbers(*this); }
 
     /** Returns a lazy iterable range of all strings in this list. */
-    strings all_strings() const
-    {
-        return strings(*this);
-    }
+    strings all_strings() const { return strings(*this); }
 
     /**
      * Returns a lazy iterable range of views of all strings in this list, i.e. no
@@ -400,22 +370,13 @@ public:
      * string_views will implicitly convert to a std::string, which makes interop
      * seamless.
      */
-    string_views all_string_views() const
-    {
-        return string_views(*this);
-    }
+    string_views all_string_views() const { return string_views(*this); }
 
     /** Returns a lazy iterable range of all blist instances in this list. */
-    blists all_blists() const
-    {
-        return blists(*this);
-    }
+    blists all_blists() const { return blists(*this); }
 
     /** Returns a lazy iterable range of all bmap instances in this list. */
-    bmaps all_bmaps() const
-    {
-        return bmaps(*this);
-    }
+    bmaps all_bmaps() const { return bmaps(*this); }
 
     /** Returns a JSON-like, human readable string of this list. */
     std::string to_string() const
@@ -426,7 +387,8 @@ public:
     }
 
 private:
-    template<typename BType, btype TokenType> friend class list_proxy;
+    template <typename BType, btype TokenType>
+    friend class list_proxy;
 
     /**
      * This is the iterable object that is returned by the getter functions. Its
@@ -434,15 +396,12 @@ private:
      *
      * NOTE: it must not outlive its enclosing blist.
      */
-    template<
-        typename BType,
-        btype TokenType
-    > class list_proxy
+    template <typename BType, btype TokenType>
+    class list_proxy
     {
         const blist& list_;
 
     public:
-
         class const_iterator;
 
         using value_type = BType;
@@ -452,15 +411,11 @@ private:
 
         list_proxy(const blist& list) : list_(list) {}
 
-        const_iterator begin() const noexcept
-        {
-            return cbegin();
-        }
+        const_iterator begin() const noexcept { return cbegin(); }
 
         const_iterator cbegin() const noexcept
         {
-            if(!list_.head())
-            {
+            if(!list_.head()) {
                 return const_iterator(*this, nullptr);
             }
 
@@ -473,21 +428,19 @@ private:
             // (the result is either the first list element or list_end)
             ++token;
             // find the first element that matches TokenType or list_end
-            while((token != list_end) && (token->type != TokenType))
-            {
+            while((token != list_end) && (token->type != TokenType)) {
                 token += token->next_item_array_offset;
             }
             return const_iterator(*this, token);
         }
 
-        const_iterator end() const noexcept
-        {
-            return cend();
-        }
+        const_iterator end() const noexcept { return cend(); }
 
         const_iterator cend() const noexcept
         {
-            if(!list_.head()) { return const_iterator(*this, nullptr); }
+            if(!list_.head()) {
+                return const_iterator(*this, nullptr);
+            }
             return const_iterator(*this, list_.tail());
         }
 
@@ -507,75 +460,55 @@ private:
 
             /** pos must point to the first token in the list that matches TokenType. */
             const_iterator(const list_proxy& list_proxy, const btoken* pos)
-                : list_proxy_(&list_proxy)
-                , pos_(pos)
+                : list_proxy_(&list_proxy), pos_(pos)
             {}
 
-            template<typename T = BType>
-            typename std::enable_if<
-                std::is_same<T, int64_t>::value,
-                int64_t
-            >::type operator*()
+            template <typename T = BType>
+            typename std::enable_if<std::is_same<T, int64_t>::value, int64_t>::type
+            operator*()
             {
-                return detail::make_number_from_token(
-                    list_proxy_->list_.source(), *pos_);
+                return detail::make_number_from_token(list_proxy_->list_.source(), *pos_);
             }
 
-            template<typename T = BType>
-            typename std::enable_if<
-                std::is_same<T, std::string>::value,
-                std::string
-            >::type operator*()
+            template <typename T = BType>
+            typename std::enable_if<std::is_same<T, std::string>::value,
+                    std::string>::type
+            operator*()
             {
-                return detail::make_string_from_token(
-                    list_proxy_->list_.source(), *pos_);
+                return detail::make_string_from_token(list_proxy_->list_.source(), *pos_);
             }
 
-            template<typename T = BType>
-            typename std::enable_if<
-                std::is_same<T, string_view>::value,
-                string_view
-            >::type operator*()
+            template <typename T = BType>
+            typename std::enable_if<std::is_same<T, string_view>::value,
+                    string_view>::type
+            operator*()
             {
                 return detail::make_string_view_from_token(
-                    list_proxy_->list_.source(), *pos_);
+                        list_proxy_->list_.source(), *pos_);
             }
 
-            template<typename T = BType>
-            typename std::enable_if<
-                std::is_same<T, blist>::value,
-                blist
-            >::type operator*()
+            template <typename T = BType>
+            typename std::enable_if<std::is_same<T, blist>::value, blist>::type
+            operator*()
             {
-                return blist(static_cast<detail::bcontainer>(
-                    list_proxy_->list_), pos_);
+                return blist(static_cast<detail::bcontainer>(list_proxy_->list_), pos_);
             }
 
-            template<typename T = BType>
-            typename std::enable_if<
-                std::is_same<T, bmap>::value,
-                bmap
-            >::type operator*()
+            template <typename T = BType>
+            typename std::enable_if<std::is_same<T, bmap>::value, bmap>::type operator*()
             {
-                return bmap(static_cast<detail::bcontainer>(
-                    list_proxy_->list_), pos_);
+                return bmap(static_cast<detail::bcontainer>(list_proxy_->list_), pos_);
             }
 
-            pointer operator->() noexcept
-            {
-                return &operator*();
-            }
+            pointer operator->() noexcept { return &operator*(); }
 
             const_iterator& operator++() noexcept
             {
-                if(pos_)
-                {
+                if(pos_) {
                     const btoken* list_end = list_proxy_->list_.tail();
-                    do
-                    {
+                    do {
                         pos_ += pos_->next_item_array_offset;
-                    }
-                    while((pos_ != list_end) && (pos_->type != TokenType));
+                    } while((pos_ != list_end) && (pos_->type != TokenType));
                 }
                 return *this;
             }
@@ -587,14 +520,14 @@ private:
                 return tmp;
             }
 
-            friend
-            bool operator==(const const_iterator& a, const const_iterator& b) noexcept
+            friend bool operator==(
+                    const const_iterator& a, const const_iterator& b) noexcept
             {
                 return a.pos_ == b.pos_;
             }
 
-            friend
-            bool operator!=(const const_iterator& a, const const_iterator& b) noexcept
+            friend bool operator!=(
+                    const const_iterator& a, const const_iterator& b) noexcept
             {
                 return a.pos_ != b.pos_;
             }
@@ -611,19 +544,11 @@ public:
         : bcontainer(std::move(tokens), std::move(encoded))
     {}
 
-    bmap(const detail::bcontainer& b, const btoken* map_head)
-        : bcontainer(b, map_head)
-    {}
+    bmap(const detail::bcontainer& b, const btoken* map_head) : bcontainer(b, map_head) {}
 
-    btype type() const noexcept override
-    {
-        return btype::map;
-    }
+    btype type() const noexcept override { return btype::map; }
 
-    bool contains(const std::string& key)
-    {
-        return find_token(key);
-    }
+    bool contains(const std::string& key) { return find_token(key); }
 
     bool contains(const std::string& key, const btype type)
     {
@@ -634,19 +559,21 @@ public:
     int64_t find_number(const std::string& key) const
     {
         int64_t result;
-        if(try_find_number(key, result)) { return result; }
+        if(try_find_number(key, result)) {
+            return result;
+        }
         throw std::invalid_argument(key + " not in bmap");
     }
 
-    template<
-        typename Integer,
-        typename = typename std::enable_if<
-            std::is_integral<typename std::decay<Integer>::type>::value
-        >::type
-    > bool try_find_number(const std::string& key, Integer& result) const
+    template <typename Integer,
+            typename = typename std::enable_if<
+                    std::is_integral<typename std::decay<Integer>::type>::value>::type>
+    bool try_find_number(const std::string& key, Integer& result) const
     {
         const auto token = find_token(key);
-        if(!token || (token->type != btype::number)) { return false; }
+        if(!token || (token->type != btype::number)) {
+            return false;
+        }
         result = detail::make_number_from_token(source(), *token);
         return true;
     }
@@ -654,14 +581,18 @@ public:
     std::string find_string(const std::string& key) const
     {
         std::string result;
-        if(try_find_string(key, result)) { return result; }
+        if(try_find_string(key, result)) {
+            return result;
+        }
         throw std::invalid_argument(key + " not in bmap");
     }
 
     bool try_find_string(const std::string& key, std::string& result) const
     {
         const auto token = find_token(key);
-        if(!token || (token->type != btype::string)) { return false; }
+        if(!token || (token->type != btype::string)) {
+            return false;
+        }
         result = detail::make_string_from_token(source(), *token);
         return true;
     }
@@ -673,30 +604,37 @@ public:
     string_view find_string_view(const std::string& key) const
     {
         string_view result;
-        if(try_find_string_view(key, result)) { return result; }
+        if(try_find_string_view(key, result)) {
+            return result;
+        }
         throw std::invalid_argument(key + " not in bmap");
     }
 
     bool try_find_string_view(const std::string& key, string_view& result) const
     {
         const auto token = find_token(key);
-        if(!token || (token->type != btype::string)) { return false; }
+        if(!token || (token->type != btype::string)) {
+            return false;
+        }
         result = detail::make_string_view_from_token(source(), *token);
         return true;
     }
 
-
     blist find_blist(const std::string& key) const
     {
         blist result;
-        if(try_find_blist(key, result)) { return result; }
+        if(try_find_blist(key, result)) {
+            return result;
+        }
         throw std::invalid_argument(key + " not in bmap");
     }
 
     bool try_find_blist(const std::string& key, blist& result) const
     {
         const auto token = find_token(key);
-        if(!token || (token->type != btype::list)) { return false; }
+        if(!token || (token->type != btype::list)) {
+            return false;
+        }
         result = blist(*this, token);
         return true;
     }
@@ -704,14 +642,18 @@ public:
     bmap find_bmap(const std::string& key) const
     {
         bmap result;
-        if(try_find_bmap(key, result)) { return result; }
+        if(try_find_bmap(key, result)) {
+            return result;
+        }
         throw std::invalid_argument(key + " not in bmap");
     }
 
     bool try_find_bmap(const std::string& key, bmap& result) const
     {
         const auto token = find_token(key);
-        if(!token || (token->type != btype::map)) { return false; }
+        if(!token || (token->type != btype::map)) {
+            return false;
+        }
         result = bmap(*this, token);
         return true;
     }
@@ -723,20 +665,22 @@ public:
     std::unique_ptr<belement> operator[](const std::string& key) const
     {
         const auto token = find_token(key);
-        if(!token)
-        {
+        if(!token) {
             return nullptr;
         }
-        switch(token->type)
-        {
-        case btype::number: return std::make_unique<bnumber>(
-                detail::make_number_from_token(source(), *token));
-        case btype::string: return std::make_unique<bstring>(
-                detail::make_string_from_token(source(), *token));
-        case btype::list: return std::make_unique<blist>(
-                static_cast<const detail::bcontainer&>(*this), token);
-        case btype::map: return std::make_unique<bmap>(
-                static_cast<const detail::bcontainer&>(*this), token);
+        switch(token->type) {
+        case btype::number:
+            return std::make_unique<bnumber>(
+                    detail::make_number_from_token(source(), *token));
+        case btype::string:
+            return std::make_unique<bstring>(
+                    detail::make_string_from_token(source(), *token));
+        case btype::list:
+            return std::make_unique<blist>(
+                    static_cast<const detail::bcontainer&>(*this), token);
+        case btype::map:
+            return std::make_unique<bmap>(
+                    static_cast<const detail::bcontainer&>(*this), token);
         }
     }
 
@@ -757,15 +701,15 @@ private:
      *
      * start_pos must be a map token (i.e. a token with type == btype::map).
      */
-    const btoken* find_token(const std::string& key,
-            const btoken* start_pos = nullptr) const noexcept;
+    const btoken* find_token(
+            const std::string& key, const btoken* start_pos = nullptr) const noexcept;
 
     /**
      * If list nested in this map (starting at token) has any nested maps, the search
      * for key is continued in them, otherwise nullptr is returned.
      */
-    const btoken* find_token_in_list(
-            const std::string& key, const btoken* token) const noexcept;
+    const btoken* find_token_in_list(const std::string& key, const btoken* token) const
+            noexcept;
 };
 
 inline std::ostream& operator<<(std::ostream& out, const blist& b)

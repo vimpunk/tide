@@ -1,8 +1,8 @@
 #ifndef TIDE_RATE_LIMITER_HEADER
 #define TIDE_RATE_LIMITER_HEADER
 
-#include <functional> // function
 #include <deque>
+#include <functional> // function
 
 namespace tide {
 
@@ -21,7 +21,11 @@ struct rate_limiter
 
 protected:
     /** Used to index into `quotas_`, `max_quotas_`, and `quota_requester_queues_`. */
-    enum channel { download, upload };
+    enum channel
+    {
+        download,
+        upload
+    };
 
     // The available bandwidth quota until it is refilled.
     int quotas_[2] = {unlimited, unlimited};
@@ -91,14 +95,14 @@ public:
      * Invokes `handler` when new quota is added if quota is 0. Does nothing
      * otherwise.
      */
-    void subscribe_for_download_quota(const token_type token,
-            const int num_desired_bytes, std::function<void(int)> handler)
+    void subscribe_for_download_quota(const token_type token, const int num_desired_bytes,
+            std::function<void(int)> handler)
     {
         subscribe_for_quota(download, token, num_desired_bytes, std::move(handler));
     }
 
-    void subscribe_for_upload_quota(const token_type token,
-            const int num_desired_bytes, std::function<void(int)> handler)
+    void subscribe_for_upload_quota(const token_type token, const int num_desired_bytes,
+            std::function<void(int)> handler)
     {
         subscribe_for_quota(upload, token, num_desired_bytes, std::move(handler));
     }
@@ -186,10 +190,10 @@ public:
      * FIXME if we're detached, register a handler, but then detached, the
      * handler will not be transfered back!
      */
-    void subscribe_for_download_quota(const token_type token,
-            const int num_desired_bytes, std::function<void(int)> handler);
-    void subscribe_for_upload_quota(const token_type token,
-            const int num_desired_bytes, std::function<void(int)> handler);
+    void subscribe_for_download_quota(const token_type token, const int num_desired_bytes,
+            std::function<void(int)> handler);
+    void subscribe_for_upload_quota(const token_type token, const int num_desired_bytes,
+            std::function<void(int)> handler);
 
     void unsubscribe(const token_type token);
 };

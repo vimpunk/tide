@@ -11,7 +11,6 @@ class average_counter
     int num_samples_ = 0;
 
 public:
-
     void add_sample(const int64_t s) noexcept
     {
         sum_ += s;
@@ -20,8 +19,7 @@ public:
 
     double mean() const noexcept
     {
-        if(num_samples_ == 0)
-        {
+        if(num_samples_ == 0) {
             return 0;
         }
         return double(sum_) / num_samples_;

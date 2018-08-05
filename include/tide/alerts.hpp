@@ -1,13 +1,13 @@
 #ifndef TIDE_ALERTS_HEADER
 #define TIDE_ALERTS_HEADER
 
-#include "time.hpp"
-#include "types.hpp"
-#include "metainfo.hpp"
 #include "disk_io.hpp"
-#include "torrent_info.hpp"
-#include "torrent_handle.hpp"
+#include "metainfo.hpp"
 #include "peer_session.hpp"
+#include "time.hpp"
+#include "torrent_handle.hpp"
+#include "torrent_info.hpp"
+#include "types.hpp"
 
 #include <type_traits>
 
@@ -89,7 +89,9 @@ struct torrent_stats_alert final : public torrent_alert
 {
     explicit torrent_stats_alert(torrent_handle h) : torrent_alert(h) {}
     int category() const noexcept override
-    { return torrent_alert::category() | category::stats; }
+    {
+        return torrent_alert::category() | category::stats;
+    }
 };
 
 struct download_complete_alert final : public torrent_alert
@@ -106,17 +108,14 @@ struct file_complete_alert final : public torrent_alert
 {
     file_index_t file_index;
     explicit file_complete_alert(torrent_handle h, file_index_t f)
-        : torrent_alert(h)
-        , file_index(f)
+        : torrent_alert(h), file_index(f)
     {}
 };
 
 // -- tracker related alerts --
 
 struct tracker_alert : public alert
-{
-
-};
+{};
 
 // -- individual peer related alerts --
 
@@ -131,14 +130,16 @@ struct peer_alert : public alert
 
 struct peer_stats_alert final : public peer_alert
 {
-    //peer_stats stats;
-    peer_stats_alert(tcp::endpoint ep, peer_id_t pid/*, peer_stats s*/)
+    // peer_stats stats;
+    peer_stats_alert(tcp::endpoint ep, peer_id_t pid /*, peer_stats s*/)
         : peer_alert(std::move(ep), pid)
-        //, stats(std::move(s))
+    //, stats(std::move(s))
     {}
 
     int category() const noexcept override
-    { return peer_alert::category() | category::stats; }
+    {
+        return peer_alert::category() | category::stats;
+    }
 };
 
 // -- storage related alerts --
@@ -175,17 +176,19 @@ struct metainfo_parsed_alert final : public alert
 };
 
 /** Convenience method to cast an alert to the specified one. */
-template<typename Alert>
+template <typename Alert>
 Alert* alert_cast(alert* a) noexcept
 {
     static_assert(std::is_base_of<alert, typename std::decay<Alert>::type>::value,
-        "alert_cast may only be used with types inheriting from alert");
+            "alert_cast may only be used with types inheriting from alert");
 
-    if(a && dynamic_cast<Alert*>(a)) { return dynamic_cast<Alert*>(a); }
+    if(a && dynamic_cast<Alert*>(a)) {
+        return dynamic_cast<Alert*>(a);
+    }
     return nullptr;
 }
 
-template<typename Alert>
+template <typename Alert>
 bool is(const alert& a) noexcept
 {
     return alert_cast<const Alert>(const_cast<alert*>(&a)) != nullptr;

@@ -1,33 +1,33 @@
 #include "bencode.hpp"
 
-#include <stdexcept>
-#include <iostream>
 #include <cassert>
+#include <iostream>
+#include <stdexcept>
 
 namespace tide {
 namespace util {
 
-    inline int bencoded_string_length(string_view s)
-    {
-        return s.length() + std::to_string(s.length()).length() + 1; /* + 1 for : */
-    }
+inline int bencoded_string_length(string_view s)
+{
+    return s.length() + std::to_string(s.length()).length() + 1; /* + 1 for : */
+}
 
-    inline int bencoded_number_length(const int64_t n)
-    {
-        return 2 + std::to_string(n).length();
-    }
+inline int bencoded_number_length(const int64_t n)
+{
+    return 2 + std::to_string(n).length();
+}
 
-    template<typename OutputIt>
-    int bencode_string(string_view s, OutputIt begin)
-    {
-        std::string len_str = std::to_string(s.length());
-        const int encoded_len = s.length() + len_str.length() + 1; /* + 1 for : */
-        std::copy(len_str.begin(), len_str.end(), begin);
-        begin += len_str.length();
-        *begin++ = ':';
-        std::copy(s.begin(), s.end(), begin);
-        return encoded_len;
-    }
+template <typename OutputIt>
+int bencode_string(string_view s, OutputIt begin)
+{
+    std::string len_str = std::to_string(s.length());
+    const int encoded_len = s.length() + len_str.length() + 1; /* + 1 for : */
+    std::copy(len_str.begin(), len_str.end(), begin);
+    begin += len_str.length();
+    *begin++ = ':';
+    std::copy(s.begin(), s.end(), begin);
+    return encoded_len;
+}
 
 } // namespace util
 
@@ -44,7 +44,7 @@ std::string bencode_string(string_view s)
 }
 
 // ----------
-// -- bmap -- 
+// -- bmap --
 // ----------
 
 bmap_encoder::proxy::proxy(const int64_t i) : value_(bencode_number(i)) {}
@@ -88,8 +88,7 @@ std::string bmap_encoder::encode() const
     assert(result.length() >= 2);
     auto it = result.begin();
     *it++ = 'd';
-    for(const auto& entry : map_)
-    {
+    for(const auto& entry : map_) {
         it += util::bencode_string(entry.first, it);
         const std::string& value = entry.second.value_;
         std::copy(value.begin(), value.end(), it);
@@ -103,8 +102,7 @@ int bmap_encoder::encoded_length() const
 {
     // start at 2, for even empty maps have the 'd' ... 'e' identifiers at both ends
     int length = 2;
-    for(const auto& entry : map_)
-    {
+    for(const auto& entry : map_) {
         length += util::bencoded_string_length(entry.first);
         length += entry.second.value_.length();
     }
@@ -112,7 +110,7 @@ int bmap_encoder::encoded_length() const
 }
 
 // -----------
-// -- blist -- 
+// -- blist --
 // -----------
 
 void blist_encoder::push_back(const int64_t i)
@@ -148,8 +146,7 @@ std::string blist_encoder::encode() const
     std::string result(encoded_length(), 0);
     result.front() = 'l';
     int i = 1;
-    for(auto& s : list_)
-    {
+    for(auto& s : list_) {
         std::copy(s.begin(), s.end(), &result[i]);
         i += s.length();
     }

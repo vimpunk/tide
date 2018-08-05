@@ -13,7 +13,8 @@ namespace extensions {
  * which bit in the handshake's 'reserved' field (counting from the least significant
  * bit) denotes the extension.
  */
-enum {
+enum
+{
     // Currently NOT supported.
     dht = 0,
     // Experimental support.
@@ -32,34 +33,28 @@ using flags = flag_set<uint64_t, 64>;
 
 inline std::string to_string(const flags& flags)
 {
-    if(flags.empty()) { return "none"; }
+    if(flags.empty()) {
+        return "none";
+    }
     std::string s;
     int num_ext = 0;
-    for(auto i = 0; i < flags.size(); ++i)
-    {
-        if(flags[i]) { ++num_ext; }
+    for(auto i = 0; i < flags.size(); ++i) {
+        if(flags[i]) {
+            ++num_ext;
+        }
     }
-    for(auto i = 0; i < flags.size(); ++i)
-    {
-        if(flags[i])
-        {
+    for(auto i = 0; i < flags.size(); ++i) {
+        if(flags[i]) {
             // Some extensions occupy two bits.
-            if((i == 64 - 47) && (flags[64 - 48]))
-            {
+            if((i == 64 - 47) && (flags[64 - 48])) {
                 s += "extension negotiation protocol";
                 --num_ext;
-            }
-            else if((i == 64 - 1) && (flags[64 - 14]))
-            {
+            } else if((i == 64 - 1) && (flags[64 - 14])) {
                 s += "BitComet extension protocol";
                 --num_ext;
-            }
-            else
-            {
-                s += [](const int ext)
-                {
-                    switch(ext)
-                    {
+            } else {
+                s += [](const int ext) {
+                    switch(ext) {
                     case dht: return "DHT";
                     case fast: return "Fast";
                     case nat_traversal: return "NAT traversal";
@@ -71,7 +66,9 @@ inline std::string to_string(const flags& flags)
                 }(i);
             }
             --num_ext;
-            if(num_ext > 0) { s += ", "; }
+            if(num_ext > 0) {
+                s += ", ";
+            }
         }
     }
     return s;

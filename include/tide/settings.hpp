@@ -2,9 +2,9 @@
 #define TIDE_SETTINGS_HEADER
 
 #include "extensions.hpp"
-#include "types.hpp"
-#include "time.hpp"
 #include "path.hpp"
+#include "time.hpp"
+#include "types.hpp"
 
 #include <array>
 
@@ -126,8 +126,10 @@ struct torrent_settings
     int max_upload_rate = values::none;
 };
 
-#define TIDE_EARLY_ALPHA_CLIENT_ID \
-    {'t','i','d','e','-','e','a','r','l','y','-','a','l','p','h','a'}
+#define TIDE_EARLY_ALPHA_CLIENT_ID                                                       \
+    {                                                                                    \
+        't', 'i', 'd', 'e', '-', 'e', 'a', 'r', 'l', 'y', '-', 'a', 'l', 'p', 'h', 'a'   \
+    }
 
 /** These are settings for every peer connection. */
 struct peer_session_settings
@@ -239,7 +241,7 @@ struct settings
     // and scrape request.
     // If a response is not received after 15 * 2 ^ n seconds, we retransmit the
     // request, where n starts at 0 and is increased up to this value, after
-    // every retransmission. 
+    // every retransmission.
     int max_udp_tracker_timeout_retries = 4;
     int max_http_tracker_timeout_retries = 4;
 

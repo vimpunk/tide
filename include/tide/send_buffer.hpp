@@ -5,11 +5,11 @@
 #include "payload.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <vector>
-#include <array>
-#include <deque>
 
 #include <asio/buffer.hpp>
 
@@ -21,7 +21,7 @@ namespace tide {
  * It can take two types of data: raw and disk buffers. The former is some contiguous
  * byte sequence. This should be used for simple, short messages. The latter is what's
  * used for sending large piece blocks; these are views into memory mapped file buffers.
- * 
+ *
  * It takes ownership of the raw messages, and holds onto the disk buffers as well until
  * the consume() function is invoked, after which all resources that are confirmed to be
  * sent, are released.
@@ -54,8 +54,8 @@ class send_buffer
         int size() const noexcept override { return bytes.size(); }
     };
 
-    template<size_t N> struct
-    raw_fixed_buffer_holder final : public buffer_holder
+    template <size_t N>
+    struct raw_fixed_buffer_holder final : public buffer_holder
     {
         std::array<uint8_t, N> bytes;
 
@@ -70,7 +70,7 @@ class send_buffer
         int size() const noexcept override { return bytes.size(); }
     };
 
-    template<typename DiskBuffer>
+    template <typename DiskBuffer>
     struct disk_buffer_holder final : public buffer_holder
     {
         DiskBuffer bytes;
@@ -103,9 +103,12 @@ public:
 
     void append(payload payload);
     void append(std::vector<uint8_t> bytes);
-    template<size_t N> void append(const fixed_payload<N>& payload);
-    template<size_t N> void append(const std::array<uint8_t, N>& bytes);
-    template<size_t N> void append(const uint8_t (&bytes)[N]);
+    template <size_t N>
+    void append(const fixed_payload<N>& payload);
+    template <size_t N>
+    void append(const std::array<uint8_t, N>& bytes);
+    template <size_t N>
+    void append(const uint8_t (&bytes)[N]);
     void append(const block_source& block);
 
     /**
@@ -139,20 +142,20 @@ inline void send_buffer::append(payload payload)
     append(std::move(payload.data));
 }
 
-template<size_t N>
+template <size_t N>
 void send_buffer::append(const fixed_payload<N>& payload)
 {
     append(payload.data);
 }
 
-template<size_t N>
+template <size_t N>
 void send_buffer::append(const std::array<uint8_t, N>& bytes)
 {
     buffers_.emplace_back(std::make_unique<raw_fixed_buffer_holder<N>>(bytes));
     size_ += N;
 }
 
-template<size_t N>
+template <size_t N>
 void send_buffer::append(const uint8_t (&bytes)[N])
 {
     buffers_.emplace_back(std::make_unique<raw_fixed_buffer_holder<N>>(bytes));

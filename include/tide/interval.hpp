@@ -11,15 +11,9 @@ struct interval
     interval() = default;
     interval(int begin_, int end_) : begin(begin_), end(end_) {}
 
-    bool empty() const noexcept
-    {
-        return length() == 0;
-    }
+    bool empty() const noexcept { return length() == 0; }
 
-    int length() const noexcept
-    {
-        return end - begin;
-    }
+    int length() const noexcept { return end - begin; }
 
     bool contains(const interval& other) const noexcept
     {
@@ -29,8 +23,7 @@ struct interval
 
 inline bool operator<(const interval& a, const interval& b) noexcept
 {
-    return a.begin == b.begin ? a.end < b.end
-                              : a.begin < b.begin;
+    return a.begin == b.begin ? a.end < b.end : a.begin < b.begin;
 }
 
 inline bool operator==(const interval& a, const interval& b) noexcept
@@ -49,7 +42,8 @@ inline bool operator!=(const interval& a, const interval& b) noexcept
 
 namespace std {
 
-template<> struct hash<tide::interval>
+template <>
+struct hash<tide::interval>
 {
     size_t operator()(const tide::interval& i) const noexcept
     {

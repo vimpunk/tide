@@ -1,8 +1,8 @@
 #ifndef TIDE_DISK_IO_ERROR_HEADER
 #define TIDE_DISK_IO_ERROR_HEADER
 
-#include <system_error>
 #include <string>
+#include <system_error>
 
 namespace tide {
 
@@ -44,9 +44,10 @@ std::error_condition make_error_condition(disk_io_errc e);
 
 } // namespace tide
 
-namespace std
-{
-    template<> struct is_error_code_enum<tide::disk_io_errc> : public true_type {};
+namespace std {
+template <>
+struct is_error_code_enum<tide::disk_io_errc> : public true_type
+{};
 }
 
 // for more info:

@@ -12,18 +12,16 @@ class scope_guard
     bool is_active_ = true;
 
 public:
-
     explicit scope_guard(std::function<void()> f) : function_(std::move(f)) {}
 
     ~scope_guard()
     {
-        if(is_active_ && function_) { function_(); }
+        if(is_active_ && function_) {
+            function_();
+        }
     }
 
-    void disable()
-    {
-        is_active_ = false;
-    }
+    void disable() { is_active_ = false; }
 };
 
 } // namespace tide

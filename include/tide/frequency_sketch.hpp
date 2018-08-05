@@ -3,11 +3,11 @@
 
 #include "num_utils.hpp"
 
-#include <stdexcept>
 #include <cassert>
-#include <limits>
-#include <vector>
 #include <cmath>
+#include <limits>
+#include <stdexcept>
+#include <vector>
 
 namespace tide {
 
@@ -25,7 +25,8 @@ namespace tide {
  * The white paper:
  * http://dimacs.rutgers.edu/~graham/pubs/papers/cm-full.pdf
  */
-template<typename T> class frequency_sketch
+template <typename T>
+class frequency_sketch
 {
     // Holds 64 bit blocks, each of which holds sixteen 4 bit counters. For simplicity's
     // sake, the 64 bit blocks are partitioned into four 16 bit sub-blocks, and the four
@@ -36,37 +37,30 @@ template<typename T> class frequency_sketch
     int size_;
 
 public:
-
-    explicit frequency_sketch(int capacity)
-    {
-        change_capacity(capacity);
-    }
+    explicit frequency_sketch(int capacity) { change_capacity(capacity); }
 
     void change_capacity(const int capacity)
     {
-        if(capacity < 0)
-        {
+        if(capacity < 0) {
             throw std::invalid_argument(
-                "frequency_sketch capacity must be larger than 0");
+                    "frequency_sketch capacity must be larger than 0");
         }
         table_.resize(util::nearest_power_of_two(capacity));
         size_ = 0;
     }
 
-    bool has(const T& t) const noexcept
-    {
-        return frequency(t) > 0;
-    }
+    bool has(const T& t) const noexcept { return frequency(t) > 0; }
 
     int frequency(const T& t) const noexcept
     {
-        if(table_.empty()) { return 0; }
+        if(table_.empty()) {
+            return 0;
+        }
 
         const uint32_t hash = util::hash(t);
         int frequency = std::numeric_limits<int>::max();
 
-        for(auto i = 0; i < 4; ++i)
-        {
+        for(auto i = 0; i < 4; ++i) {
             frequency = std::min(frequency, get_count(hash, i));
         }
 
@@ -75,21 +69,23 @@ public:
 
     void record_access(const T& t) noexcept
     {
-        if(table_.empty()) { return; }
+        if(table_.empty()) {
+            return;
+        }
 
         const uint32_t hash = util::hash(t);
         bool was_added = false;
 
-        for(auto i = 0; i < 4; ++i)
-        {
+        for(auto i = 0; i < 4; ++i) {
             was_added |= try_increment_counter_at(hash, i);
         }
 
-        if(was_added && (++size_ == sampling_size())) { reset(); }
+        if(was_added && (++size_ == sampling_size())) {
+            reset();
+        }
     }
 
 protected:
-
     int get_count(const uint32_t hash, const int counter_index) const noexcept
     {
         const int index = table_index(hash, counter_index);
@@ -105,12 +101,8 @@ protected:
      */
     int table_index(const uint32_t hash, const int counter_index) const noexcept
     {
-        static constexpr uint64_t seeds[] = {
-            0xc3a5c85c97cb3127L,
-            0xb492b66fbe98f273L,
-            0x9ae16a3b2f90404fL,
-            0xcbf29ce484222325L
-        };
+        static constexpr uint64_t seeds[] = {0xc3a5c85c97cb3127L, 0xb492b66fbe98f273L,
+                0x9ae16a3b2f90404fL, 0xcbf29ce484222325L};
         assert(counter_index >= 0 && counter_index < 4);
         uint64_t h = seeds[counter_index] * hash;
         h += h >> 32;
@@ -126,8 +118,7 @@ protected:
         const int index = table_index(hash, counter_index);
         const int offset = counter_offset(hash, counter_index);
         assert(index >= 0 && index < table_.size());
-        if(can_increment_counter_at(index, offset))
-        {
+        if(can_increment_counter_at(index, offset)) {
             table_[index] += 1L << offset;
             return true;
         }
@@ -158,10 +149,7 @@ protected:
      *
      * The return value may be 0, 4, 8 or 12.
      */
-    int offset_multiplier(const uint32_t hash) const noexcept
-    {
-        return (hash & 3) << 2;
-    }
+    int offset_multiplier(const uint32_t hash) const noexcept { return (hash & 3) << 2; }
 
     /** Returns true if the counter has not reached the limit of 15. */
     bool can_increment_counter_at(const int table_index, const int offset) const noexcept
@@ -173,8 +161,7 @@ protected:
     /** Halves every counter and adjusts `size_`. */
     void reset() noexcept
     {
-        for(auto& counters : table_)
-        {
+        for(auto& counters : table_) {
             // Do a bitwise AND on each (4 bit) counter with 0111 (7) so as to
             // eliminate the bit that got shifted over from the counter to the left to
             // the leftmost position of the current counter.
@@ -187,10 +174,7 @@ protected:
      * The reset operation is launched when `size_` reaches the value returned by this
      * function.
      */
-    int sampling_size() const noexcept
-    {
-        return table_.size() * 10;
-    }
+    int sampling_size() const noexcept { return table_.size() * 10; }
 };
 
 } // namespace tide

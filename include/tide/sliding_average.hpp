@@ -23,7 +23,7 @@ namespace tide {
  * http://blog.libtorrent.org/2014/09/running-averages/
  * https://github.com/arvidn/moving_average/blob/master/moving_average.hpp
  */
-template<typename T, T InvertedGain>
+template <typename T, T InvertedGain>
 class sliding_average
 {
     T mean_{};
@@ -37,37 +37,29 @@ public:
         // the mean, 32 is added to it before dividing back by 64 to the actual value
         s *= T(64);
         T deviation = T(0);
-        if(num_samples_ > T(0))
-        {
+        if(num_samples_ > T(0)) {
             deviation = std::abs(mean_ - s);
         }
-        if(num_samples_ < InvertedGain)
-        {
+        if(num_samples_ < InvertedGain) {
             ++num_samples_;
         }
         mean_ += (s - mean_) / num_samples_;
-        if(num_samples_ > T(1))
-        {
+        if(num_samples_ > T(1)) {
             deviation_ += (deviation - deviation_) / (num_samples_ - T(1));
         }
     }
 
     T mean() const noexcept
     {
-        return num_samples_ > T(0) ? (mean_ + T(32)) / T(64)
-                                 : T(0);
+        return num_samples_ > T(0) ? (mean_ + T(32)) / T(64) : T(0);
     }
 
     T deviation() const noexcept
     {
-        return num_samples_ > T(1) ? (deviation_ + T(32)) / T(64)
-                                 : T(0);
+        return num_samples_ > T(1) ? (deviation_ + T(32)) / T(64) : T(0);
     }
 
-    void reset() noexcept
-    {
-        mean_ = deviation_ = num_samples_ = T(0);
-    }
+    void reset() noexcept { mean_ = deviation_ = num_samples_ = T(0); }
 };
 
 } // namespace tide

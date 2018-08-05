@@ -13,10 +13,8 @@ namespace tide {
  * Interval TimeUnits have passed.  This can be used to tally the number of bytes
  * transferred in a second, for instance.
  */
-template<
-    size_t Interval,
-    typename TimeUnit = seconds
-> class per_round_counter
+template <size_t Interval, typename TimeUnit = seconds>
+class per_round_counter
 {
     mutable int prev_round_value_ = 0;
     mutable int value_ = 0;
@@ -31,10 +29,7 @@ public:
         prev_round_value_ = value_ = 0;
     }
 
-    void update(const int n) noexcept
-    {
-        update_impl(n);
-    }
+    void update(const int n) noexcept { update_impl(n); }
 
     int value() const noexcept
     {
@@ -53,25 +48,20 @@ private:
     void update_impl(const int n) const noexcept
     {
         // TODO maybe change to clock::now()
-        const auto elapsed = duration_cast<milliseconds>(
-                clock::now() - last_update_time_);
-        if((elapsed >= TimeUnit(Interval)) && (elapsed < TimeUnit(2 * Interval)))
-        {
+        const auto elapsed
+                = duration_cast<milliseconds>(clock::now() - last_update_time_);
+        if((elapsed >= TimeUnit(Interval)) && (elapsed < TimeUnit(2 * Interval))) {
             // If more than a second but less than a second has passed, the
             // current value becomes the previous value and the new value
             // becomes the current value.
             prev_round_value_ = value_;
             value_ = n;
-        }
-        else if(elapsed >= TimeUnit(2 * Interval))
-        {
+        } else if(elapsed >= TimeUnit(2 * Interval)) {
             // Since more than two rounds have passed, meaning there was nothing
             // added to counter, the previous value becomes 0.
             prev_round_value_ = 0;
             value_ = n;
-        }
-        else
-        {
+        } else {
             value_ += n;
         }
         last_update_time_ += elapsed;
@@ -97,7 +87,7 @@ public:
 
     void reset(const int elapsed_ms)
     {
- 
+
     }
 };
 */

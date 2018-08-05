@@ -4,8 +4,8 @@
 #include "endian.hpp"
 
 #include <algorithm>
-#include <iterator>
 #include <cassert>
+#include <iterator>
 #include <vector>
 
 #include <asio/buffers_iterator.hpp>
@@ -22,17 +22,12 @@ struct payload
 
     payload() = default;
 
-    payload(const int size)
-    {
-        data.reserve(size);
-    }
+    payload(const int size) { data.reserve(size); }
 
     payload(std::vector<uint8_t> d) : data(std::move(d)) {}
 
-    template<size_t N>
-    payload(const uint8_t (&arr)[N])
-        : data(std::begin(arr)
-        , std::end(arr))
+    template <size_t N>
+    payload(const uint8_t (&arr)[N]) : data(std::begin(arr), std::end(arr))
     {}
 
     payload& i8(const int8_t h)
@@ -83,29 +78,27 @@ struct payload
         return *this;
     }
 
-    template<typename InputIt>
+    template <typename InputIt>
     payload& range(InputIt begin, InputIt end)
     {
         data.insert(data.cend(), begin, end);
         return *this;
     }
 
-    template<typename Buffer>
+    template <typename Buffer>
     payload& buffer(const Buffer& buffer)
     {
         return range(std::begin(buffer), std::end(buffer));
-        
     }
 
-    template<typename ConstBufferSequence>
+    template <typename ConstBufferSequence>
     payload& buffers(const ConstBufferSequence& buffers)
     {
         return range(asio::buffers_begin(buffers), asio::buffers_end(buffers));
     }
 
 private:
-
-    template<typename Int>
+    template <typename Int>
     void add_integer(Int x)
     {
         const auto pos = data.size();
@@ -115,20 +108,17 @@ private:
 };
 
 /** Similar to the above, but used when the payload size is known at compile time. */
-template<size_t N> class fixed_payload
+template <size_t N>
+class fixed_payload
 {
     // We can't push_back on an array so we need to know where to place the next byte,
     // which this field indicates.
     int pos_ = 0;
 
 public:
-
     std::array<uint8_t, N> data;
 
-    constexpr void clear() noexcept
-    {
-        pos_ = 0;
-    }
+    constexpr void clear() noexcept { pos_ = 0; }
 
     constexpr fixed_payload& i8(const int8_t h)
     {
@@ -178,7 +168,7 @@ public:
         return *this;
     }
 
-    template<typename InputIt>
+    template <typename InputIt>
     fixed_payload& range(InputIt begin, InputIt end)
     {
         const auto d = std::distance(begin, end);
@@ -188,21 +178,20 @@ public:
         return *this;
     }
 
-    template<typename Buffer>
+    template <typename Buffer>
     fixed_payload& buffer(const Buffer& b)
     {
         return range(std::begin(b), std::end(b));
     }
 
-    template<typename ConstBufferSequence>
+    template <typename ConstBufferSequence>
     fixed_payload& buffers(const ConstBufferSequence& buffers)
     {
         return range(asio::buffers_begin(buffers), asio::buffers_end(buffers));
     }
 
 private:
-
-    template<typename Int>
+    template <typename Int>
     constexpr void add_integer(const Int x)
     {
         assert(pos_ + sizeof(Int) <= N && "fixed_payload overflow");

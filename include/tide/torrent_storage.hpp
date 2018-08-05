@@ -1,16 +1,16 @@
 #ifndef TIDE_TORRENT_STORAGE_HEADER
 #define TIDE_TORRENT_STORAGE_HEADER
 
-#include "torrent_info.hpp"
-#include "string_view.hpp"
-#include "block_info.hpp"
-#include "error_code.hpp"
-#include "interval.hpp"
 #include "bdecode.hpp"
 #include "bencode.hpp"
-#include "types.hpp"
-#include "iovec.hpp"
+#include "block_info.hpp"
+#include "error_code.hpp"
 #include "file.hpp"
+#include "interval.hpp"
+#include "iovec.hpp"
+#include "string_view.hpp"
+#include "torrent_info.hpp"
+#include "types.hpp"
 
 #include <filesystem>
 #include <memory>
@@ -48,7 +48,7 @@ class torrent_storage
     {
         file storage;
 
-        // The offset of this file in the torrent, i.e. the offset in all files 
+        // The offset of this file in the torrent, i.e. the offset in all files
         // conceptually concatenated in one contiguous byte array.
         int64_t torrent_offset; // const
 
@@ -57,17 +57,17 @@ class torrent_storage
         piece_index_t first_piece; // const
         piece_index_t last_piece; // const
 
-        // Despite lazy allocation preventing creating files that are never accessed, a 
+        // Despite lazy allocation preventing creating files that are never accessed, a
         // downloaded piece may still overlap into an unwanted file. In that case we
         // don't want to write those extra bytes to disk. Thus, before writing to a
-        // file, we must check whether user actually wants that file, and discard those 
+        // file, we must check whether user actually wants that file, and discard those
         // bytes that overlap into the unwanted file.
         bool is_wanted;
     };
 
     // All files listed in the metainfo are stored here, but files are lazily/ allocated
     // on disk, i.e. when they are first accessed. The vector itself is never changed
-    // (resize/reallocation), therefore the buffer's memory remains intact, which can be 
+    // (resize/reallocation), therefore the buffer's memory remains intact, which can be
     // relied upon when ensuring thread-safety.
     std::vector<file_entry> files_;
 
@@ -104,8 +104,8 @@ public:
      * Initializes internal file entries, and if torrent is multi-file, establishes
      * the final directory structure (but does not allocate any files).
      */
-    torrent_storage(const torrent_info& info,
-            string_view piece_hashes, std::filesystem::path resume_data_path);
+    torrent_storage(const torrent_info& info, string_view piece_hashes,
+            std::filesystem::path resume_data_path);
     torrent_storage(const torrent_storage&) = delete;
     torrent_storage& operator=(const torrent_storage&) = delete;
     torrent_storage(torrent_storage&&) = default;
@@ -131,7 +131,7 @@ public:
 
     /**
      * Returns an interval of piece indices of the pieces that are, even if partially,
-     * in file. The range is left inclusive, i.e. the valid pieces are in the range 
+     * in file. The range is left inclusive, i.e. the valid pieces are in the range
      * [interval.begin, interval.end).
      */
     interval pieces_in_file(const file_index_t file_index) const noexcept;
@@ -148,8 +148,8 @@ public:
      * Returns where in file block resides. The return value is invalid if both
      * fields in file_slice are 0. This can happen if the block is not in file.
      */
-    file_slice get_file_slice(const file_index_t file,
-            const block_info& block) const noexcept;
+    file_slice get_file_slice(const file_index_t file, const block_info& block) const
+            noexcept;
 
     /** Returns the expected 20 byte SHA-1 hash for this piece. */
     sha1_hash expected_piece_hash(const piece_index_t piece) const noexcept;
@@ -157,7 +157,7 @@ public:
     /**
      * User can change which files they wish to download during the download. These
      * merely mark the internal file_entry as wanted or not, but if the file is already
-     * downloaded, it is not deleted (for that use erase_file). 
+     * downloaded, it is not deleted (for that use erase_file).
      */
     void want_file(const file_index_t file) noexcept;
     void dont_want_file(const file_index_t file) noexcept;
@@ -181,8 +181,8 @@ public:
     /**
      * Hashes every downloaded piece and compares them to their expected values, if they
      * exist at all (which means each file that was downloaded is read into memory for
-     * the duration of the hashing). If any errors occurred, error will be set to the 
-     * corresponding disk_io_errc. If any pieces are missing (but otherwise no storage 
+     * the duration of the hashing). If any errors occurred, error will be set to the
+     * corresponding disk_io_errc. If any pieces are missing (but otherwise no storage
      * error occurred), those pieces will be erased from the pieces bitfield.
      * pieces.size() must be the same as num_pieces.
      *
@@ -209,8 +209,8 @@ public:
      */
     std::vector<mmap_source> create_mmap_sources(
             const block_info& info, error_code& error);
-    //std::vector<mmap_sink> create_mmap_sink( // TODO
-            //const block_info& info, error_code& error);
+    // std::vector<mmap_sink> create_mmap_sink( // TODO
+    // const block_info& info, error_code& error);
 
     /**
      * Blocking scatter-gather IO.
@@ -251,7 +251,7 @@ private:
     void write(view<iovec> buffers, const block_info& info, error_code& error);
 
     /**
-     * Maps each file in torrent_info::files to a file_entry with correct data set up. 
+     * Maps each file in torrent_info::files to a file_entry with correct data set up.
      * Does not allocate files in the download directory (that's done on first access).
      */
     void initialize_file_entries(const_view<file_info> files);
@@ -294,19 +294,19 @@ private:
      *                      // this function will stop immediately
      * )
      */
-    template<typename Function>
+    template <typename Function>
     void for_each_file(Function fn, const block_info& block, error_code& error);
 
     /**
      * Returns the position where in file offset, which refers to the offset in
      * all files combined, is and how much of length is contained in file.
      */
-    file_slice get_file_slice(const file_entry& file,
-            int64_t torrent_offset, int64_t length) const noexcept;
+    file_slice get_file_slice(const file_entry& file, int64_t torrent_offset,
+            int64_t length) const noexcept;
 
     /** Returns a range of files that contain some portion of the block or piece. */
     view<file_entry> files_containing_block(const block_info& block);
-    //view<file_entry> files_containing_piece(const piece_index_t piece);
+    // view<file_entry> files_containing_piece(const piece_index_t piece);
 
     bool is_file_index_valid(const file_index_t index) const noexcept;
 };

@@ -1,13 +1,13 @@
 #ifndef TIDE_TORRENT_HANDLE_HEADER
 #define TIDE_TORRENT_HANDLE_HEADER
 
-#include "torrent_info.hpp"
 #include "string_view.hpp"
+#include "torrent_info.hpp"
 #include "types.hpp"
 
-#include <vector>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 #include <asio/io_context.hpp>
 
@@ -103,7 +103,8 @@ public:
     int max_download_rate() const noexcept;
     int max_connections() const noexcept;
 
-    torrent_id_t id() const noexcept;;
+    torrent_id_t id() const noexcept;
+    ;
     sha1_hash info_hash() const noexcept;
 
     seconds total_seed_time() const noexcept;
@@ -129,7 +130,7 @@ private:
      * Executes function in a thread-safe manner, if torrent_ is still valid.
      * F must be a callable that takes a reference to torrent.
      */
-    template<typename Function>
+    template <typename Function>
     void thread_safe_execution(Function function);
 };
 

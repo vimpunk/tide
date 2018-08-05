@@ -17,8 +17,8 @@ namespace tide {
 class torrent_storage_handle
 {
     torrent_storage* storage_ = nullptr;
-public:
 
+public:
     torrent_storage_handle() = default;
     torrent_storage_handle(torrent_storage& storage) : storage_(&storage) {}
 

@@ -3,13 +3,13 @@
 
 #include "time.hpp"
 
+#include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <functional>
 #include <memory>
-#include <thread>
-#include <atomic>
-#include <deque>
 #include <mutex>
+#include <thread>
 
 namespace tide {
 
@@ -18,7 +18,6 @@ struct thread_pool
     using job_type = std::function<void()>;
 
 private:
-
     // Only the user's thread may change this vector, threads may not touch it, so no
     // synchronization is necessary.
     std::vector<std::thread> threads_;
@@ -48,7 +47,6 @@ private:
     int concurrency_;
 
 public:
-
     /**
      * If the number of threads is not specified, it is calculated as a function of the
      * number of cores of the underlying hardware.
@@ -87,7 +85,6 @@ public:
     void join(const int n);
 
 private:
-
     /**
      * If there is an idle thread, hands off job to it, if not, checks if we can spin
      * up a new thread to which the new job can be given.
@@ -96,7 +93,6 @@ private:
 
     void run(std::thread& thread);
     void execute_jobs(std::thread& thread, std::unique_lock<std::mutex> job_queue_lock);
-
 };
 
 inline int thread_pool::concurrency() const noexcept

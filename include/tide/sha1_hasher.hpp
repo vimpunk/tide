@@ -4,9 +4,9 @@
 #include "types.hpp"
 #include "view.hpp"
 
-#include <utility> // declval
-#include <memory>
 #include <array>
+#include <memory>
+#include <utility> // declval
 
 #include <openssl/sha.h>
 
@@ -24,37 +24,35 @@ class sha1_hasher
     SHA_CTX context_;
 
 public:
-
     sha1_hasher();
 
     void reset();
 
     sha1_hasher& update(const_view<uint8_t> buffer);
-    template<
-        typename Container,
-        typename = decltype(std::declval<Container>().data())
-    > sha1_hasher& update(const Container& buffer);
-    template<size_t N> sha1_hasher& update(const uint8_t (&buffer)[N]);
-    template<size_t N> sha1_hasher& update(const std::array<uint8_t, N>& buffer);
+    template <typename Container, typename = decltype(std::declval<Container>().data())>
+    sha1_hasher& update(const Container& buffer);
+    template <size_t N>
+    sha1_hasher& update(const uint8_t (&buffer)[N]);
+    template <size_t N>
+    sha1_hasher& update(const std::array<uint8_t, N>& buffer);
 
     sha1_hash finish();
 };
 
-template<typename Container, typename>
+template <typename Container, typename>
 sha1_hasher& sha1_hasher::update(const Container& buffer)
 {
     return update(const_view<uint8_t>(
-        reinterpret_cast<const uint8_t*>(buffer.data()),
-        buffer.size()));
+            reinterpret_cast<const uint8_t*>(buffer.data()), buffer.size()));
 }
 
-template<size_t N>
+template <size_t N>
 sha1_hasher& sha1_hasher::update(const uint8_t (&buffer)[N])
 {
     return update(const_view<uint8_t>(buffer));
 }
 
-template<size_t N>
+template <size_t N>
 sha1_hasher& sha1_hasher::update(const std::array<uint8_t, N>& buffer)
 {
     return update(const_view<uint8_t>(buffer));
@@ -64,7 +62,7 @@ sha1_hasher& sha1_hasher::update(const std::array<uint8_t, N>& buffer)
  * This is a convenience method for when sha1_hasher::update need only be called once
  * because all the data is available.
  */
-template<typename Buffer>
+template <typename Buffer>
 static sha1_hash create_sha1_digest(const Buffer& buffer)
 {
     sha1_hasher hasher;

@@ -3,8 +3,8 @@
 
 #include "alerts.hpp"
 
-#include <memory>
 #include <deque>
+#include <memory>
 #include <mutex>
 
 namespace tide {
@@ -26,11 +26,11 @@ class alert_queue
     int capacity_;
 
 public:
-
     alert_queue(const int capacity = 0) : capacity_(capacity) {}
 
     /** Constructs a new alert in place. */
-    template<typename Event, typename... Args> void emplace(Args&&... args);
+    template <typename Event, typename... Args>
+    void emplace(Args&&... args);
 
     /**
      * Removes and returns all alerts that have been placed in the queue in a
@@ -39,12 +39,14 @@ public:
     std::deque<std::unique_ptr<alert>> extract_alerts();
 };
 
-template<typename Event, typename... Args>
+template <typename Event, typename... Args>
 void alert_queue::emplace(Args&&... args)
 {
     std::lock_guard<std::mutex> l(queue_mutex_);
     queue_.emplace_back(std::make_unique<Event>(std::forward<Args>(args)...));
-    if(queue_.size() > capacity_) { queue_.pop_front(); }
+    if(queue_.size() > capacity_) {
+        queue_.pop_front();
+    }
 }
 
 inline std::deque<std::unique_ptr<alert>> alert_queue::extract_alerts()

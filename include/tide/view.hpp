@@ -1,10 +1,10 @@
 #ifndef TIDE_VIEW_HEADER
 #define TIDE_VIEW_HEADER
 
-#include <type_traits>
+#include <array>
 #include <functional>
 #include <iterator>
-#include <array>
+#include <type_traits>
 
 namespace tide {
 
@@ -13,7 +13,8 @@ namespace tide {
  * operations, but does not take ownership of the resource.
  * Credit for the idea goes to libtorrent.
  */
-template<typename T> struct view
+template <typename T>
+struct view
 {
     using value_type = T;
     using difference_type = std::ptrdiff_t;
@@ -34,40 +35,24 @@ private:
 public:
     view() = default;
 
-    constexpr view(pointer data, size_type length)
-        : data_(data)
-        , length_(length)
+    constexpr view(pointer data, size_type length) : data_(data), length_(length) {}
+
+    constexpr view(pointer begin, pointer end) : data_(begin), length_(end - begin) {}
+
+    template <typename U>
+    constexpr view(view<U>& other) : data_(other.data()), length_(other.length())
     {}
 
-    constexpr view(pointer begin, pointer end)
-        : data_(begin)
-        , length_(end - begin)
+    template <typename U, size_type N>
+    constexpr view(std::array<U, N>& arr) : data_(arr.data()), length_(arr.size())
     {}
 
-    template<typename U>
-    constexpr view(view<U>& other)
-        : data_(other.data())
-        , length_(other.length())
+    template <typename U, size_type N>
+    constexpr view(U (&arr)[N]) : data_(&arr[0]), length_(N)
     {}
 
-    template<typename U, size_type N>
-    constexpr view(std::array<U, N>& arr)
-        : data_(arr.data())
-        , length_(arr.size())
-    {}
-
-    template<typename U, size_type N>
-    constexpr view(U (&arr)[N])
-        : data_(&arr[0])
-        , length_(N)
-    {}
-
-    template<
-        typename Container,
-        typename = decltype(std::declval<Container>().data())
-    > view(Container& c)
-        : data_(c.data())
-        , length_(c.size())
+    template <typename Container, typename = decltype(std::declval<Container>().data())>
+    view(Container& c) : data_(c.data()), length_(c.size())
     {}
 
     constexpr size_type size() const noexcept { return length(); }
@@ -93,21 +78,27 @@ public:
 
     constexpr reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
     constexpr const_reverse_iterator rbegin() const noexcept
-    { return const_reverse_iterator(end()); }
+    {
+        return const_reverse_iterator(end());
+    }
     constexpr const_reverse_iterator crbegin() const noexcept { return rbegin(); }
 
     constexpr reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
     constexpr const_reverse_iterator rend() const noexcept
-    { return const_reverse_iterator(begin()); }
+    {
+        return const_reverse_iterator(begin());
+    }
     constexpr const_reverse_iterator crend() const noexcept { return rend(); }
 
     constexpr reference operator[](const size_type i) noexcept { return data_[i]; }
-    constexpr const_reference operator[](const size_type i) const noexcept { return data_[i]; }
+    constexpr const_reference operator[](const size_type i) const noexcept
+    {
+        return data_[i];
+    }
 
     constexpr view subview(const size_type offset)
     {
-        if(offset > size())
-        {
+        if(offset > size()) {
             throw std::out_of_range("tried to create a subview that is larger than view");
         }
         return {data() + offset, size() - offset};
@@ -115,8 +106,7 @@ public:
 
     constexpr view subview(const size_type offset, const size_type count)
     {
-        if((offset > size()) || (offset + count > size()))
-        {
+        if((offset > size()) || (offset + count > size())) {
             throw std::out_of_range("tried to create a subview that is larger than view");
         }
         return {data() + offset, count};
@@ -124,9 +114,9 @@ public:
 
     constexpr void trim_front(const size_type n)
     {
-        if(n > size())
-        {
-            throw std::out_of_range("tried to trim more from front of view than its size");
+        if(n > size()) {
+            throw std::out_of_range(
+                    "tried to trim more from front of view than its size");
         }
         data_ += n;
         length_ -= n;
@@ -134,70 +124,68 @@ public:
 
     constexpr void trim_back(const size_type n)
     {
-        if(n > size())
-        {
+        if(n > size()) {
             throw std::out_of_range("tried to trim more from back of view than its size");
         }
         length_ -= n;
     }
 };
 
-template<typename T> using const_view = view<const T>;
+template <typename T>
+using const_view = view<const T>;
 
 namespace util {
 
 /** Used to test if two views are the same, even if one is const. */
-template<typename T, typename U> struct is_same
+template <typename T, typename U>
+struct is_same
 {
-    static constexpr bool value = std::is_same<
-        typename std::decay<T>::type, typename std::decay<U>::type
-    >::value;
+    static constexpr bool value = std::is_same<typename std::decay<T>::type,
+            typename std::decay<U>::type>::value;
 };
 
 } // namespace util
 
-template<
-    typename T,
-    typename U,
-    typename = typename std::enable_if<util::is_same<T, U>::value>::type
-> constexpr bool operator==(const view<T>& a, const view<U>& b) noexcept
+template <typename T, typename U,
+        typename = typename std::enable_if<util::is_same<T, U>::value>::type>
+constexpr bool operator==(const view<T>& a, const view<U>& b) noexcept
 {
     return (a.data() == b.data()) && (a.size() == b.size());
 }
 
-template<typename T, typename U>
+template <typename T, typename U>
 constexpr bool operator!=(const view<T>& a, const view<U>& b) noexcept
 {
     return !(a == b);
 }
 
-template<
-    typename T,
-    typename U,
-    typename = typename std::enable_if<util::is_same<T, U>::value>::type
-> constexpr bool operator<(const view<T>& a, const view<U>& b) noexcept
+template <typename T, typename U,
+        typename = typename std::enable_if<util::is_same<T, U>::value>::type>
+constexpr bool operator<(const view<T>& a, const view<U>& b) noexcept
 {
-    if(a.data() == b.data()) { return a.size() < b.size(); }
+    if(a.data() == b.data()) {
+        return a.size() < b.size();
+    }
     return a.data() < b.data();
 }
 
-template<
-    typename T,
-    typename U,
-    typename = typename std::enable_if<util::is_same<T, U>::value>::type
-> constexpr bool operator>(const view<T>& a, const view<U>& b) noexcept
+template <typename T, typename U,
+        typename = typename std::enable_if<util::is_same<T, U>::value>::type>
+constexpr bool operator>(const view<T>& a, const view<U>& b) noexcept
 {
-    if(a.data() == b.data()) { return a.size() > b.size(); }
+    if(a.data() == b.data()) {
+        return a.size() > b.size();
+    }
     return a.data() > b.data();
 }
 
-template<typename T, typename U>
+template <typename T, typename U>
 constexpr bool operator<=(const view<T>& a, const view<U>& b) noexcept
 {
     return !(a > b);
 }
 
-template<typename T, typename U>
+template <typename T, typename U>
 constexpr bool operator>=(const view<T>& a, const view<U>& b) noexcept
 {
     return !(a < b);
@@ -207,12 +195,14 @@ constexpr bool operator>=(const view<T>& a, const view<U>& b) noexcept
 
 namespace std {
 
-template<typename T> struct hash<tide::view<T>>
+template <typename T>
+struct hash<tide::view<T>>
 {
     size_t operator()(const tide::view<T>& v) const noexcept
     {
         return std::hash<typename tide::view<T>::const_pointer>()(v.data()) * 31
-             + std::hash<typename tide::view<T>::size_type>()(v.size()) ^ 51 + 101;
+                + std::hash<typename tide::view<T>::size_type>()(v.size())
+                ^ 51 + 101;
     }
 };
 

@@ -1,8 +1,8 @@
 #ifndef TIDE_UNITS_HEADER
 #define TIDE_UNITS_HEADER
 
-#include <cstdint>
 #include <array>
+#include <cstdint>
 
 namespace tide {
 

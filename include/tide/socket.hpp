@@ -3,15 +3,15 @@
 
 #include <asio/ip/tcp.hpp>
 #include <asio/ip/udp.hpp>
-#include <asio/write.hpp>
 #include <asio/read.hpp>
+#include <asio/write.hpp>
 
 namespace tide {
 
+using asio::async_read;
+using asio::async_write;
 using asio::ip::tcp;
 using asio::ip::udp;
-using asio::async_write;
-using asio::async_read;
 
 } // namespace tide
 

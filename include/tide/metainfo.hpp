@@ -1,9 +1,9 @@
 #ifndef TIDE_METAINFO_HEADER
 #define TIDE_METAINFO_HEADER
 
-#include "string_view.hpp"
-#include "file_info.hpp"
 #include "bdecode.hpp"
+#include "file_info.hpp"
+#include "string_view.hpp"
 
 #include <vector>
 
@@ -66,4 +66,4 @@ metainfo parse_and_sanitize_metainfo(bmap source);
 
 } // tide
 
-#endif //TIDE_METAINFO_HEADER 
+#endif // TIDE_METAINFO_HEADER

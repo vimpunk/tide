@@ -1,27 +1,27 @@
 #ifndef TIDE_ENGINE_HEADER
 #define TIDE_ENGINE_HEADER
 
-#include "endpoint_filter.hpp"
-#include "torrent_handle.hpp"
-#include "torrent_args.hpp"
-#include "rate_limiter.hpp"
 #include "alert_queue.hpp"
+#include "disk_io.hpp"
+#include "endpoint_filter.hpp"
 #include "engine_info.hpp"
 #include "error_code.hpp"
-#include "settings.hpp"
 #include "metainfo.hpp"
-#include "disk_io.hpp"
+#include "rate_limiter.hpp"
+#include "settings.hpp"
 #include "torrent.hpp"
+#include "torrent_args.hpp"
+#include "torrent_handle.hpp"
 #include "types.hpp"
 
-#include <functional>
 #include <cstdint>
+#include <functional>
+#include <mutex>
 #include <thread>
 #include <vector>
-#include <mutex>
 
-#include <asio/io_context.hpp>
 #include <asio/executor_work_guard.hpp>
+#include <asio/io_context.hpp>
 
 namespace tide {
 
@@ -50,7 +50,7 @@ class engine
 
     // Rules may be applied for filtering specific IP addresses and ports.
     endpoint_filter endpoint_filter_;
-    
+
     // Internal entities within tide::engine communicate with user
     // asynchronously via an alert channel. This is done by accumulating alerts
     // in this queue until user manually extracts them. It's thread-safe.
@@ -66,7 +66,7 @@ class engine
 
     // Torrents may have a priority ordering, which is determined by a torrent's
     // id's position in this queue. Entries at the front have a higher priority.
-    //std::vector<torrent_id_t> torrent_priority_;
+    // std::vector<torrent_id_t> torrent_priority_;
 
     // Every single tracker used by all torrents is stored here. This is because
     // several torrents share the same tracker, so when a torrent is created, we
@@ -129,9 +129,9 @@ public:
     bool is_listening() const noexcept;
     uint16_t listener_port() const noexcept;
 
-    //disk_io::stats get_disk_io_stats() const;
-    //engine_info get_engine_stats() const;
-    //settings get_settings() const;
+    // disk_io::stats get_disk_io_stats() const;
+    // engine_info get_engine_stats() const;
+    // settings get_settings() const;
 
     void apply_settings(settings s);
     void apply_disk_io_settings(disk_io_settings s);
@@ -184,8 +184,8 @@ public:
      */
     void remove_torrent(const torrent_handle& torrent, remove_options options);
 
-    //torrent_handle find_torrent(const sha1_hash& info_hash);
-    //torrent_handle find_torrent(const torrent_id_t id);
+    // torrent_handle find_torrent(const sha1_hash& info_hash);
+    // torrent_handle find_torrent(const torrent_id_t id);
 
     void set_torrent_queue_position(const torrent_handle& torrent, const int pos);
     void increment_torrent_queue_position(const torrent_handle& torrent);
@@ -194,7 +194,7 @@ public:
     void move_torrent_to_queue_bottom(const torrent_handle& torrent);
 
 private:
-    template<typename Function>
+    template <typename Function>
     void for_each_torrent(Function fn);
 
     torrent_id_t next_torrent_id() noexcept;
@@ -229,8 +229,8 @@ private:
     void verify(const settings& s) const;
     void verify(const disk_io_settings& s) const;
     void verify(const torrent_settings& s) const;
-    void verify(const peer_session_settings& s,
-            const int write_cache_line_size = 1) const;
+    void verify(
+            const peer_session_settings& s, const int write_cache_line_size = 1) const;
 
     void fill_in_defaults(torrent_args& args);
     void fill_in_defaults(settings& s);
@@ -251,8 +251,8 @@ private:
      * number of active torrents.
      */
     static int apply_max_active_torrents_setting(
-            std::vector<std::shared_ptr<torrent>>& torrents,
-            int num_active, const int max_active);
+            std::vector<std::shared_ptr<torrent>>& torrents, int num_active,
+            const int max_active);
 
     /**
      * Finds `torrent` and the queue within which it resides, which may
@@ -261,17 +261,21 @@ private:
      * to the torrent if and only if `torrent` was found. Otherwise `fn` is not
      * executed.
      */
-    template<typename Function>
+    template <typename Function>
     void find_torrent_and_execute(const torrent_handle& torrent, Function fn);
 
     static void move_torrent_to_position(
-            std::vector<std::shared_ptr<torrent>>& torrents,
-            int curr_pos, const int pos);
+            std::vector<std::shared_ptr<torrent>>& torrents, int curr_pos, const int pos);
 };
 
-inline bool engine::is_listening() const noexcept { return false; } // for now
+inline bool engine::is_listening() const noexcept
+{
+    return false;
+} // for now
 inline uint16_t engine::listener_port() const noexcept
-{ return settings_.listener_port; }
+{
+    return settings_.listener_port;
+}
 
 } // tide
 

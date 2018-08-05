@@ -1,12 +1,12 @@
 #ifndef TIDE_TORRENT_ARGS_HEADER
 #define TIDE_TORRENT_ARGS_HEADER
 
+#include "bdecode.hpp"
 #include "file_info.hpp"
 #include "metainfo.hpp"
-#include "settings.hpp"
-#include "bdecode.hpp"
-#include "types.hpp"
 #include "path.hpp"
+#include "settings.hpp"
+#include "types.hpp"
 
 #include <string>
 #include <vector>

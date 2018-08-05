@@ -6,8 +6,7 @@
 namespace tide {
 
 torrent_handle::torrent_handle(std::weak_ptr<torrent> t)
-    : torrent_(std::move(t))
-    , ios_(&torrent_.lock()->ios_)
+    : torrent_(std::move(t)), ios_(&torrent_.lock()->ios_)
 {}
 
 void torrent_handle::pause()
@@ -22,14 +21,14 @@ void torrent_handle::resume()
 
 void torrent_handle::prioritize_file(const int file_index)
 {
-    thread_safe_execution([this, file_index](torrent& t)
-        { t.prioritize_file(file_index); });
+    thread_safe_execution(
+            [this, file_index](torrent& t) { t.prioritize_file(file_index); });
 }
 
 void torrent_handle::deprioritize_file(const int file_index)
 {
-    thread_safe_execution([this, file_index](torrent& t)
-        { t.deprioritize_file(file_index); });
+    thread_safe_execution(
+            [this, file_index](torrent& t) { t.deprioritize_file(file_index); });
 }
 
 void torrent_handle::prioritize_piece(const piece_index_t piece)
@@ -72,12 +71,11 @@ void torrent_handle::set_max_connections(const int n)
     thread_safe_execution([this, n](torrent& t) { t.set_max_connections(n); });
 }
 
-template<typename Function>
+template <typename Function>
 void torrent_handle::thread_safe_execution(Function function)
 {
     std::shared_ptr<torrent> t = torrent_.lock();
-    if(t)
-    {
+    if(t) {
         t->ios_.post([function = std::move(function), t = t] { function(*t); });
     }
 }
@@ -85,29 +83,24 @@ void torrent_handle::thread_safe_execution(Function function)
 torrent_info torrent_handle::info() const
 {
     auto t = torrent_.lock();
-    if(t)
-    {
+    if(t) {
         std::unique_lock<std::mutex> _(t->ts_info_mutex_);
         return t->ts_info_;
-    }
-    else
-    {
+    } else {
         return {};
     }
 }
 
-#define TRY_RETURN_INFO_FIELD(field) do { \
-    auto t = torrent_.lock(); \
-    if(t) \
-    { \
-        std::unique_lock<std::mutex> _(t->ts_info_mutex_); \
-        return t->ts_info_.field; \
-    } \
-    else \
-    { \
-        return {}; \
-    } \
-} while(0)
+#define TRY_RETURN_INFO_FIELD(field)                                                     \
+    do {                                                                                 \
+        auto t = torrent_.lock();                                                        \
+        if(t) {                                                                          \
+            std::unique_lock<std::mutex> _(t->ts_info_mutex_);                           \
+            return t->ts_info_.field;                                                    \
+        } else {                                                                         \
+            return {};                                                                   \
+        }                                                                                \
+    } while(0)
 
 int torrent_handle::max_upload_slots() const noexcept
 {
@@ -152,13 +145,10 @@ seconds torrent_handle::total_leech_time() const noexcept
 seconds torrent_handle::total_active_time() const noexcept
 {
     auto t = torrent_.lock();
-    if(t)
-    {
+    if(t) {
         std::unique_lock<std::mutex> _(t->ts_info_mutex_);
         return t->ts_info_.total_seed_time + t->ts_info_.total_leech_time;
-    }
-    else
-    {
+    } else {
         return seconds{0};
     }
 }
@@ -182,13 +172,10 @@ int torrent_handle::total_peers() const noexcept
 int torrent_handle::num_connected_peers() const noexcept
 {
     auto t = torrent_.lock();
-    if(t)
-    {
+    if(t) {
         std::unique_lock<std::mutex> _(t->ts_info_mutex_);
         return t->ts_info_.num_seeders + t->ts_info_.num_leechers;
-    }
-    else
-    {
+    } else {
         return 0;
     }
 }

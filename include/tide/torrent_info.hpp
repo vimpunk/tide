@@ -4,9 +4,9 @@
 #include "file_info.hpp"
 #include "flag_set.hpp"
 #include "settings.hpp"
-#include "types.hpp"
 #include "stats.hpp"
 #include "time.hpp"
+#include "types.hpp"
 
 #include <vector>
 
@@ -72,8 +72,8 @@ struct torrent_info : public stats
     // to enter end-game mode. Note that some blocks may be requested by multiple peers,
     // so if this value reaches num_blocks, it may not mean that we have requested all
     // blocks in torrent, but it's a close enough approximation.
-    // TODO or, we could enter end game when the number of pending pieces + num_downloaded_pieces
-    // equals num_pieces, which would be another rough approximation
+    // TODO or, we could enter end game when the number of pending pieces +
+    // num_downloaded_pieces equals num_pieces, which would be another rough approximation
     int num_pending_blocks = 0;
 
     int num_seeders = 0;
@@ -103,7 +103,8 @@ struct torrent_info : public stats
 
     enum state : uint8_t
     {
-        // If this state is not set, no other state other than `stopping` may be set. TODO guarantee
+        // If this state is not set, no other state other than `stopping` may be set. TODO
+        // guarantee
         active,
         // This state is set when torrent is gracefully stopped (i.e. it waits for all
         // its peer sessions to stop gracefully as well).
