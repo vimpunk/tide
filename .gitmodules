@@ -1,3 +1,6 @@
 [submodule "lib/mio"]
 	path = lib/mio
 	url = https://github.com/mandreyel/mio
+[submodule "lib/endian"]
+	path = lib/endian
+	url = https://github.com/mandreyel/endian.git

@@ -80,9 +80,11 @@ target_include_directories(tide PUBLIC
     $<INSTALL_INTERFACE:include>
     )
 
-# Include mio (memory mapping) and own fork of beast (http).
-# TODO turn this into a find_package command
+# Include external libs.
+#
+# TODO turn these into a find_package command
 target_include_directories(tide PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib/mio/include)
+target_include_directories(tide PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib/endian/include)
 target_include_directories(tide PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib/beast-standalone/include)
 
 # Find appropriate threading library.

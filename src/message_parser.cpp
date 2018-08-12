@@ -176,7 +176,7 @@ inline bool message_parser::has(const int n) const noexcept
 inline int message_parser::view_message_length() const noexcept
 {
     assert(has(4));
-    return endian::parse<int>(&buffer_[message_begin_]);
+    return endian::read_network<int>(&buffer_[message_begin_]);
 }
 
 void message_parser::optimize_receive_space()

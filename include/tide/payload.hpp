@@ -103,7 +103,7 @@ private:
     {
         const auto pos = data.size();
         data.resize(data.size() + sizeof(Int));
-        endian::write<Int>(x, &data[pos]);
+        endian::write_network<Int>(&data[pos], x);
     }
 };
 
@@ -195,7 +195,7 @@ private:
     constexpr void add_integer(const Int x)
     {
         assert(pos_ + sizeof(Int) <= N && "fixed_payload overflow");
-        endian::write<Int>(x, &data[pos_]);
+        endian::write_network<Int>(&data[pos_], x);
         pos_ += sizeof(Int);
     }
 };

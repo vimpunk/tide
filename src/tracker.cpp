@@ -23,8 +23,8 @@ std::vector<tcp::endpoint> parse_peers(string_view peers_string)
     for(auto i = 0, offset = 0; i < num_peers; ++i, offset += 6) {
         // Endpoints are encoded as a 32 bit integer for the IP address and a
         // 16 bit integer for the port.
-        address_v4 ip(endian::parse<uint32_t>(&peers_string[offset]));
-        const uint16_t port = endian::parse<uint16_t>(&peers_string[offset] + 4);
+        address_v4 ip(endian::read_network<uint32_t>(&peers_string[offset]));
+        const uint16_t port = endian::read_network<uint16_t>(&peers_string[offset] + 4);
         peers.emplace_back(std::move(ip), port);
     }
     return peers;
@@ -631,7 +631,7 @@ inline void udp_tracker::handle_connect_response(
 
     state_ = state::connected;
     last_connect_time_ = cached_clock::now();
-    connection_id_ = endian::parse<int64_t>(receive_buffer_->data() + 8);
+    connection_id_ = endian::read_network<int64_t>(receive_buffer_->data() + 8);
     log(log_event::incoming, "received CONNECT (trans_id: %i, conn.id: %i)",
             request.transaction_id, connection_id_);
     // Continue requests that were stalled because we were connecting.
@@ -746,9 +746,9 @@ inline void udp_tracker::handle_announce_response(
     // Skip the 4 byte action and 4 byte transaction_id fields.
     const char* buffer = receive_buffer_->data() + 8;
     tracker_response response;
-    response.interval = seconds(endian::parse<int32_t>(buffer));
-    response.num_leechers = endian::parse<int32_t>(buffer += 4);
-    response.num_seeders = endian::parse<int32_t>(buffer += 4);
+    response.interval = seconds(endian::read_network<int32_t>(buffer));
+    response.num_leechers = endian::read_network<int32_t>(buffer += 4);
+    response.num_seeders = endian::read_network<int32_t>(buffer += 4);
     buffer += 4;
     // TODO branch here depending on ipv4 or ipv6 request (but currently ipv6
     // isn't sup.)
@@ -877,8 +877,8 @@ inline void udp_tracker::on_message_received(
 
     assert(receive_buffer_);
     const char* buffer = receive_buffer_->data();
-    const int32_t action = endian::parse<int32_t>(buffer);
-    const int32_t transaction_id = endian::parse<int32_t>(buffer + 4);
+    const int32_t action = endian::read_network<int32_t>(buffer);
+    const int32_t transaction_id = endian::read_network<int32_t>(buffer + 4);
     if((action < action::connect) || (action > action::error)) {
         had_protocol_error_ = true;
         on_global_error(make_error_code(tracker_errc::invalid_response));

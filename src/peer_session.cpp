@@ -1000,7 +1000,7 @@ void peer_session::handle_handshake()
         // The connection was initiated by peer, we still need to send our handshake.
         send_handshake();
     }
-    info_.extensions.assign(endian::parse<uint64_t>(handshake.reserved.cbegin()));
+    info_.extensions.assign(endian::read_network<uint64_t>(handshake.reserved.cbegin()));
     std::copy(
             handshake.peer_id.cbegin(), handshake.peer_id.cend(), info_.peer_id.begin());
     try_identify_client();
@@ -1166,7 +1166,7 @@ inline void peer_session::handle_have()
         return;
     }
 
-    const piece_index_t piece = endian::parse<int32_t>(msg.data.begin());
+    const piece_index_t piece = endian::read_network<int32_t>(msg.data.begin());
 
     log(log_event::incoming, "HAVE %i", piece);
 
@@ -1528,7 +1528,7 @@ inline void peer_session::handle_suggest_piece()
         return;
     }
 
-    const piece_index_t piece = endian::parse<int32_t>(msg.data.begin());
+    const piece_index_t piece = endian::read_network<int32_t>(msg.data.begin());
 
     log(log_event::incoming, "SUGGEST PIECE %i", piece);
 
@@ -1672,7 +1672,7 @@ inline void peer_session::handle_allowed_fast()
         return;
     }
 
-    const piece_index_t piece = endian::parse<int32_t>(msg.data.begin());
+    const piece_index_t piece = endian::read_network<int32_t>(msg.data.begin());
 
     log(log_event::incoming, "ALLOWED FAST %i", piece);
 
@@ -2727,13 +2727,13 @@ void peer_session::generate_allowed_fast_set()
     std::string x(24, 0);
     const address& ip = remote_endpoint().address();
     // TODO branch on ipv4/ipv6.
-    endian::write<uint32_t>(0xff'ff'ff'00 & ip.to_v4().to_ulong(), &x[0]);
+    endian::write_network<uint32_t>(&x[0], 0xff'ff'ff'00 & ip.to_v4().to_ulong());
     std::copy(info_hash.begin(), info_hash.end(), x.begin() + 4);
     while(outgoing_allowed_set_.size() < n) {
         const sha1_hash hash = create_sha1_digest(x);
         x.assign(hash.begin(), hash.end());
         for(auto i = 0; (i < 5) && (outgoing_allowed_set_.size() < n); ++i) {
-            const uint32_t index = endian::parse<uint32_t>(x.data() + (4 * i))
+            const uint32_t index = endian::read_network<uint32_t>(x.data() + (4 * i))
                     % torrent_info.num_pieces;
             if(outgoing_allowed_set_.end()
                     == std::find(outgoing_allowed_set_.begin(),
@@ -3036,12 +3036,12 @@ block_info parse_block_info(const Bytes& data)
 
     auto it = data.cbegin();
     const auto end = data.cend();
-    const auto index = endian::parse<piece_index_t>(it);
-    const auto offset = endian::parse<int>(it += 4);
+    const auto index = endian::read_network<piece_index_t>(it);
+    const auto offset = endian::read_network<int>(it += 4);
 
     if(data.size() == 3 * 4) {
         // It's a request/cancel message with fixed message length.
-        return block_info(index, offset, endian::parse<int32_t>(it += 4));
+        return block_info(index, offset, endian::read_network<int32_t>(it += 4));
     } else {
         // It's a block message, we get the block's length by subtracting the index and
         // offset fields' added length from the total message length.
