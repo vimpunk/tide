@@ -101,7 +101,7 @@ std::string make_log_path(const String& name)
 # define TIDE_PRIORITY_CHAR(p) \
     char(p == priority::low ? 'l' : p == priority::normal ? 'n' : 'h')
 # define TIDE_LOG(priority, stream, header, log) \
-    stream << '[' << TIDE_PRIORITY_CHAR(priority) << '|' << header << "] " << log << '\n';
+    stream << '[' << TIDE_PRIORITY_CHAR(priority) << '|' << header << "] " << log << std::endl;
 # ifdef TIDE_ENABLE_STREAM_DEBUGGING
 #  define TIDE_STREAM std::clog
 #  define TIDE_CLOG(priority, file, header, log)        \
