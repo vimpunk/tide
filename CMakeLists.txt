@@ -85,7 +85,7 @@ target_include_directories(tide PUBLIC
 # TODO turn these into a find_package command
 target_include_directories(tide PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib/mio/include)
 target_include_directories(tide PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib/endian/include)
-target_include_directories(tide PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib/beast-standalone/include)
+target_include_directories(tide PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib/beast-asio-standalone/include)
 
 # Find appropriate threading library.
 set(THREADS_PREFER_PTHREAD_FLAG ON)
@@ -109,5 +109,5 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/tide DESTINATION include)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/tide.hpp DESTINATION include)
 # Install mio header files.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib/mio/include/mio DESTINATION include)
-# Install beast-standalone header files.
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib/beast-standalone/include/beast DESTINATION include)
+# Install beast-asio-standalone header files.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib/beast-asio-standalone/include/beast DESTINATION include)

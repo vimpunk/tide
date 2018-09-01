@@ -4,3 +4,6 @@
 [submodule "lib/endian"]
 	path = lib/endian
 	url = https://github.com/mandreyel/endian.git
+[submodule "lib/beast-asio-standalone"]
+	path = lib/beast-asio-standalone
+	url = https://github.com/mandreyel/beast-asio-standalone.git
