@@ -11,7 +11,7 @@
 // TODO
 // TODO currently only linux is supported
 
-file::size_typepread(handle_type file_handle, void* buffer, const file::size_type count,
+file::size_type pread(handle_type file_handle, void* buffer, const file::size_type count,
         const int64_t file_offset)
 {}
 
